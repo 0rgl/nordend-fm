@@ -14,6 +14,7 @@
 
 #include <doctest/doctest.h>
 
+#include "nordend/core/config.hpp"
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/directory_watcher.hpp"
@@ -276,6 +277,83 @@ TEST_CASE("context menu: the items for one entry, several, empty space; paste on
                                          "open_terminal", "copy_path", "sort"});
     REQUIRE(f.settle());  // the templates looked for: none
     CHECK(ids(f.menu().items()[1].children) == Names{"empty_file"});
+}
+
+TEST_CASE("context menu: config.toml's actions where they fit, grouped, run on the selection") {
+    Fixture f;
+    using Action = nordend::core::Config::Action;
+    const auto action = [](std::string name, std::vector<std::string> patterns) {
+        Action made;
+        made.name = std::move(name);
+        made.exec = {"tool"};
+        made.patterns = std::move(patterns);
+        return made;
+    };
+    Action text = action("Edit Text", {"*.TXT"});
+    Action raw = action("Develop", {"*.orf"});
+    Action zip = action("Add to ZIP", {});
+    zip.submenu = "Archive";
+    zip.folders = true;
+    Action seven = action("Add to 7Z", {});
+    seven.submenu = "Archive";
+    seven.folders = true;
+    Action here = action("Shell Here", {"nothing"});
+    here.background = true;
+    std::vector<std::pair<std::string, Names>> ran;
+    std::vector<fs::path> where;
+    f.browser.set_actions(
+        {text, zip, raw, seven, here},
+        [&](const Action& chosen, const std::vector<fs::path>& files, const fs::path& directory) {
+            Names names;
+            for (const fs::path& file : files) {
+                names.push_back(file.filename().string());
+            }
+            ran.emplace_back(chosen.name, names);
+            where.push_back(directory);
+        });
+
+    // Two text files: their action and the group, after a line, before Copy.
+    f.select({"a.txt", "b.txt"});
+    f.browser.open_menu(100, 100, false);
+    CHECK(ids(f.menu().items()) == Names{"open", "open_with", "action:0", "actions:Archive", "copy",
+                                         "cut", "-paste", "-rename", "trash", "erase", "sort"});
+    CHECK(f.menu().items()[2].separator);
+    CHECK(f.menu().items()[2].label == "Edit Text");
+    const MenuItem& group = f.menu().items()[3];
+    CHECK(group.submenu);
+    CHECK(group.label == "Archive");
+    CHECK(ids(group.children) == Names{"action:1", "action:3"});
+    f.choose("action:0");
+    REQUIRE(ran.size() == 1);
+    CHECK(ran[0] == std::pair<std::string, Names>{"Edit Text", {"a.txt", "b.txt"}});
+    CHECK(where[0] == f.photos);
+
+    // A mixed selection: only what fits every entry. A folder: the group alone.
+    f.select({"a.txt", "P1.ORF"});
+    f.browser.open_menu(100, 100, false);
+    CHECK(ids(f.menu().items())[2] == "actions:Archive");
+    f.menu().close();
+    f.select({"sub"});
+    f.browser.open_menu(100, 100, false);
+    CHECK(std::ranges::count(ids(f.menu().items()), "actions:Archive") == 1);
+    CHECK(std::ranges::count(ids(f.menu().items()), "action:0") == 0);
+    f.menu().close();
+
+    // The empty space: the background ones, run on the folder shown.
+    f.select({});
+    CHECK(f.press(key(XKB_KEY_Menu)));
+    CHECK(ids(f.menu().items()) == Names{"new_folder", "new_file", "-paste", "add_bookmark",
+                                         "open_terminal", "copy_path", "action:4", "sort"});
+    f.choose("action:4");
+    REQUIRE(ran.size() == 2);
+    CHECK(ran[1] == std::pair<std::string, Names>{"Shell Here", {"photos"}});
+
+    // Taken away (config.toml changed): the menu is as before.
+    f.browser.set_actions({}, nullptr);
+    f.select({"a.txt"});
+    f.browser.open_menu(100, 100, false);
+    CHECK(ids(f.menu().items()) ==
+          Names{"open", "open_with", "copy", "cut", "-paste", "rename", "trash", "erase", "sort"});
 }
 
 TEST_CASE("context menu: Sort By sorts every view, and the folders they open later") {

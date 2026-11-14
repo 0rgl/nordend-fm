@@ -35,6 +35,7 @@ void check_defaults(const Config& config) {
     CHECK(config.icon.follow_accent == defaults.icon.follow_accent);
     CHECK(config.terminal.program.empty());
     CHECK(config.terminal.args.empty());
+    CHECK(config.actions.empty());
 }
 
 bool contains(const std::string& text, std::string_view part) {
@@ -324,4 +325,90 @@ TEST_CASE("terminal: a program and a list of strings, else nothing changes") {
         CHECK(result.config.terminal.program.empty());
         CHECK(result.config.terminal.args.empty());
     }
+}
+
+TEST_CASE("actions: every key, the defaults, a line or a list, in the file's order") {
+    const auto result = parse(R"(
+[[action]]
+name = "Extract Here"
+patterns = ["*.zip", "*.tar.gz"]
+exec = "peazip -ext2here %F"
+
+[[action]]
+name = "Add to ZIP"
+submenu = "PeaZip"
+kinds = ["file", "folder"]
+mime = ["image/jpeg"]
+min = 2
+max = 9
+background = true
+terminal = true
+exec = ["sh", "-c", 'echo "$@" %f', "sh", "%F"]
+)");
+    CHECK(result.problems.empty());
+    REQUIRE(result.config.actions.size() == 2);
+    const Config::Action& extract = result.config.actions[0];
+    CHECK(extract.name == "Extract Here");
+    CHECK(extract.exec == std::vector<std::string>{"peazip", "-ext2here", "%F"});
+    CHECK_FALSE(extract.exec_words);
+    CHECK(extract.patterns == std::vector<std::string>{"*.zip", "*.tar.gz"});
+    CHECK(extract.files);
+    CHECK_FALSE(extract.folders);
+    CHECK(extract.mime.empty());
+    CHECK(extract.min == 1);
+    CHECK(extract.max == 0);
+    CHECK_FALSE(extract.background);
+    CHECK(extract.submenu.empty());
+    CHECK_FALSE(extract.terminal);
+    const Config::Action& zip = result.config.actions[1];
+    CHECK(zip.exec == std::vector<std::string>{"sh", "-c", "echo \"$@\" %f", "sh", "%F"});
+    CHECK(zip.exec_words);  // %f inside the script's text is text
+    CHECK(zip.files);
+    CHECK(zip.folders);
+    CHECK(zip.mime == std::vector<std::string>{"image/jpeg"});
+    CHECK(zip.min == 2);
+    CHECK(zip.max == 9);
+    CHECK(zip.background);
+    CHECK(zip.submenu == "PeaZip");
+    CHECK(zip.terminal);
+}
+
+TEST_CASE("actions: a broken one is left out and said so, the others load") {
+    const std::vector<std::pair<std::string, std::string>> broken{
+        {"exec = \"tool %F\"", "'action[2]' needs a name"},
+        {"name = \"X\"", "'action[2]' needs an exec"},
+        {"name = \"X\"\nexec = \"tool \\\"open\"", "cannot be split"},
+        {"name = \"X\"\nexec = \"   \"", "cannot be split"},
+        {"name = \"X\"\nexec = \"tool %i %F\"", "unknown field code '%i'"},
+        {"name = \"X\"\nexec = \"tool 50%\"", "unknown field code '%'"},
+        {"name = \"X\"\nexec = \"tool %F %f\"", "both as a list"},
+        {"name = \"X\"\nexec = [\"tool\", \"%k\"]", "unknown field code '%k'"},
+        {"name = \"X\"\nexec = [\"tool\", \"%F\", \"%u\"]", "both as a list"},
+        {"name = \"X\"\nexec = []", "must start with a program"},
+        {"name = \"X\"\nexec = [\"tool\", 3]", "must be a list of strings"},
+        {"name = \"X\"\nexec = 3", "must be a string or a list of strings"},
+        {"name = \"X\"\nexec = \"t\"\nkinds = []", R"(must name "file", "folder" or both)"},
+        {"name = \"X\"\nexec = \"t\"\nkinds = [\"link\"]", "got \"link\""},
+        {"name = \"X\"\nexec = \"t\"\nmime = [\"image/*\"]", "wildcards"},
+        {"name = \"X\"\nexec = \"t\"\nmime = [\"png\"]", "is not a type"},
+        {"name = \"X\"\nexec = \"t\"\nmin = 0", "must be between 1"},
+        {"name = \"X\"\nexec = \"t\"\nmin = 3\nmax = 2", "max (2) is less than min (3)"},
+        {"name = \"X\"\nexec = \"t\"\npattern = [\"*.zip\"]", "unknown key 'action[2].pattern'"},
+        {"name = \"\"\nexec = \"t\"", "must not be empty"},
+    };
+    for (const auto& [body, said] : broken) {
+        CAPTURE(body);
+        const auto result = parse("[[action]]\nname = \"A\"\nexec = \"a\"\n\n[[action]]\n" + body +
+                                  "\n\n[[action]]\nname = \"C\"\nexec = \"c\"\n");
+        REQUIRE(result.config.actions.size() == 2);
+        CHECK(result.config.actions[0].name == "A");
+        CHECK(result.config.actions[1].name == "C");
+        REQUIRE(result.problems.size() >= 2);
+        CHECK(contains(result.problems.front(), said));
+        CHECK(contains(result.problems.back(), "'action[2]'"));
+        CHECK(contains(result.problems.back(), "is left out"));
+    }
+    const auto plain = parse("action = \"x\"\n");
+    REQUIRE(plain.problems.size() == 1);
+    CHECK(contains(plain.problems[0], "'action' must be a list of tables ([[action]])"));
 }

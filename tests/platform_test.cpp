@@ -13,6 +13,7 @@
 
 #include <doctest/doctest.h>
 
+#include "nordend/core/config.hpp"
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/entry.hpp"
@@ -194,6 +195,42 @@ TEST_CASE("exec: field codes, one process for a list, one per file otherwise") {
     no_icon.icon.clear();
     CHECK(platform::expand_exec(no_icon, std::span{files}.first(1)) == Lines{{"app", "/d/a.jpg"}});
     CHECK(platform::expand_exec(entry_with("app \"broken"), files).empty());
+}
+
+TEST_CASE("exec: an action's command: Exec rules from a line, whole-word codes from a list") {
+    const std::vector<fs::path> files{"/d/a.zip", "/d/b c.zip"};
+    const fs::path shown{"/d"};
+    const auto action = [](std::vector<std::string> exec, bool words = false) {
+        nordend::core::Config::Action made;
+        made.name = "Act";
+        made.exec = std::move(exec);
+        made.exec_words = words;
+        return made;
+    };
+    // As a line (split by config.toml): codes anywhere in a word, as Exec has them.
+    CHECK(platform::expand_action(action({"peazip", "-ext2here", "%F"}), files, shown) ==
+          Lines{{"peazip", "-ext2here", "/d/a.zip", "/d/b c.zip"}});
+    CHECK(platform::expand_action(action({"unzip", "-d", "%d/out", "%f"}), files, shown) ==
+          Lines{{"unzip", "-d", "/d/out", "/d/a.zip"}, {"unzip", "-d", "/d/out", "/d/b c.zip"}});
+    CHECK(platform::expand_action(action({"send", "%U"}), files, shown) ==
+          Lines{{"send", "file:///d/a.zip", "file:///d/b%20c.zip"}});
+    CHECK(platform::expand_action(action({"tool", "100%%", "%d"}), files, shown) ==
+          Lines{{"tool", "100%", "/d", "/d/a.zip"}, {"tool", "100%", "/d", "/d/b c.zip"}});
+    // No file code: the files appended, one process each.
+    CHECK(platform::expand_action(action({"tool"}), files, shown) ==
+          Lines{{"tool", "/d/a.zip"}, {"tool", "/d/b c.zip"}});
+    // As a list: a code only as a whole word; a script's text stays as written, the paths go
+    // after it as arguments, so a name never becomes shell code.
+    CHECK(platform::expand_action(
+              action({"sh", "-c", R"(printf '%s\n' "$@" # %F %d)", "sh", "%F"}, true), files,
+              shown) ==
+          Lines{{"sh", "-c", R"(printf '%s\n' "$@" # %F %d)", "sh", "/d/a.zip", "/d/b c.zip"}});
+    CHECK(platform::expand_action(action({"tool", "--in=%d", "%d"}, true), files, shown) ==
+          Lines{{"tool", "--in=%d", "/d", "/d/a.zip"}, {"tool", "--in=%d", "/d", "/d/b c.zip"}});
+    // On the folder's empty space: the folder is the one file.
+    CHECK(platform::expand_action(action({"tool", "%F"}), std::vector<fs::path>{shown}, shown) ==
+          Lines{{"tool", "/d"}});
+    CHECK(platform::expand_action(action({}), files, shown).empty());
 }
 
 TEST_CASE("exec: the terminal: $TERMINAL, then xdg-terminal-exec, then the known ones") {
@@ -589,4 +626,60 @@ TEST_CASE("applications: every one for a type, in GLib's order, the default firs
     CHECK(plan.files == 2);
     CHECK(platform::plan_open(files, apps, *sys.mime, sys.environment, "nope.desktop").problems ==
           std::vector<std::string>{"nope.desktop is not installed"});
+}
+
+TEST_CASE("opener: an action runs in the folder shown, in a terminal when asked, and reports") {
+    System sys;
+    const fs::path log = sys.dir.path / "args";
+    sys.program("tool", R"({ pwd; for a in "$@"; do echo "$a"; done; } > )" + log.string() + "\n");
+    sys.program("broken", "exit 2\n");
+    fs::create_directories(sys.dir.path / "photos");
+    const fs::path photos = sys.dir.path / "photos";
+
+    EventLoop loop;
+    WorkerPool pool{loop, 2};
+    std::vector<std::pair<std::string, bool>> reports;
+    Opener opener{
+        loop, pool, sys.mime, sys.environment,
+        [&](const std::string& message, bool error) { reports.emplace_back(message, error); }};
+    nordend::core::Config::Action action;
+    action.name = "Extract Here";
+    action.exec = {"tool", "-x", "%F"};
+    opener.run_action(action, {photos / "a.zip", photos / "b c.zip"}, photos);
+    REQUIRE(run_until(loop, [&] { return opener.launcher().running() == 0 && fs::exists(log); }));
+    REQUIRE(reports.size() == 1);
+    CHECK(reports[0] == std::pair<std::string, bool>{"Extract Here: 2 items…", false});
+    CHECK(read_file(log) == photos.string() + "\n-x\n" + photos.string() + "/a.zip\n" +
+                                photos.string() + "/b c.zip\n");
+
+    // A program that is not there, or that fails at once, is said.
+    reports.clear();
+    action.exec = {"nordend-no-such-tool", "%F"};
+    opener.run_action(action, {photos / "a.zip"}, photos);
+    REQUIRE(reports.size() == 1);
+    CHECK(reports[0] ==
+          std::pair<std::string, bool>{"Extract Here: nordend-no-such-tool was not found", true});
+    reports.clear();
+    action.exec = {"broken", "%F"};
+    opener.run_action(action, {photos / "a.zip"}, photos);
+    REQUIRE(run_until(loop, [&] { return reports.size() == 2; }));
+    CHECK(reports[0] == std::pair<std::string, bool>{"Extract Here: a.zip…", false});
+    CHECK(reports[1] ==
+          std::pair<std::string, bool>{"Extract Here quit at once with status 2", true});
+
+    // In a terminal: none in this PATH, said; then foot runs the command.
+    reports.clear();
+    action.exec = {"tool", "%F"};
+    action.terminal = true;
+    opener.run_action(action, {photos / "a.zip"}, photos);
+    REQUIRE(reports.size() == 1);
+    CHECK(reports[0].second);
+    CHECK(reports[0].first.starts_with("No terminal to run Extract Here in"));
+    fs::remove(log);
+    sys.program("foot", R"({ pwd; for a in "$@"; do echo "$a"; done; } > )" + log.string() + "\n");
+    reports.clear();
+    opener.run_action(action, {photos / "a.zip"}, photos);
+    REQUIRE(run_until(loop, [&] { return opener.launcher().running() == 0 && fs::exists(log); }));
+    CHECK(read_file(log) == photos.string() + "\n--\n" + (sys.dir.path / "bin" / "tool").string() +
+                                "\n" + photos.string() + "/a.zip\n");
 }

@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "nordend/core/config.hpp"
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/entry.hpp"
@@ -94,6 +95,12 @@ public:
     // foot…", or "No terminal found: set $TERMINAL".
     void open_terminal(const std::filesystem::path& directory);
 
+    // Runs a config.toml action on files (absolute paths) in directory, the folder shown: its
+    // command lines started as applications are (activation token, a quick failing exit
+    // reported), in the terminal when the action asks; "Extract Here: photos.zip…", or why not.
+    void run_action(const core::Config::Action& action, std::vector<std::filesystem::path> files,
+                    const std::filesystem::path& directory);
+
     // config.toml's [terminal] changed: Environment::configured_terminal from now on.
     void set_terminal(std::vector<std::string> configured);
 
@@ -113,6 +120,7 @@ public:
 
 private:
     void start(OpenPlan plan);
+    void launch(std::vector<OpenPlan::Launch> launches);
     void start_one(const OpenPlan::Launch& launch, const std::string& token);
 
     core::WorkerPool& pool_;

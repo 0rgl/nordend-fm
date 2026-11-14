@@ -4,6 +4,46 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-14 — Actions of your own in the context menu (0.7.5, issue #14)
+
+**Done**
+- `[[action]]` in `config.toml` (0rgl's issue #14, Thunar's custom actions): `name`, `exec`,
+  `kinds`, `patterns`, `mime`, `min`, `max`, `background`, `submenu`, `terminal`. Shown after
+  Open With when every selected entry fits (a mixed selection never sends a command files it was
+  not meant for); those of one submenu grouped where the first is; on the empty space the ones
+  with `background`, run on the folder shown. Never in the trash or the file chooser. Followed
+  live.
+- `exec` as a line: the Exec quoting (`core::split_command_line`, moved from
+  `platform::split_exec`, which calls it) and codes `%f %F %u %U %d %%`; as a list: the words as
+  written, a code only as a whole word, so a `sh -c` script's text never receives a path. No
+  shell of Nordend's own. `platform::expand_action` shares `expand_exec`'s expansion
+  (`expand_words`), with `%d` the folder shown.
+- `views::action_fits`: kinds, how many, then patterns (`fnmatch` with `FNM_CASEFOLD`, the whole
+  name: `*.tar.gz` is not `*.gz`; hidden names too) or types (`MimeDatabase::is_a`); in `views`,
+  which does not link `platform`.
+- `Opener::run_action`: the program from the same PATH as applications, in the terminal when
+  asked, started as applications are (activation token, a failing exit within 2 s reported);
+  "Extract Here: photos.zip…" in the status bar.
+- The config: an action with any problem (a key misspelt included: a filter lost would offer
+  the command for everything) is left out, said after its problems; `--check-config` reports
+  them. `nordend-snapshot --actions CONFIG`.
+- Tests: the keys and every problem, `expand_action`, `action_fits`, the menu (ids, groups,
+  separators, mixed selections, the empty space, taken away), `run_action` with scripts
+  (arguments, folder, missing program, quick failure, terminal).
+
+**Decisions**
+- First version without `mime` wildcards, Ctrl+K entries, keyboard shortcuts and icons (our menu
+  has none: `icon` is an unknown key), as agreed on #14.
+- The menu uses the types known when it opens (the name's, or a sniffed one): an extension-less
+  file not sniffed yet does not fit a `mime` filter on the first click; patterns always work.
+
+**Tested by the author** (Umbriel): Extract Here on a `.tar.gz` (GNU tar), a Tools submenu,
+Copy Paths through `wl-copy` with a file and a folder selected, Read It in foot, Folder Size on
+the empty space, Broken reported in the status bar, nothing in the trash; a misspelt key reported
+by `--check-config` and the action gone live.
+
+---
+
 ## 2026-11-14 — The text size in config.toml (0.7.5, issue #15)
 
 **Done**

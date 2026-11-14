@@ -2,7 +2,7 @@
 # Every key is optional; the values below are the defaults. A bad value is reported in the log
 # and keeps its default. Check a file without starting Nordend: nordend --check-config
 # Nordend reads the file again when it changes: background opacity, corners, double click, the
-# text size, the icon and the terminal at once, the font families at the next start.
+# text size, the icon, the terminal and the actions at once, the font families at the next start.
 #
 # Colours are not set here: Nordend follows your theme by itself (GTK's colours in
 # ~/.config/gtk-4.0/gtk.css, else the desktop's light or dark style and accent). For exact colours
@@ -54,3 +54,32 @@ follow_accent = true
 # of running a command; any other gets -e. args are its own options, before the command.
 # program = "ghostty"
 # args = []
+
+# Actions: entries of your own in the context menu, each running a program on the selected files.
+# None by default. An action shows only when every selected entry fits it: its kinds ("file",
+# "folder"; files only by default), and its patterns (globs on the whole name, case left aside)
+# or its types (as Open With: "text/plain" takes "text/x-c++src"); neither given: any name.
+# exec is a command line with the quoting and field codes of a desktop file's Exec: %F all the
+# paths in one process, %f one process per path, %U and %u as file:// URIs, %d the folder shown,
+# %% a '%'; with no code, the paths are added at the end. As a list, each word is taken as
+# written and a code counts only as a whole word ("%F"), handy for a shell script: the paths
+# then come as its arguments, never inside its text. Nordend adds no shell of its own.
+# Other keys: min and max (how many entries may be selected; 1 and no limit), submenu (actions
+# with the same one are grouped), background (also on the folder's empty space, run on the
+# folder), terminal (run in the terminal above). An action with a problem is left out, reported.
+#
+# [[action]]
+# name = "Extract Here"
+# patterns = ["*.zip", "*.7z", "*.tar.gz", "*.tar.xz", "*.tar.zst"]
+# exec = "file-roller --extract-here %F"
+#
+# [[action]]
+# name = "Add to 7z"
+# submenu = "Archive"
+# kinds = ["file", "folder"]
+# exec = "7z a Archive.7z %F"
+#
+# [[action]]
+# name = "Copy Paths"
+# kinds = ["file", "folder"]
+# exec = ["sh", "-c", 'printf "%s\n" "$@" | wl-copy', "sh", "%F"]

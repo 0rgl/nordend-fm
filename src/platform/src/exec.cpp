@@ -3,6 +3,7 @@
 #include <array>
 #include <utility>
 
+#include "nordend/core/command_line.hpp"
 #include "nordend/core/log.hpp"
 #include "nordend/thumbs/cache.hpp"
 
@@ -60,69 +61,31 @@ char whole_code(const std::string& arg) { return arg.size() == 2 && arg[0] == '%
 }  // namespace
 
 std::optional<std::vector<std::string>> split_exec(std::string_view exec) {
-    // A subset of shell quoting, as GLib's g_shell_parse_argv reads it: the spec's double quotes,
-    // and also single quotes and backslashes outside quotes, which real desktop files use.
-    std::vector<std::string> args;
-    std::string arg;
-    bool in_arg = false;
-    for (std::size_t i = 0; i < exec.size(); ++i) {
-        const char c = exec[i];
-        if (c == ' ' || c == '\t' || c == '\n') {
-            if (in_arg) {
-                args.push_back(std::move(arg));
-                arg.clear();
-                in_arg = false;
-            }
-            continue;
-        }
-        in_arg = true;
-        if (c == '"') {
-            for (++i;; ++i) {
-                if (i == exec.size()) {
-                    return std::nullopt;  // not closed
-                }
-                if (exec[i] == '"') {
-                    break;
-                }
-                if (exec[i] == '\\' && i + 1 < exec.size() &&
-                    std::string_view{"\"`$\\"}.find(exec[i + 1]) != std::string_view::npos) {
-                    ++i;
-                }
-                arg.push_back(exec[i]);
-            }
-        } else if (c == '\'') {
-            const std::size_t end = exec.find('\'', i + 1);
-            if (end == std::string_view::npos) {
-                return std::nullopt;
-            }
-            arg += exec.substr(i + 1, end - i - 1);
-            i = end;
-        } else if (c == '\\' && i + 1 < exec.size()) {
-            arg.push_back(exec[++i]);
-        } else {
-            arg.push_back(c);
-        }
-    }
-    if (in_arg) {
-        args.push_back(std::move(arg));
-    }
-    if (args.empty()) {
-        return std::nullopt;
-    }
-    return args;
+    return core::split_command_line(exec);
 }
 
-std::vector<std::vector<std::string>> expand_exec(const DesktopEntry& entry,
-                                                  std::span<const std::filesystem::path> files) {
-    const std::optional<std::vector<std::string>> args = split_exec(entry.exec);
-    if (!args) {
-        return {};
-    }
+namespace {
+
+// What the field codes other than the files stand for. directory: %d (a config.toml action);
+// without one, %d is the spec's deprecated code and goes.
+struct Fields {
+    std::string_view name;     // %c
+    std::string_view icon;     // %i
+    std::string desktop_file;  // %k
+    const std::filesystem::path* directory{nullptr};
+};
+
+// The command lines for files: one with a list code (%F %U) or no file code at all (the files
+// appended), one per file with %f or %u. whole_only: a code counts only as a whole word (an
+// action's words written as an array), every other word is taken as it is.
+std::vector<std::vector<std::string>> expand_words(const std::vector<std::string>& args,
+                                                   bool whole_only, const Fields& fields,
+                                                   std::span<const std::filesystem::path> files) {
     bool takes_list = false;
     bool takes_one = false;
-    for (const std::string& arg : *args) {
+    for (const std::string& arg : args) {
         for (std::size_t i = 0; i + 1 < arg.size(); ++i) {
-            if (arg[i] == '%') {
+            if (arg[i] == '%' && (!whole_only || arg.size() == 2)) {
                 const char code = arg[++i];
                 takes_list = takes_list || code == 'F' || code == 'U';
                 takes_one = takes_one || code == 'f' || code == 'u';
@@ -133,8 +96,12 @@ std::vector<std::vector<std::string>> expand_exec(const DesktopEntry& entry,
     // The command line for some files: all of them with a list code, one otherwise.
     const auto expand = [&](std::span<const std::filesystem::path> given) {
         std::vector<std::string> line;
-        for (const std::string& arg : *args) {
+        for (const std::string& arg : args) {
             const char whole = whole_code(arg);
+            if (whole_only && whole == '\0') {
+                line.push_back(arg);
+                continue;
+            }
             if (whole == 'F' || whole == 'U') {
                 for (const std::filesystem::path& file : given) {
                     line.push_back(whole == 'F' ? file.string() : thumbs::file_uri(file));
@@ -142,9 +109,9 @@ std::vector<std::vector<std::string>> expand_exec(const DesktopEntry& entry,
                 continue;
             }
             if (whole == 'i') {
-                if (!entry.icon.empty()) {
+                if (!fields.icon.empty()) {
                     line.emplace_back("--icon");
-                    line.push_back(entry.icon);
+                    line.emplace_back(fields.icon);
                 }
                 continue;
             }
@@ -169,15 +136,20 @@ std::vector<std::vector<std::string>> expand_exec(const DesktopEntry& entry,
                         break;
                     }
                     case 'c':
-                        out += entry.name;
+                        out += fields.name;
                         break;
                     case 'k':
-                        out += entry.file.string();
+                        out += fields.desktop_file;
+                        break;
+                    case 'd':
+                        if (fields.directory != nullptr) {
+                            out += fields.directory->string();
+                        }
                         break;
                     case '%':
                         out.push_back('%');
                         break;
-                    default:  // deprecated (%d %D %n %N %v %m) or unknown: removed
+                    default:  // deprecated (%D %n %N %v %m) or unknown: removed
                         break;
                 }
             }
@@ -202,6 +174,30 @@ std::vector<std::vector<std::string>> expand_exec(const DesktopEntry& entry,
         }
     }
     return lines;
+}
+
+}  // namespace
+
+std::vector<std::vector<std::string>> expand_exec(const DesktopEntry& entry,
+                                                  std::span<const std::filesystem::path> files) {
+    const std::optional<std::vector<std::string>> args = split_exec(entry.exec);
+    if (!args) {
+        return {};
+    }
+    return expand_words(
+        *args, false, {.name = entry.name, .icon = entry.icon, .desktop_file = entry.file.string()},
+        files);
+}
+
+std::vector<std::vector<std::string>> expand_action(const core::Config::Action& action,
+                                                    std::span<const std::filesystem::path> files,
+                                                    const std::filesystem::path& directory) {
+    if (action.exec.empty()) {
+        return {};
+    }
+    return expand_words(action.exec, action.exec_words,
+                        {.name = {}, .icon = {}, .desktop_file = {}, .directory = &directory},
+                        files);
 }
 
 namespace {

@@ -55,11 +55,34 @@ struct Config {
         std::vector<std::string> args;  // its own options, before the command
     };
 
+    // A custom entry of the context menu ([[action]]): a program run on the selected entries,
+    // shown only when every one of them passes the filters. Followed live.
+    struct Action {
+        std::string name;  // the menu's label
+        // The command's words: split from a string by the Exec quoting rules, or the array as
+        // written. Field codes: %f (one path a process), %F (all paths), %u, %U (file:// URIs),
+        // %d (the folder shown), %%. No shell of Nordend's own.
+        std::vector<std::string> exec;
+        bool exec_words{false};  // given as an array: a code expands only as a whole word ("%F")
+        bool files{true};        // kinds: shown for files...
+        bool folders{false};     // ...and for folders
+        // Case-insensitive globs on the whole name ("*.tar.gz"); any name when empty. With mime,
+        // a match on either is enough.
+        std::vector<std::string> patterns;
+        std::vector<std::string> mime;  // types, subtypes included (as Open With)
+        int min{1};                     // how many entries may be selected
+        int max{0};                     // 0: no limit
+        bool background{false};         // also on the folder's empty space, run on the folder
+        std::string submenu;            // actions with the same one are grouped under it
+        bool terminal{false};           // run in the terminal ([terminal], in_terminal)
+    };
+
     Font font;
     Pointer pointer;
     Icon icon;
     Window window;
     Terminal terminal;
+    std::vector<Action> actions;  // in the file's order; a broken one is left out
 };
 
 struct ConfigResult {

@@ -262,6 +262,14 @@ README's [What's next](../README.md#whats-next).
     from `gio mime` on all 1 232 types and aliases), the default one first, and opens every
     selected file with the one chosen (on a folder: the applications for folders, such as an
     editor, and the selected folders);
+  - **actions of your own** (`[[action]]` in `config.toml`, like Thunar's custom actions): a name
+    and a command run on the selected files (Exec's quoting and field codes, `%d` for the folder
+    shown, or a list of words where a code counts only as a whole word), shown after Open With
+    only when every selected entry fits: files and/or folders, globs on the whole name (case left
+    aside) or types with their subtypes, how many may be selected; grouped in submenus; on the
+    empty space too (`background`), in a terminal (`terminal`); started detached in the folder
+    shown, a quick failing exit reported; never in the trash or the file chooser; followed live,
+    a broken action left out and reported by `--check-config` (0rgl's issue #14);
   - New File makes an empty file, or a copy of one of your templates (`XDG_TEMPLATES_DIR`),
     never over an existing file, with the name ready to edit;
   - drawn by Nordend in your theme's colors, it stays whole near the window's edges, and the

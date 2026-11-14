@@ -669,6 +669,17 @@ int main(int argc, char** argv) {
             }
             return line;
         };
+        // config.toml's [[action]] entries in the context menu; never in the file chooser.
+        const auto give_actions = [&](const core::Config& from) {
+            if (!columns || !opener || pick) {
+                return;
+            }
+            columns->set_actions(from.actions, [&](const core::Config::Action& action,
+                                                   std::vector<std::filesystem::path> files,
+                                                   const std::filesystem::path& directory) {
+                opener->run_action(action, std::move(files), directory);
+            });
+        };
         const auto apply_config = [&](const core::Config& fresh) {
             window.set_background_opacity(fresh.window.background_opacity);
             window.set_corner_radius(static_cast<float>(fresh.window.corner_radius));
@@ -680,6 +691,7 @@ int main(int argc, char** argv) {
             if (opener) {
                 opener->set_terminal(configured_terminal(fresh));
             }
+            give_actions(fresh);
         };
         // Writes state.toml as things change; the window's size is the one it has when neither
         // maximized, fullscreen nor tiled, so a maximized window comes back to it.
@@ -761,6 +773,7 @@ int main(int argc, char** argv) {
                 });
             columns->set_terminal_handler(
                 [&](const std::filesystem::path& directory) { opener->open_terminal(directory); });
+            give_actions(config);
             if (!pick) {
                 // This very program as the chooser: `nordend --pick --folders START`, a window of
                 // its own, printing the folder chosen as a file:// URI.

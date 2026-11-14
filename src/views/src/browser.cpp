@@ -1624,6 +1624,19 @@ std::vector<MenuItem> Browser::entry_menu(const std::shared_ptr<Folder>& folder)
         add("add_bookmark", "Add to Sidebar", count == 1 ? keys_for(Command::add_bookmark) : "",
             [this, folders] { add_to_sidebar(folders); });
     }
+    if (run_action_ && !actions_.empty()) {
+        std::vector<ActionTarget> fits;
+        std::vector<std::filesystem::path> paths;
+        for (const fs::Entry& entry : folder->entries()) {
+            if (std::ranges::find(names, entry.name) != names.end()) {
+                fits.push_back({.name = entry.name,
+                                .folder = entry.is_directory(),
+                                .mime = folder->mime_of(entry)});
+                paths.push_back(folder->path() / entry.name);
+            }
+        }
+        add_actions(items, fits, paths, folder->path(), false);
+    }
     add("copy", "Copy", keys_for(Command::copy), [this] { take_selection(false); }, true);
     add("cut", "Cut", keys_for(Command::cut), [this] { take_selection(true); });
     add(
@@ -1725,9 +1738,51 @@ std::vector<MenuItem> Browser::folder_menu() {
         copy_path.keys = keys_for(Command::copy_path);
         copy_path.action = [this] { this->copy_path(); };
         items.push_back(std::move(copy_path));
+        if (run_action_ && !actions_.empty()) {
+            const std::string name = shown->path().filename().string();
+            const std::array<ActionTarget, 1> self{
+                {{.name = name, .folder = true, .mime = fs::MimeDatabase::kDirectory}}};
+            add_actions(items, self, {shown->path()}, shown->path(), true);
+        }
     }
     items.push_back(sort_menu());
     return items;
+}
+
+void Browser::add_actions(std::vector<MenuItem>& items, std::span<const ActionTarget> targets,
+                          const std::vector<std::filesystem::path>& files,
+                          const std::filesystem::path& directory, bool background) {
+    const std::size_t first = items.size();
+    for (std::size_t i = 0; i < actions_.size(); ++i) {
+        const core::Config::Action& action = actions_[i];
+        if (background ? !action.background : !action_fits(action, targets, *mime_)) {
+            continue;
+        }
+        MenuItem item;
+        item.id = std::format("action:{}", i);
+        item.label = action.name;
+        item.action = [this, action, files, directory] { run_action_(action, files, directory); };
+        if (action.submenu.empty()) {
+            items.push_back(std::move(item));
+            continue;
+        }
+        const std::string group = "actions:" + action.submenu;
+        const auto found = std::ranges::find(items.begin() + static_cast<std::ptrdiff_t>(first),
+                                             items.end(), group, &MenuItem::id);
+        if (found != items.end()) {
+            found->children.push_back(std::move(item));
+            continue;
+        }
+        MenuItem sub;
+        sub.id = group;
+        sub.label = action.submenu;
+        sub.submenu = true;
+        sub.children.push_back(std::move(item));
+        items.push_back(std::move(sub));
+    }
+    if (items.size() > first) {
+        items[first].separator = true;
+    }
 }
 
 void Browser::open_menu(float x, float y, bool keyboard) {

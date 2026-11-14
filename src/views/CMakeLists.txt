@@ -8,6 +8,7 @@ if(NORDEND_SANITIZER)
 endif()
 
 add_library(nordend_views
+    src/actions.cpp
     src/breadcrumb.cpp
     src/browser.cpp
     src/browser_palette.cpp

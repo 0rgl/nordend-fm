@@ -29,6 +29,7 @@
 // paste would. --memory prints the memory report (ROADMAP 6.3b) at the end, once the workers'
 // results are in; with --trim, after malloc_trim(0) and the time it took. --default-malloc leaves
 // glibc's mmap threshold as it is (the app sets it: core::give_back_large_blocks), to compare.
+// --actions CONFIG puts the [[action]]s of a config.toml in the context menu (run: logged only).
 // --font-size PX draws the interface as [font] size = PX would (13 = as it is); positions given
 // to --drag, --drop-over and --band are then in the zoomed content's pixels.
 // --csd draws Nordend's own header (the window's buttons in the path row), as where the
@@ -239,7 +240,7 @@ void print_usage(std::FILE* to) {
         "FRAMES] [--message TEXT] [--transfer TEXT] [--conflict NAME] [--drag NAME] "
         "[--drop-over X,Y] [--band X1,Y1,X2,Y2] [--pick FILTERS|folders|save:NAME[,FILTERS]] "
         "[--fake-disks] [--memory [--trim] [--default-malloc]] [--record SCRIPT --frames DIR]] "
-        "[--font-size PX] [--csd STATE] [--desktop LOOK] [--gtk FILE] <out.ppm> "
+        "[--actions CONFIG] [--font-size PX] [--csd STATE] [--desktop LOOK] [--gtk FILE] <out.ppm> "
         "[logical-width logical-height scale [colors.toml]]\n",
         to);
 }
@@ -265,6 +266,7 @@ int main(int argc, char** argv) {
     bool memory = false;
     bool fake_disks = false;
     float font_size = core::Config::Font::kUsualSize;  // --font-size PX: [font] size
+    std::filesystem::path actions_config;              // --actions CONFIG: its [[action]]s
     bool trim = false;
     bool default_malloc = false;
     float info_width = 0.0F;  // the info pane as if dragged to this width
@@ -352,6 +354,8 @@ int main(int argc, char** argv) {
                 log::error("--band takes X1,Y1,X2,Y2");
                 return 2;
             }
+        } else if (option == "--actions") {
+            actions_config = args[2];
         } else if (option == "--font-size") {
             font_size = std::stof(args[2]);
             if (!std::isfinite(font_size) || font_size < 8.0F || font_size > 32.0F) {
@@ -565,6 +569,18 @@ int main(int argc, char** argv) {
                        const std::vector<nordend::fs::Entry>& /*files*/,
                        const std::string& /*app_id*/) {});
                 columns->set_terminal_handler([](const std::filesystem::path& /*directory*/) {});
+                if (!actions_config.empty()) {
+                    const core::ConfigResult read = core::load_config(actions_config);
+                    for (const std::string& problem : read.problems) {
+                        log::warn("{}", problem);
+                    }
+                    columns->set_actions(
+                        read.config.actions, [](const core::Config::Action& action,
+                                                const std::vector<std::filesystem::path>& files,
+                                                const std::filesystem::path& /*directory*/) {
+                            log::info("action \"{}\" on {} file(s)", action.name, files.size());
+                        });
+                }
                 if (!pick.empty()) {
                     views::Browser::Pick options;
                     options.folders = pick == "folders";

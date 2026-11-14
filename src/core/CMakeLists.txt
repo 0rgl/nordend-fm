@@ -1,4 +1,5 @@
 add_library(nordend_core
+    src/command_line.cpp
     src/config.cpp
     src/event_loop.cpp
     src/file.cpp

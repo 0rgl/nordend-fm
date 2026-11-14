@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 
+#include "nordend/core/config.hpp"
 #include "nordend/platform/desktop_entry.hpp"
 
 namespace nordend::platform {
@@ -24,6 +25,14 @@ namespace nordend::platform {
 // code gets the file appended, as GLib does. Empty when Exec cannot be split.
 [[nodiscard]] std::vector<std::vector<std::string>> expand_exec(
     const DesktopEntry& entry, std::span<const std::filesystem::path> files);
+
+// The command lines that run a config.toml action on files (absolute paths), one per process, as
+// expand_exec does, with %d for directory (the folder shown). Words written as an array take a
+// code only as a whole word ("%F"), so a path never lands inside a shell script's text. Empty
+// when the action has no command.
+[[nodiscard]] std::vector<std::vector<std::string>> expand_action(
+    const core::Config::Action& action, std::span<const std::filesystem::path> files,
+    const std::filesystem::path& directory);
 
 // The command line that runs argv in a terminal window, from the first terminal found: the
 // environment's $TERMINAL (with -e, or the form it takes when it is one of the known terminals),

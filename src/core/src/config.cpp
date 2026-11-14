@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "nordend/core/command_line.hpp"
 #include "nordend/core/file.hpp"
 
 namespace nordend::core {
@@ -57,6 +58,21 @@ public:
     void report(const toml::source_region& where, std::string_view what) {
         problems_.push_back({where.begin, std::format("{}:{}:{}: {}", source_, where.begin.line,
                                                       where.begin.column, what)});
+    }
+
+    [[nodiscard]] std::size_t problem_count() const noexcept { return problems_.size(); }
+
+    // A problem said right after the last of those reported since problem_count() was since.
+    void report_after(std::size_t since, std::string_view what) {
+        toml::source_position where{};
+        for (std::size_t i = since; i < problems_.size(); ++i) {
+            if (std::pair{problems_[i].where.line, problems_[i].where.column} >=
+                std::pair{where.line, where.column}) {
+                where = problems_[i].where;
+            }
+        }
+        problems_.push_back(
+            {where, std::format("{}:{}:{}: {}", source_, where.line, where.column, what)});
     }
 
     // Problems in file order (toml++ tables iterate by key, not by position).
@@ -199,6 +215,208 @@ private:
     std::vector<Problem> problems_;
 };
 
+// The field codes an action's command may hold.
+constexpr std::string_view kActionCodes{"fFuUd%"};
+
+// An action's command line: a string split as an Exec value, or an array of words.
+void read_action_exec(const toml::node& node, const std::string& path, Reader& reader,
+                      Config::Action& action) {
+    if (const auto* line = node.as_string()) {
+        const std::optional<std::vector<std::string>> words = split_command_line(line->get());
+        if (!words) {
+            reader.report(node.source(),
+                          std::format("'{}' cannot be split into words (a quote not closed, or "
+                                      "nothing in it)",
+                                      path));
+            return;
+        }
+        // Every code inside a word is one: each must be known, and the paths come one way.
+        bool list = false;
+        bool one = false;
+        for (const std::string& word : *words) {
+            for (std::size_t i = 0; i < word.size(); ++i) {
+                if (word[i] != '%') {
+                    continue;
+                }
+                const char code = i + 1 < word.size() ? word[i + 1] : '\0';
+                if (kActionCodes.find(code) == std::string_view::npos || code == '\0') {
+                    reader.report(
+                        node.source(),
+                        std::format("'{}' has an unknown field code '%{}' (known: %f "
+                                    "%F %u %U %d %%)",
+                                    path, code == '\0' ? std::string{} : std::string{code}));
+                    return;
+                }
+                list = list || code == 'F' || code == 'U';
+                one = one || code == 'f' || code == 'u';
+                ++i;
+            }
+        }
+        if (list && one) {
+            reader.report(node.source(),
+                          std::format("'{}' takes the paths both as a list (%F %U) and one at a "
+                                      "time (%f %u): choose one",
+                                      path));
+            return;
+        }
+        action.exec = *words;
+        action.exec_words = false;
+        return;
+    }
+    const toml::array* array = node.as_array();
+    if (array == nullptr) {
+        reader.report(node.source(), std::format("'{}' must be a string or a list of strings, "
+                                                 "got {}",
+                                                 path, type_name(node)));
+        return;
+    }
+    std::vector<std::string> words;
+    bool list = false;
+    bool one = false;
+    for (const toml::node& item : *array) {
+        const auto* word = item.as_string();
+        if (word == nullptr) {
+            reader.report(item.source(), std::format("'{}' must be a list of strings, got {} in it",
+                                                     path, type_name(item)));
+            return;
+        }
+        const std::string& text = word->get();
+        if (text.size() == 2 && text[0] == '%') {  // only a whole word is a code
+            if (kActionCodes.find(text[1]) == std::string_view::npos) {
+                reader.report(item.source(),
+                              std::format("'{}' has an unknown field code '{}' (known: %f %F %u "
+                                          "%U %d %%)",
+                                          path, text));
+                return;
+            }
+            list = list || text[1] == 'F' || text[1] == 'U';
+            one = one || text[1] == 'f' || text[1] == 'u';
+        }
+        words.push_back(text);
+    }
+    if (words.empty() || words.front().empty()) {
+        reader.report(node.source(), std::format("'{}' must start with a program", path));
+        return;
+    }
+    if (list && one) {
+        reader.report(node.source(),
+                      std::format("'{}' takes the paths both as a list (%F %U) and one at a time "
+                                  "(%f %u): choose one",
+                                  path));
+        return;
+    }
+    action.exec = std::move(words);
+    action.exec_words = true;
+}
+
+// One [[action]] table; false when it has a problem (it is then left out: a filter misspelt must
+// not offer a command for files it was not meant for).
+bool read_action(const toml::node& node, std::size_t number, Reader& reader, Config& config) {
+    const std::string section = std::format("action[{}]", number);
+    const std::size_t before = reader.problem_count();
+    Config::Action action;
+    bool named = false;
+    bool has_exec = false;
+    reader.read_section(
+        node, section,
+        {{"name",
+          [&](const toml::node& value, const std::string& path) {
+              named = true;
+              reader.read_string(value, path, action.name);
+          }},
+         {"exec",
+          [&](const toml::node& value, const std::string& path) {
+              has_exec = true;
+              read_action_exec(value, path, reader, action);
+          }},
+         {"kinds",
+          [&](const toml::node& value, const std::string& path) {
+              std::vector<std::string> kinds;
+              reader.read_strings(value, path, kinds);
+              if (reader.problem_count() > before) {
+                  return;
+              }
+              if (kinds.empty()) {
+                  reader.report(value.source(),
+                                std::format(R"('{}' must name "file", "folder" or both)", path));
+                  return;
+              }
+              action.files = false;
+              action.folders = false;
+              for (const std::string& kind : kinds) {
+                  if (kind == "file") {
+                      action.files = true;
+                  } else if (kind == "folder") {
+                      action.folders = true;
+                  } else {
+                      reader.report(
+                          value.source(),
+                          std::format(R"('{}' takes "file" and "folder", got "{}")", path, kind));
+                  }
+              }
+          }},
+         {"patterns",
+          [&](const toml::node& value, const std::string& path) {
+              reader.read_strings(value, path, action.patterns);
+          }},
+         {"mime",
+          [&](const toml::node& value, const std::string& path) {
+              reader.read_strings(value, path, action.mime);
+              for (const std::string& type : action.mime) {
+                  if (type.find('*') != std::string::npos) {
+                      reader.report(value.source(),
+                                    std::format("'{}': wildcards (\"{}\") are not supported; "
+                                                "name the types",
+                                                path, type));
+                  } else if (type.find('/') == std::string::npos) {
+                      reader.report(
+                          value.source(),
+                          std::format(R"('{}': "{}" is not a type ("image/png"))", path, type));
+                  }
+              }
+          }},
+         {"min",
+          [&](const toml::node& value, const std::string& path) {
+              reader.read_int(value, path, 1, 1'000'000, action.min);
+          }},
+         {"max",
+          [&](const toml::node& value, const std::string& path) {
+              reader.read_int(value, path, 1, 1'000'000, action.max);
+          }},
+         {"background",
+          [&](const toml::node& value, const std::string& path) {
+              reader.read_bool(value, path, action.background);
+          }},
+         {"submenu",
+          [&](const toml::node& value, const std::string& path) {
+              reader.read_string(value, path, action.submenu);
+          }},
+         {"terminal", [&](const toml::node& value, const std::string& path) {
+              reader.read_bool(value, path, action.terminal);
+          }}});
+    if (node.is_table()) {
+        if (!named) {
+            reader.report(node.source(), std::format("'{}' needs a name", section));
+        }
+        if (!has_exec) {
+            reader.report(node.source(), std::format("'{}' needs an exec", section));
+        }
+        if (action.max != 0 && action.max < action.min) {
+            reader.report(node.source(), std::format("'{}': max ({}) is less than min ({})",
+                                                     section, action.max, action.min));
+        }
+    }
+    if (reader.problem_count() > before) {
+        // Said after what is wrong in it.
+        reader.report_after(
+            before, std::format("'{}'{} is left out", section,
+                                action.name.empty() ? "" : std::format(" (\"{}\")", action.name)));
+        return false;
+    }
+    config.actions.push_back(std::move(action));
+    return true;
+}
+
 void read_document(const toml::table& root, Reader& reader, Config& config) {
     for (const auto& [key, node] : root) {
         if (key.str() == "font") {
@@ -258,6 +476,19 @@ void read_document(const toml::table& root, Reader& reader, Config& config) {
                                  {"args", [&](const toml::node& value, const std::string& path) {
                                       reader.read_strings(value, path, config.terminal.args);
                                   }}});
+        } else if (key.str() == "action") {
+            const toml::array* actions = node.as_array();
+            if (actions == nullptr) {
+                reader.report(node.source(),
+                              std::format("'action' must be a list of tables ([[action]]), got {}; "
+                                          "ignored",
+                                          type_name(node)));
+                continue;
+            }
+            std::size_t number = 0;
+            for (const toml::node& action : *actions) {
+                read_action(action, ++number, reader, config);
+            }
         } else if (key.str() == "icon") {
             reader.read_section(
                 node, "icon",

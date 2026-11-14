@@ -244,17 +244,63 @@ void Opener::start(OpenPlan plan) {
     } else {
         report_(plan.problems.front(), true);
     }
-    for (OpenPlan::Launch& launch : plan.launches) {
+    launch(std::move(plan.launches));
+}
+
+void Opener::launch(std::vector<OpenPlan::Launch> launches) {
+    for (OpenPlan::Launch& one : launches) {
         if (!token_) {
-            start_one(launch, {});
+            start_one(one, {});
             continue;
         }
-        token_([this, alive = alive_, launch = std::move(launch)](const std::string& token) {
+        token_([this, alive = alive_, one = std::move(one)](const std::string& token) {
             if (*alive) {
-                start_one(launch, token);
+                start_one(one, token);
             }
         });
     }
+}
+
+void Opener::run_action(const core::Config::Action& action,
+                        std::vector<std::filesystem::path> files,
+                        const std::filesystem::path& directory) {
+    std::vector<std::vector<std::string>> lines = expand_action(action, files, directory);
+    if (lines.empty()) {
+        report_(std::format("{}: no command to run", action.name), true);
+        return;
+    }
+    // The program from the same PATH as applications are; not there: said before anything runs.
+    const std::optional<std::filesystem::path> program =
+        find_program(lines.front().front(), environment_->path);
+    if (!program) {
+        report_(std::format("{}: {} was not found", action.name, lines.front().front()), true);
+        return;
+    }
+    std::vector<OpenPlan::Launch> launches;
+    for (std::vector<std::string>& line : lines) {
+        line.front() = program->string();
+        if (action.terminal) {
+            std::optional<std::vector<std::string>> wrapped = in_terminal(line, *environment_);
+            if (!wrapped) {
+                report_(std::format("No terminal to run {} in: set terminal.program in "
+                                    "config.toml",
+                                    action.name),
+                        true);
+                return;
+            }
+            line = std::move(*wrapped);
+        }
+        launches.push_back({.app_id = std::format("action \"{}\"", action.name),
+                            .app_name = action.name,
+                            .argv = std::move(line),
+                            .directory = directory,
+                            .files = files.size()});
+    }
+    report_(files.size() == 1
+                ? std::format("{}: {}…", action.name, files.front().filename().string())
+                : std::format("{}: {} items…", action.name, files.size()),
+            false);
+    launch(std::move(launches));
 }
 
 void Opener::start_one(const OpenPlan::Launch& launch, const std::string& token) {

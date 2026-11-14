@@ -12,6 +12,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "nordend/core/config.hpp"
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/directory_model.hpp"
@@ -27,6 +28,7 @@
 #include "nordend/ui/renderer.hpp"
 #include "nordend/ui/scroller.hpp"
 #include "nordend/ui/seat.hpp"
+#include "nordend/views/actions.hpp"
 #include "nordend/views/breadcrumb.hpp"
 #include "nordend/views/column_view.hpp"
 #include "nordend/views/command_palette.hpp"
@@ -260,6 +262,18 @@ public:
     using TerminalHandler = std::function<void(const std::filesystem::path& directory)>;
 
     void set_terminal_handler(TerminalHandler terminal) { terminal_ = std::move(terminal); }
+
+    // config.toml's actions ([[action]]) in the context menu, each where its filters fit the
+    // selection (on the folder's empty space: those with background); run(action, files,
+    // folder shown) starts one. Without a handler, none.
+    using ActionHandler = std::function<void(const core::Config::Action& action,
+                                             std::vector<std::filesystem::path> files,
+                                             const std::filesystem::path& directory)>;
+
+    void set_actions(std::vector<core::Config::Action> actions, ActionHandler run) {
+        actions_ = std::move(actions);
+        run_action_ = std::move(run);
+    }
 
     // Lets the user choose a folder, starting in start (Nordend's own folder chooser, a process
     // of its own): chosen(folder) when one was chosen, nothing when cancelled. Without one, a
@@ -747,6 +761,12 @@ private:
     [[nodiscard]] static std::vector<std::string> targets(const Folder& folder);
     [[nodiscard]] std::vector<MenuItem> entry_menu(const std::shared_ptr<Folder>& folder);
     [[nodiscard]] std::vector<MenuItem> folder_menu();
+    // The actions that fit targets, in the file's order, those of one submenu together where
+    // the first of them is; the first after a line. background: the folder's empty space (only
+    // the actions with background, run on the folder).
+    void add_actions(std::vector<MenuItem>& items, std::span<const ActionTarget> targets,
+                     const std::vector<std::filesystem::path>& files,
+                     const std::filesystem::path& directory, bool background);
     [[nodiscard]] MenuItem sort_menu();
     // A new pane at index at, its views wired to the window, sorted and filtered as the window is.
     Pane& add_pane(std::size_t at);
@@ -775,6 +795,8 @@ private:
     ChoicesHandler choices_;
     OpenWithHandler open_with_;
     TerminalHandler terminal_;
+    std::vector<core::Config::Action> actions_;
+    ActionHandler run_action_;
     FolderChooser folder_chooser_;
     std::optional<std::filesystem::path> templates_dir_;
     fs::PlaceSources place_sources_{

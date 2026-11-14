@@ -55,6 +55,7 @@ add_executable(nordend-tests
     syntax_colors_test.cpp
     state_test.cpp
     thumbs_test.cpp
+    tools_test.cpp
     title_bar_test.cpp
     window_frame_test.cpp
     erase_test.cpp
@@ -108,7 +109,8 @@ add_executable(nordend-sandbox-probe sandbox_probe.cpp
                                      ${PROJECT_SOURCE_DIR}/src/isolate/src/sandbox.cpp)
 target_include_directories(nordend-sandbox-probe PRIVATE ${PROJECT_SOURCE_DIR}/src/isolate/src)
 target_link_libraries(nordend-sandbox-probe PRIVATE nordend::warnings)
-add_dependencies(nordend-tests nordend-preview nordend-fake-preview nordend-sandbox-probe)
+add_dependencies(nordend-tests nordend-preview nordend-fake-preview nordend-sandbox-probe
+                 nordend-snapshot nordend-decode)
 # The MIME database the tests read: shared-mime-info as pkg-config finds it at build time, not
 # whatever $XDG_DATA_DIRS says when they run (NixOS keeps it outside /usr/share, Flatpak adds
 # its own). tests/main.cpp points $XDG_DATA_DIRS at it.
@@ -127,7 +129,9 @@ target_compile_definitions(nordend-tests
             NORDEND_MIME_DATA="${NORDEND_MIME_PREFIX}/share"
             NORDEND_PREVIEW_HELPER="$<TARGET_FILE:nordend-preview>"
             NORDEND_FAKE_HELPER="$<TARGET_FILE:nordend-fake-preview>"
-            NORDEND_SANDBOX_PROBE="$<TARGET_FILE:nordend-sandbox-probe>")
+            NORDEND_SANDBOX_PROBE="$<TARGET_FILE:nordend-sandbox-probe>"
+            NORDEND_SNAPSHOT_TOOL="$<TARGET_FILE:nordend-snapshot>"
+            NORDEND_DECODE_TOOL="$<TARGET_FILE:nordend-decode>")
 if(NORDEND_SANITIZER)
     target_sources(nordend-tests PRIVATE ${PROJECT_SOURCE_DIR}/src/core/src/lsan_suppressions.cpp)
 endif()

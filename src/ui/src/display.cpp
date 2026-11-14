@@ -1,6 +1,7 @@
 #include "nordend/ui/display.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <poll.h>
 #include <stdexcept>
 #include <string_view>
@@ -66,8 +67,14 @@ Display::Display() : display_{wl_display_connect(nullptr)} {
 
 void Display::attach(core::EventLoop& loop) {
     wl_display* wl = display_.get();
-    const auto lost = [&loop] {
-        log::error("lost the connection to the compositor");
+    const auto lost = [&loop, wl] {
+        // A protocol error is ours (or the compositor's) to fix; any other end is the compositor
+        // going away, as at an ordinary logout: not an error (it was logged as one until 0.7.4).
+        if (const int error = wl_display_get_error(wl); error == EPROTO) {
+            log::error("the compositor closed the connection over a protocol error");
+        } else {
+            log::info("the compositor closed the connection (the session ended?)");
+        }
         loop.quit(1);
     };
     loop.add_fd(

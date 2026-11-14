@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
@@ -24,6 +25,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unistd.h>
 #include <vector>
 
@@ -165,6 +167,16 @@ bool read_sensor(const char* arg, int fd, int runs, std::vector<std::uint16_t>& 
 
 }  // namespace
 
+namespace {
+
+void print_usage(std::FILE* to) {
+    std::fputs(
+        "usage: nordend-decode [--runs N] [--stored] [--ppm OUT.ppm] [--raw OUT.pnm] FILE...\n",
+        to);
+}
+
+}  // namespace
+
 int main(int argc, char** argv) {
     std::span args{argv, static_cast<std::size_t>(argc)};
     args = args.subspan(1);
@@ -175,6 +187,10 @@ int main(int argc, char** argv) {
     image::DecodeOptions options;
     while (!args.empty()) {
         const std::string_view option{args[0]};
+        if (option == "--help" || option == "-h") {
+            print_usage(stdout);
+            return 0;
+        }
         if (option == "--stored") {
             options.apply_orientation = false;
             args = args.subspan(1);
@@ -195,10 +211,9 @@ int main(int argc, char** argv) {
         }
         args = args.subspan(2);
     }
-    if (args.empty()) {
-        std::fprintf(stderr,
-                     "usage: nordend-decode [--runs N] [--stored] [--ppm OUT.ppm] [--raw OUT.pnm] "
-                     "FILE...\n");
+    // An option this tool does not know is not a file (it once crashed on "--help").
+    if (args.empty() || std::string_view{args[0]}.starts_with('-')) {
+        print_usage(stderr);
         return 2;
     }
     int failures = 0;
@@ -210,19 +225,31 @@ int main(int argc, char** argv) {
     for (const char* arg : args) {
         const std::filesystem::path path{arg};
         const auto read_start = Clock::now();
-        std::vector<std::uint8_t> data(std::filesystem::file_size(path));
+        std::error_code error;
+        const std::uintmax_t size = std::filesystem::file_size(path, error);
+        if (error) {
+            std::printf("%s: %s\n", arg, error.message().c_str());
+            ++failures;
+            continue;
+        }
+        std::vector<std::uint8_t> data(size);
         std::ifstream file{path, std::ios::binary};
         file.read(reinterpret_cast<char*>(data.data()),  // NOLINT: bytes to char for read
                   static_cast<std::streamsize>(data.size()));
         const double read_ms = ms_since(read_start);
 
-        // A camera raw: what load() shows of it, its largest preview.
+        // A camera raw: what load() shows of it, its largest preview. Raws without the TIFF magic
+        // (ORF, RW2, RAF, CR3, and those Nordend has no reader for) go there too: decode() knows
+        // only whole images, and called them "unknown".
         bool camera_raw = false;
         const int fd = ::open(arg, O_RDONLY | O_CLOEXEC);
         if (fd >= 0) {
-            if (const auto opened = image::detail::FdFile::of(fd)) {
-                camera_raw = image::sniff(data) == image::Format::tiff &&
-                             image::tiff::is_camera_raw(image::tiff::Source{*opened});
+            const image::Format format = image::sniff(data);
+            if (format == image::Format::unknown) {
+                camera_raw = image::recognises(data);
+            } else if (const auto opened = image::detail::FdFile::of(fd);
+                       opened && format == image::Format::tiff) {
+                camera_raw = image::tiff::is_camera_raw(image::tiff::Source{*opened});
             }
             if (sensor) {
                 (void)read_sensor(arg, fd, runs, last_raw, raw_width, raw_height, raw_samples);
@@ -251,7 +278,8 @@ int main(int argc, char** argv) {
         }
         if (!decoded.error.empty()) {
             std::printf("%s: %s (%s)\n", arg, decoded.error.c_str(),
-                        std::string{image::format_name(decoded.format)}.c_str());
+                        camera_raw ? "camera raw"
+                                   : std::string{image::format_name(decoded.format)}.c_str());
             ++failures;
             continue;
         }
@@ -265,8 +293,10 @@ int main(int argc, char** argv) {
         std::printf(
             "%s: %s %ux%u (%.1f MP), orientation %u, %.1f MB read in %.1f ms, decoded in "
             "%.1f ms (%.0f MP/s)\n",
-            arg, std::string{image::format_name(decoded.format)}.c_str(), decoded.image.width,
-            decoded.image.height, megapixels, unsigned{decoded.orientation},
+            arg,
+            camera_raw ? "camera raw, its preview"
+                       : std::string{image::format_name(decoded.format)}.c_str(),
+            decoded.image.width, decoded.image.height, megapixels, unsigned{decoded.orientation},
             static_cast<double>(data.size()) / 1e6, read_ms, median,
             megapixels / (median / 1000.0));
         last = std::move(decoded.image);

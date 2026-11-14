@@ -365,8 +365,8 @@ README's [What's next](../README.md#whats-next).
   extension; New Folder; a question before replacing a file; several files saved into one folder
   with one question. The application's own choices (an encoding list, a checkbox) sit in the bar.
 - **Over the application's window:** xdg-foreign and xdg-dialog keep the chooser over it, modal
-  (GNOME, Plasma); on a compositor without them (Umbriel) it is a window of its own. Closing the
-  application closes the chooser.
+  (Umbriel, GNOME, Plasma; Umbriel attaches it to the application's tile like any dialog); on a
+  compositor without them it is a window of its own. Closing the application closes the chooser.
 - **`nordend --set-file-chooser`** makes Nordend the chooser of the current desktop: one line in
   your `~/.config/xdg-desktop-portal/<desktop>-portals.conf`, where xdg-desktop-portal looks
   first (a new file starts as a copy of the desktop's own, so its other portals stay as they

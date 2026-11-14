@@ -4,6 +4,31 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-14 — Small fixes for 0.7.4
+
+**Done**
+- `nordend-snapshot --help` and `nordend-decode --help` (or `-h`) print their usage on stdout and
+  exit 0; an unknown option is refused with the usage (exit 2) instead of being taken for the
+  output file (the snapshot once wrote a PPM called "--help") or for a picture (the decoder
+  crashed: `file_size` threw on a missing file, now a plain failure line).
+- `nordend-decode` sends every raw `load()` recognises through it, not only those with the TIFF
+  magic: ORF, RW2, RAF, CR3 show their preview ("camera raw, its preview"), X3F/CRW/MRW say
+  Nordend has no reader; before, they were "unknown".
+- The compositor going away (an ordinary logout) is logged as `info`, not as an error; a
+  protocol error (`EPROTO`) stays an error.
+- Tests: `tools_test.cpp` (4) runs both tools in a temporary folder: `--help`, an unknown
+  option, a missing file, a cut ORF header.
+
+**Decisions**
+- The devlog entry of 0.7.0 said Umbriel offers no `zxdg_importer_v2`: wrong. Umbriel has
+  offered it all along (`WAYLAND_DEBUG=1 wl-paste -l` lists `zxdg_importer_v2` and
+  `xdg_wm_dialog_v1`), and attaches a modal dialog parented through xdg-foreign to its parent
+  (`[general] attach_modal_dialogs`, on by default). Tested by the author on Umbriel with Firefox
+  (`NORDEND_LOG=debug`: "a parent", "pick: over the application's window"): the picker covers
+  Firefox's tile like a dialog; Super+T floats it. No Umbriel bug to report.
+
+---
+
 ## 2026-11-14 — A film at the top of the README
 
 **Done**
@@ -422,9 +447,9 @@ download folder chosen with Select.
   `directory` (no longer refused) and a `wayland:` `parent_window`, and answers
   `current_filter` with the filter as the application sent it.
 - xdg-foreign v2 and xdg-dialog v1 bound by `ui::Display` (optional); `Window::set_parent`
-  imports the application's window, sets ours over it and modal. Umbriel offers neither
-  importer (checked with a registry listing: it has `xdg_wm_dialog_v1`, no `zxdg_importer_v2`),
-  so there the picker stays a window of its own; GNOME and Plasma to be tried in the VMs.
+  imports the application's window, sets ours over it and modal. ~~Umbriel offers neither
+  importer~~ Wrong, corrected on 2026-11-14 (entry "Small fixes for 0.7.4"): Umbriel offers
+  `zxdg_importer_v2` and attaches the picker over the application like a dialog.
 - `nordend-snapshot --pick "Images=*.jpg;image/*,Text=text/plain"` (or `folders`).
 - Tests (463): the matcher (globs, case, subtypes, `image/*` for an ORF, unknown types),
   `Listing::set_only`, the Browser choosing files, several, folders, Ctrl+Enter into a folder,

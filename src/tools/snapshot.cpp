@@ -226,6 +226,22 @@ std::vector<ui::KeyEvent> parse_keys(std::string_view keys) {
 
 }  // namespace
 
+namespace {
+
+void print_usage(std::FILE* to) {
+    std::fputs(
+        "usage: nordend-snapshot [--columns DIR [--reveal PATH] [--keys KEYS] [--thumbnails "
+        "CACHE] [--sort FIELDS] [--info-expanded] [--info-width W] [--bench FRAMES] [--walk "
+        "FRAMES] [--message TEXT] [--transfer TEXT] [--conflict NAME] [--drag NAME] "
+        "[--drop-over X,Y] [--band X1,Y1,X2,Y2] [--pick FILTERS|folders|save:NAME[,FILTERS]] "
+        "[--fake-disks] [--memory [--trim] [--default-malloc]] [--record SCRIPT --frames DIR]] "
+        "[--csd STATE] [--desktop LOOK] [--gtk FILE] <out.ppm> "
+        "[logical-width logical-height scale [colors.toml]]\n",
+        to);
+}
+
+}  // namespace
+
 int main(int argc, char** argv) {
     log::init_from_env();  // NORDEND_LOG=debug: Quick Look timings, among others
     std::span args{argv, static_cast<std::size_t>(argc)};
@@ -260,6 +276,10 @@ int main(int argc, char** argv) {
     std::filesystem::path frames_dir;
     while (args.size() >= 2) {
         const std::string_view option{args[1]};
+        if (option == "--help" || option == "-h") {
+            print_usage(stdout);
+            return 0;
+        }
         if (option == "--info-expanded") {  // the info pane with "More details" open
             info_expanded = true;
             args = args.subspan(1);
@@ -346,18 +366,10 @@ int main(int argc, char** argv) {
         }
         args = args.subspan(2);
     }
-    if (args.size() != 2 && args.size() != 5 && args.size() != 6) {
-        log::error(
-            "usage: nordend-snapshot [--columns DIR [--reveal PATH] [--keys KEYS] [--thumbnails "
-            "CACHE] [--sort FIELDS] [--info-expanded] [--info-width W] [--bench FRAMES] [--walk "
-            "FRAMES] [--message TEXT] [--transfer TEXT] [--conflict NAME] [--drag NAME] "
-            "[--drop-over X,Y] [--band X1,Y1,X2,Y2] [--pick FILTERS|folders|save:NAME[,FILTERS]] "
-            "[--fake-disks] "
-            "[--memory [--trim] "
-            "[--default-malloc]] [--record SCRIPT --frames DIR]] [--csd STATE] [--desktop LOOK] "
-            "[--gtk FILE] "
-            "<out.ppm> "
-            "[logical-width logical-height scale [colors.toml]]");
+    // An option this tool does not know is not the output file (it once wrote "--help").
+    if ((args.size() != 2 && args.size() != 5 && args.size() != 6) ||
+        std::string_view{args[1]}.starts_with('-')) {
+        print_usage(stderr);
         return 2;
     }
     if (!default_malloc) {

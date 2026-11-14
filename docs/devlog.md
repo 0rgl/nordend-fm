@@ -4,6 +4,18 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-14 — Nordend 0.7.4
+
+**Done**
+- Release 0.7.4: the small fixes below (the developer tools' options, the compositor hang-up
+  logged as `info`), a patch release.
+
+**Measured** (after rebuilding as 0.7.4): `nordend` 4.34 / 3.61 MiB stripped, `nordend-preview`
+1.15 / 1.03, `nordend-portal` 0.36 / 0.29; `readelf -d` NEEDED 17, 8 and 8; 56 985 + 20 807
+lines, 493 test cases.
+
+---
+
 ## 2026-11-14 — Small fixes for 0.7.4
 
 **Done**

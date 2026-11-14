@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.3"><img src="https://img.shields.io/badge/release-v0.7.3-2a6a9e" alt="release v0.7.3"></a>
+  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.4"><img src="https://img.shields.io/badge/release-v0.7.4-2a6a9e" alt="release v0.7.4"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Wayland-native-FFBC00?logo=wayland&logoColor=black" alt="Wayland native">
-  <img src="https://img.shields.io/badge/tests-489%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="489 tests, ASan, TSan">
+  <img src="https://img.shields.io/badge/tests-493%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="493 tests, ASan, TSan">
   <a href="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-3DA639" alt="MIT license">
 </p>
@@ -24,10 +24,9 @@
 </p>
 
 > [!NOTE]
-> **Nordend 0.7.3**, the latest release: **scrollbars you can take**. Every list's scrollbar
-> widens under the pointer and can be dragged, or clicked beside to jump there; the keyboard
-> shortcuts card scrolls when the window is too low for it (issue #12, thanks to llego). Young
-> software, used every day by its author. [Install it](#install).
+> **Nordend 0.7.4**, the latest release: **small fixes**. The developer tools `nordend-snapshot`
+> and `nordend-decode` print their usage for `--help` and refuse an unknown option, and an
+> ordinary logout is no longer logged as an error. Young software, used every day by its author. [Install it](#install).
 
 ## Contents
 
@@ -124,7 +123,7 @@ openSUSE Tumbleweed. Ubuntu 24.04 and Linux Mint 22 cannot build Nordend (their 
 Download it, read it, run it:
 
 ```sh
-curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.7.3/scripts/nordend-setup
+curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.7.4/scripts/nordend-setup
 less nordend-setup
 sh nordend-setup           # asks what to do; or: sh nordend-setup install
 ```
@@ -155,7 +154,7 @@ cp -r /tmp/nordend-fm/packaging/void/nordend srcpkgs/
 sudo xbps-install -R hostdir/binpkgs nordend
 ```
 
-The package is the latest release, **0.7.3**. What `main` gains after it comes with the next
+The package is the latest release, **0.7.4**. What `main` gains after it comes with the next
 release; to have it at once, build from source.
 
 </details>
@@ -227,7 +226,7 @@ command and it shows where things stand and asks what to do, or name the command
 A new release, for example:
 
 ```sh
-nordend-setup check     # ✓ Nordend 0.7.3 is out: nordend-setup update
+nordend-setup check     # ✓ Nordend 0.7.4 is out: nordend-setup update
 nordend-setup update    # builds and installs it; your settings stay
 ```
 
@@ -300,7 +299,7 @@ report), and `--set-file-chooser` / `--unset-file-chooser`.
 |---|---|
 | Binary | **4.34 MB** (3.61 MB stripped), x86-64; the decoders and text readers in `nordend-preview`, 1.15 MB (1.03 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.36 MB (0.29 stripped), started only when an application asks |
 | Libraries | 17 direct (the helper and the service: 8 each); no GTK, no Qt, no GLib |
-| Code | about 56 900 lines of C++20, 20 700 of tests (489 test cases, under ASan and TSan too) |
+| Code | about 57 000 lines of C++20, 20 800 of tests (493 test cases, under ASan and TSan too) |
 | Memory | **24 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
 | Idle | **0 CPU**: nothing is drawn while nothing moves |
 
@@ -325,9 +324,9 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 | Version | What it brought |
 |---|---|
+| [0.7.4](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.4), 2026-11-14 | Small fixes: the developer tools answer `--help` and refuse unknown options; an ordinary logout is no longer logged as an error |
 | [0.7.3](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.3), 2026-11-14 | Scrollbars that widen under the pointer and can be dragged, or clicked on their track, in every list and on Quick Look's text pages; the keyboard shortcuts card scrolls in a low window, from llego's issue |
 | [0.7.2](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.2), 2026-11-14 | nordend-setup: install Nordend from its source on any distribution, keep it current with `check` and `update`, set it up with `configure`, remove it with `uninstall`; tried in CI on Debian 13, Ubuntu 26.04, Fedora 43, Arch and openSUSE Tumbleweed |
-| [0.7.1](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.1), 2026-11-14 | Quick Look of a raw photo from 144 to 110 ms on screen, grid thumbnails faster (the image scaler rewritten); the sidebar's bookmarks renamed, pointed elsewhere and reordered, from Evergaster's issue |
 
 ## What's next
 

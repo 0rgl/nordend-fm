@@ -4,6 +4,39 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-14 — The text size in config.toml (0.7.5, issue #15)
+
+**Done**
+- `[font] size` (logical pixels, 8 to 32, decimals allowed, 13 by default): the usual text size;
+  the whole interface follows it in proportion. Asked by 0rgl in #15 (a 4K monitor at scale 1).
+- One factor in one place, `size / 13`, as a zoom of the window's content: `Window::set_zoom`
+  draws the content with the renderer's scale × zoom (`Renderer::set_zoom`) in bounds 1/zoom as
+  large, so every view, text, row, padding, icon, the sidebar and Quick Look grow together and
+  the glyphs are rasterized at their real size (sharp, as at a fractional scale). The frame's
+  margin, corners and shadow keep the output's scale. The window's minimum size grows with it.
+- `ui::ContentMap` turns surface positions into content positions and back (the frame's margin,
+  then the zoom): pointer events (position and touchpad scroll; wheel notches stay notches),
+  drops, the resize band, the compositor's window menu. `content_offset()` is gone.
+- Followed live: a change in `config.toml` redraws at the new size.
+- `nordend-snapshot --font-size PX`.
+- The `"Inter:size=11"` example in `config.hpp` is gone: a size in the fontconfig pattern only
+  picks the face, the text is drawn at Nordend's sizes.
+- Tests: the key (range, decimals, wrong types), `ContentMap`, and the renderer's zoom (the
+  content twice as large, the frame's pixels the very same).
+
+**Decisions**
+- A zoom of the whole content rather than the ~144 size constants of the views one by one: no
+  view changes, nothing left at the old size in a corner, icons in proportion with the text.
+  At 13 the zoom is 1 and every path is the one before.
+
+**Tested by the author** (Umbriel, 2560x1440 at scale 1): `size = 16` applied live to the whole
+interface, the frame and shadow unchanged; clicks, rubber band, drag, wheel and touchpad scroll,
+Ctrl+K, the context menu, F1, Quick Look on a photo and on a `.cpp`, the window menu where it was
+asked, resizing from the edge; `size = 40` reported by `--check-config` and the default kept;
+`size = 11` smaller and sharp; the file chooser over Firefox at the same size.
+
+---
+
 ## 2026-11-14 — Nordend 0.7.4
 
 **Done**

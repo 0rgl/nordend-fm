@@ -13,8 +13,16 @@ namespace nordend::core {
 
 struct Config {
     struct Font {
-        std::string family{"sans-serif"};    // fontconfig pattern, e.g. "Inter" or "Inter:size=11"
+        static constexpr float kUsualSize = 13.0F;  // the interface's text, as drawn at zoom 1
+
+        std::string family{"sans-serif"};  // fontconfig pattern, e.g. "Inter" or "Inter:weight=500"
         std::string monospace{"monospace"};  // text previews, e.g. "JetBrains Mono"
+        // The usual text size in logical pixels (8-32); everything else follows in proportion:
+        // the other text, rows, paddings, icons. Followed live.
+        float size{kUsualSize};
+
+        // The interface's zoom: 1 at the usual size.
+        [[nodiscard]] float zoom() const noexcept { return size / kUsualSize; }
     };
 
     struct Pointer {

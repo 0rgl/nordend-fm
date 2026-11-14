@@ -1,8 +1,8 @@
 # Nordend configuration: ~/.config/nordend/config.toml ($XDG_CONFIG_HOME/nordend/config.toml).
 # Every key is optional; the values below are the defaults. A bad value is reported in the log
 # and keeps its default. Check a file without starting Nordend: nordend --check-config
-# Nordend reads the file again when it changes: background opacity, corners, double click,
-# the icon and the terminal at once, fonts at the next start.
+# Nordend reads the file again when it changes: background opacity, corners, double click, the
+# text size, the icon and the terminal at once, the font families at the next start.
 #
 # Colours are not set here: Nordend follows your theme by itself (GTK's colours in
 # ~/.config/gtk-4.0/gtk.css, else the desktop's light or dark style and accent). For exact colours
@@ -16,6 +16,10 @@
 family = "sans-serif"
 # The same for text previews (Quick Look of text files).
 monospace = "monospace"
+# The usual text size in logical pixels, 8 to 32 (decimals allowed). The whole interface follows
+# it in proportion: the other text, rows, paddings, icons, the sidebar; zoom (Ctrl+plus) goes on
+# from there. A size in the family pattern ("Inter:size=11") does not change it.
+size = 13
 
 [pointer]
 # Two presses of the same button closer than this (milliseconds, 100-2000)...

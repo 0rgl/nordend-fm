@@ -66,6 +66,12 @@ public:
     // no clip pushed. Nothing without a margin.
     void frame_window(float radius, std::span<const WindowShadow> shadows, Color outline);
 
+    // The content's zoom until end_frame (1 at begin_frame): every draw after it is that much
+    // larger, as if the output's scale were scale × zoom, so text stays sharp; frame_window keeps
+    // the output's scale. The interface's size ([font] size).
+    void set_zoom(float zoom) noexcept { scale_ = frame_scale_ * zoom; }
+
+    // Logical pixels to physical: the frame's scale times the zoom.
     [[nodiscard]] float scale() const noexcept { return scale_; }
 
     [[nodiscard]] FontSystem& fonts() noexcept { return fonts_; }
@@ -138,7 +144,8 @@ private:
     std::int32_t view_y_{0};
     std::int32_t view_width_{0};
     std::int32_t view_height_{0};
-    float scale_{1.0F};
+    float scale_{1.0F};        // frame_scale_ × the zoom
+    float frame_scale_{1.0F};  // the output's, from begin_frame
     float background_opacity_{1.0F};
 };
 

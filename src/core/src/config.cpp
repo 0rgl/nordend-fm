@@ -155,6 +155,24 @@ public:
         out = static_cast<float>(*value);
     }
 
+    // An integer or a decimal number between min and max.
+    void read_number(const toml::node& node, const std::string& path, double min, double max,
+                     float& out) {
+        const auto value = node.value<double>();
+        if (!value || !std::isfinite(*value)) {
+            report(node.source(), std::format("'{}' must be a number, got {}; using {:g}", path,
+                                              type_name(node), out));
+            return;
+        }
+        if (*value < min || *value > max) {
+            report(node.source(),
+                   std::format("'{}' must be between {:g} and {:g}, got {:g}; using {:g}", path,
+                               min, max, *value, out));
+            return;
+        }
+        out = static_cast<float>(*value);
+    }
+
     void read_int(const toml::node& node, const std::string& path, int min, int max, int& out) {
         const auto* value = node.as_integer();
         if (value == nullptr) {
@@ -184,15 +202,18 @@ private:
 void read_document(const toml::table& root, Reader& reader, Config& config) {
     for (const auto& [key, node] : root) {
         if (key.str() == "font") {
-            reader.read_section(
-                node, "font",
-                {{"family",
-                  [&](const toml::node& value, const std::string& path) {
-                      reader.read_string(value, path, config.font.family);
-                  }},
-                 {"monospace", [&](const toml::node& value, const std::string& path) {
-                      reader.read_string(value, path, config.font.monospace);
-                  }}});
+            reader.read_section(node, "font",
+                                {{"family",
+                                  [&](const toml::node& value, const std::string& path) {
+                                      reader.read_string(value, path, config.font.family);
+                                  }},
+                                 {"monospace",
+                                  [&](const toml::node& value, const std::string& path) {
+                                      reader.read_string(value, path, config.font.monospace);
+                                  }},
+                                 {"size", [&](const toml::node& value, const std::string& path) {
+                                      reader.read_number(value, path, 8.0, 32.0, config.font.size);
+                                  }}});
         } else if (key.str() == "pointer") {
             reader.read_section(
                 node, "pointer",

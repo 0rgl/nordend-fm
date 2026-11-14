@@ -502,6 +502,7 @@ void Renderer::begin_frame(std::int32_t buffer_width, std::int32_t buffer_height
     buffer_width_ = buffer_width;
     buffer_height_ = buffer_height;
     scale_ = scale;
+    frame_scale_ = scale;
     background_opacity_ = std::clamp(background_opacity, 0.0F, 1.0F);
     boxes_.clear();
     glyphs_.clear();
@@ -556,7 +557,7 @@ void Renderer::frame_window(float radius, std::span<const WindowShadow> shadows,
     const std::int32_t content_width = view_width_;
     const std::int32_t content_height = view_height_;
     set_view(0, 0, buffer_width_, buffer_height_);  // the margin too, in buffer pixels
-    const float r = std::min(radius * scale_, std::min(width, height) / 2.0F);
+    const float r = std::min(radius * frame_scale_, std::min(width, height) / 2.0F);
 
     // The corners: what lies outside the rounded window goes (dst × the box's coverage), one
     // corner square at a time so that the rest of the content is not touched.
@@ -617,11 +618,11 @@ void Renderer::frame_window(float radius, std::span<const WindowShadow> shadows,
                 continue;
             }
             const Color shade = shadow.color.premultiplied();
-            push_box({.rect = {x, y + std::round(shadow.offset_y * scale_), width, height},
+            push_box({.rect = {x, y + std::round(shadow.offset_y * frame_scale_), width, height},
                       .radii = {r, r, r, r},
                       .fill = {shade.r, shade.g, shade.b, shade.a},
                       .border_color = {0.0F, 0.0F, 0.0F, 0.0F},
-                      .params = {0.0F, shadow.blur * scale_}});
+                      .params = {0.0F, shadow.blur * frame_scale_}});
         }
         flush();
     }

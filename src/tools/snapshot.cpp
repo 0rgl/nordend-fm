@@ -4,7 +4,8 @@
 //   nordend-snapshot [--columns DIR [--reveal PATH] [--keys KEYS] [--thumbnails CACHE]
 //                    [--sort FIELDS] [--info-expanded] [--info-width W] [--bench FRAMES]
 //                    [--walk FRAMES] [--message TEXT] [--transfer TEXT] [--conflict NAME]
-//                    [--memory [--trim] [--default-malloc]]] [--csd STATE] [--desktop LOOK]
+//                    [--memory [--trim] [--default-malloc]]] [--font-size PX] [--csd STATE]
+//                    [--desktop LOOK]
 //                    <out.ppm>
 //                    [logical-width logical-height scale [colors.toml]]
 //
@@ -28,6 +29,8 @@
 // paste would. --memory prints the memory report (ROADMAP 6.3b) at the end, once the workers'
 // results are in; with --trim, after malloc_trim(0) and the time it took. --default-malloc leaves
 // glibc's mmap threshold as it is (the app sets it: core::give_back_large_blocks), to compare.
+// --font-size PX draws the interface as [font] size = PX would (13 = as it is); positions given
+// to --drag, --drop-over and --band are then in the zoomed content's pixels.
 // --csd draws Nordend's own header (the window's buttons in the path row), as where the
 // compositor leaves the title bar to Nordend; STATE is
 // comma-separated words: "normal", "maximized", "inactive", "no-minimize", and "hover-close",
@@ -72,6 +75,7 @@
 #include <vector>
 #include <xkbcommon/xkbcommon.h>
 
+#include "nordend/core/config.hpp"
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/log.hpp"
 #include "nordend/core/memory.hpp"
@@ -235,7 +239,7 @@ void print_usage(std::FILE* to) {
         "FRAMES] [--message TEXT] [--transfer TEXT] [--conflict NAME] [--drag NAME] "
         "[--drop-over X,Y] [--band X1,Y1,X2,Y2] [--pick FILTERS|folders|save:NAME[,FILTERS]] "
         "[--fake-disks] [--memory [--trim] [--default-malloc]] [--record SCRIPT --frames DIR]] "
-        "[--csd STATE] [--desktop LOOK] [--gtk FILE] <out.ppm> "
+        "[--font-size PX] [--csd STATE] [--desktop LOOK] [--gtk FILE] <out.ppm> "
         "[logical-width logical-height scale [colors.toml]]\n",
         to);
 }
@@ -260,6 +264,7 @@ int main(int argc, char** argv) {
     bool info_expanded = false;
     bool memory = false;
     bool fake_disks = false;
+    float font_size = core::Config::Font::kUsualSize;  // --font-size PX: [font] size
     bool trim = false;
     bool default_malloc = false;
     float info_width = 0.0F;  // the info pane as if dragged to this width
@@ -345,6 +350,12 @@ int main(int argc, char** argv) {
             }
             if (band.size() != 4) {
                 log::error("--band takes X1,Y1,X2,Y2");
+                return 2;
+            }
+        } else if (option == "--font-size") {
+            font_size = std::stof(args[2]);
+            if (!std::isfinite(font_size) || font_size < 8.0F || font_size > 32.0F) {
+                log::error("--font-size takes 8 to 32");
                 return 2;
             }
         } else if (option == "--csd") {
@@ -436,7 +447,9 @@ int main(int argc, char** argv) {
             nordend::fs::DirectoryWatcher watcher{loop};
             std::unique_ptr<nordend::platform::Opener> opener;  // "Open With" lists, no launches
             std::unique_ptr<views::Browser> columns;
-            const ui::Rect window_bounds{0.0F, 0.0F, width, height};
+            // The content's pixels: the window zoomed by [font] size, as the app's window does.
+            const float zoom = font_size / core::Config::Font::kUsualSize;
+            const ui::Rect window_bounds{0.0F, 0.0F, width / zoom, height / zoom};
             views::TitleBar title_bar{{.move = [] {},
                                        .resize = [](ui::Edge /*edge*/) {},
                                        .minimize = [] {},
@@ -457,7 +470,7 @@ int main(int argc, char** argv) {
                                      .can_minimize = !has("no-minimize")});
                 title_bar.layout(window_bounds);
                 const float button_y = views::TitleBar::kIntegratedHeight / 2.0F;
-                const float close_x = width - 8.0F - 12.0F;
+                const float close_x = window_bounds.width - 8.0F - 12.0F;
                 if (has("hover-close") || has("press-close")) {
                     title_bar.pointer(
                         {.kind = ui::PointerEvent::Kind::motion, .x = close_x, .y = button_y});
@@ -479,6 +492,7 @@ int main(int argc, char** argv) {
             const auto frame = [&] {
                 renderer.begin_frame(buffer_width, buffer_height, scale, palette.palette.surface,
                                      margin);
+                renderer.set_zoom(zoom);
                 if (columns) {
                     columns->set_window_header(csd ? std::optional<float>{title_bar.buttons_width()}
                                                    : std::nullopt);
@@ -677,7 +691,8 @@ int main(int argc, char** argv) {
                          .modifiers = {}});
                 }
                 if (!drag.empty()) {
-                    drag_image = drag_entry(*columns, drag, width, height);
+                    drag_image =
+                        drag_entry(*columns, drag, window_bounds.width, window_bounds.height);
                     frame();
                 }
                 if (band.size() == 4) {

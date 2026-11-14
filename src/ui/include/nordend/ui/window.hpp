@@ -11,6 +11,7 @@
 #include <wayland-egl.h>
 
 #include "nordend/ui/color.hpp"
+#include "nordend/ui/content_map.hpp"
 #include "nordend/ui/display.hpp"
 #include "nordend/ui/egl_context.hpp"
 #include "nordend/ui/geometry.hpp"
@@ -108,7 +109,8 @@ public:
     Window(Window&&) = delete;
     Window& operator=(Window&&) = delete;
 
-    // Paints the window content each frame. bounds is the window in logical pixels.
+    // Paints the window content each frame. bounds is the window in content pixels: logical
+    // pixels divided by the zoom.
     using DrawHandler = std::function<void(Renderer& renderer, const Rect& bounds)>;
     void set_draw_handler(DrawHandler handler);
 
@@ -170,10 +172,17 @@ public:
     // Output scale chosen by the compositor (1.0, 1.25, 1.5, ...); 1.0 without fractional-scale.
     [[nodiscard]] double scale() const noexcept { return static_cast<double>(scale_120_) / 120.0; }
 
-    // Where the window is in its surface, in logical pixels (the frame's margin, as last drawn):
-    // pointer and drop positions are surface-local, the draw handler's bounds start at (0, 0).
-    [[nodiscard]] float content_offset() const noexcept {
-        return static_cast<float>(drawn_margin_);
+    // The interface's size ([font] size): the content drawn zoom times larger, in a window that
+    // holds 1/zoom as many content pixels; the minimum size grows with it. Redraws.
+    void set_zoom(float zoom);
+
+    [[nodiscard]] float zoom() const noexcept { return zoom_; }
+
+    // Surface positions to content positions and back, as last drawn: pointer and drop
+    // positions are surface-local (the frame's margin included), the draw handler's bounds start
+    // at (0, 0) in content pixels.
+    [[nodiscard]] ContentMap content_map() const noexcept {
+        return {.offset = static_cast<float>(drawn_margin_), .zoom = zoom_};
     }
 
     // How far outside the window, in logical pixels, the pointer resizes it: the frame's band,
@@ -189,8 +198,8 @@ public:
 
     [[nodiscard]] wl_surface* surface() const noexcept { return surface_.get(); }
 
-    // A surface of width × height logical pixels drawn once by draw, at the window's scale: the
-    // image under the pointer in a drag. One at a time: a new one replaces the last.
+    // A surface of width × height content pixels drawn once by draw, at the window's scale and
+    // zoom: the image under the pointer in a drag. One at a time: a new one replaces the last.
     wl_surface* make_drag_icon(std::int32_t width, std::int32_t height, const DrawHandler& draw);
 
     // The drag ended: its image goes.
@@ -234,6 +243,9 @@ private:
     std::int32_t margin_{0};        // the frame's, for the next frame
     std::int32_t drawn_margin_{0};  // the frame's, as last drawn
     float corner_radius_;
+    float zoom_{1.0F};
+    std::int32_t min_width_;  // logical pixels at zoom 1
+    std::int32_t min_height_;
     // What update_surface_regions last told the compositor: width, height, margin, radius, opaque.
     std::array<std::int32_t, 5> regions_for_{-1, -1, -1, -1, -1};
     bool decoration_answered_{false};  // the compositor said which, at least once

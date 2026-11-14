@@ -29,6 +29,7 @@ void check_defaults(const Config& config) {
     CHECK(config.font.family == defaults.font.family);
     CHECK(config.window.corner_radius == defaults.window.corner_radius);
     CHECK(config.font.monospace == defaults.font.monospace);
+    CHECK(config.font.size == defaults.font.size);
     CHECK(config.pointer.double_click_ms == defaults.pointer.double_click_ms);
     CHECK(config.pointer.double_click_distance == defaults.pointer.double_click_distance);
     CHECK(config.icon.follow_accent == defaults.icon.follow_accent);
@@ -86,6 +87,7 @@ TEST_CASE("every key is read") {
 [font]
 family = "Inter:weight=medium"
 monospace = "JetBrains Mono"
+size = 15
 
 [pointer]
 double_click_ms = 250
@@ -105,6 +107,7 @@ args = ["--gtk-single-instance=false"]
     CHECK(result.problems.empty());
     CHECK(result.config.font.family == "Inter:weight=medium");
     CHECK(result.config.font.monospace == "JetBrains Mono");
+    CHECK(result.config.font.size == 15.0F);
     CHECK(result.config.pointer.double_click_ms == 250);
     CHECK(result.config.pointer.double_click_distance == 0);
     CHECK(result.config.window.title_bar == Config::Window::TitleBar::compositor);
@@ -281,6 +284,26 @@ TEST_CASE("window corner radius: 0 to 24, else the default") {
         CAPTURE(value);
         CHECK(result.problems.size() == 1);
         CHECK(result.config.window.corner_radius == 12);
+    }
+}
+
+TEST_CASE("font size: 8 to 32, whole or not, else the default") {
+    const Config defaults;
+    CHECK(defaults.font.size == 13.0F);
+    CHECK(defaults.font.zoom() == 1.0F);
+    for (const std::string value : {"8", "13", "15", "17.5", "32", "32.0"}) {
+        const auto result = parse("[font]\nsize = " + value);
+        CAPTURE(value);
+        CHECK(result.problems.empty());
+        CHECK(result.config.font.size == doctest::Approx(std::stod(value)));
+    }
+    CHECK(parse("[font]\nsize = 26").config.font.zoom() == 2.0F);
+    for (const std::string value : {"7.9", "33", "0", "-13", "nan", "inf", "\"15\"", "true"}) {
+        const auto result = parse("[font]\nsize = " + value);
+        CAPTURE(value);
+        REQUIRE(result.problems.size() == 1);
+        CHECK(contains(result.problems[0], "'font.size' must be"));
+        CHECK(result.config.font.size == 13.0F);
     }
 }
 

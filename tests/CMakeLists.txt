@@ -7,6 +7,7 @@ add_executable(nordend-tests
     column_view_test.cpp
     command_palette_test.cpp
     config_test.cpp
+    content_map_test.cpp
     desktop_palette_test.cpp
     context_menu_test.cpp
     details_view_test.cpp

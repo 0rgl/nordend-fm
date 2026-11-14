@@ -605,6 +605,7 @@ int main(int argc, char** argv) {
              .frame = true,
              .background_opacity = config.window.background_opacity,
              .corner_radius = static_cast<float>(config.window.corner_radius)}};
+        window.set_zoom(config.font.zoom());  // [font] size: the whole interface follows it
         startup.mark("window");
         if (std::string_view parent{pick_args.parent}; parent.starts_with("wayland:")) {
             parent.remove_prefix(8);
@@ -655,8 +656,9 @@ int main(int argc, char** argv) {
         // Files open with their default applications (ROADMAP 6.1); before the config's watcher,
         // which changes its terminal.
         std::unique_ptr<platform::Opener> opener;
-        // config.toml is followed while Nordend runs: the double click, the corners and the
-        // terminal change at once, the fonts at the next start (`config` keeps the ones in use).
+        // config.toml is followed while Nordend runs: the double click, the corners, the text
+        // size and the terminal change at once, the font families at the next start (`config`
+        // keeps the ones in use).
         std::unique_ptr<core::FileWatcher> config_watcher;
         // [terminal] as Environment::configured_terminal wants it: the program, then its options.
         const auto configured_terminal = [](const core::Config& from) {
@@ -670,6 +672,7 @@ int main(int argc, char** argv) {
         const auto apply_config = [&](const core::Config& fresh) {
             window.set_background_opacity(fresh.window.background_opacity);
             window.set_corner_radius(static_cast<float>(fresh.window.corner_radius));
+            window.set_zoom(fresh.font.zoom());
             seat.set_multi_click(std::chrono::milliseconds{fresh.pointer.double_click_ms},
                                  static_cast<float>(fresh.pointer.double_click_distance));
             follow_accent = fresh.icon.follow_accent;
@@ -840,10 +843,8 @@ int main(int argc, char** argv) {
                     .modifiers = [&] { return seat.modifiers(); },
                 });
                 clipboard.set_drop_handler([&](const ui::DropEvent& surface_event) {
-                    ui::DropEvent event = surface_event;
-                    event.x -= window.content_offset();  // surface-local: the frame's margin
-                    event.y -= window.content_offset();
-                    columns->drop_event(event);
+                    // Surface-local: past the frame's margin, then zoomed.
+                    columns->drop_event(window.content_map().to_content(surface_event));
                 });
                 clipboard.set_drag_end_handler([&](bool /*dropped*/) {
                     window.drop_drag_icon();
@@ -903,9 +904,9 @@ int main(int argc, char** argv) {
              .toggle_maximized = [&] { window.toggle_maximized(); },
              .window_menu =
                  [&](float x, float y) {
-                     window.show_window_menu(display.seat(), seat.input_serial(),
-                                             x + window.content_offset(),
-                                             y + window.content_offset());
+                     const ui::ContentMap map = window.content_map();
+                     window.show_window_menu(display.seat(), seat.input_serial(), map.to_surface(x),
+                                             map.to_surface(y));
                  },
              .close = [&] { window.close(); }},
             [&] { window.request_redraw(); },
@@ -940,9 +941,8 @@ int main(int argc, char** argv) {
         std::string last_pointer = "Move the pointer, click the button, scroll";
         seat.set_pointer_handler([&](const ui::PointerEvent& surface_event) {
             using Kind = ui::PointerEvent::Kind;
-            ui::PointerEvent event = surface_event;
-            event.x -= window.content_offset();  // surface-local: the frame's margin
-            event.y -= window.content_offset();
+            // Surface-local: past the frame's margin, then zoomed.
+            const ui::PointerEvent event = window.content_map().to_content(surface_event);
             if (window.client_decorations() && !content_pressed) {
                 if (title_bar.pointer(event)) {
                     if (!std::exchange(bar_has_pointer, true) && columns) {
@@ -1032,7 +1032,7 @@ int main(int argc, char** argv) {
             const bool decorated = window.client_decorations();
             if (decorated) {
                 title_bar.set_state(window.state());
-                title_bar.set_outside_band(window.resize_band());
+                title_bar.set_outside_band(window.content_map().length(window.resize_band()));
                 if (title_bar.integrated()) {
                     title_bar.layout(bounds);  // its buttons go over the header, drawn after it
                 } else {

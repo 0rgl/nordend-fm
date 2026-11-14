@@ -201,3 +201,43 @@ TEST_CASE("window frame: translucent content does not reveal the outline or shad
         }
     }
 }
+
+TEST_CASE("window frame: the zoom enlarges the content, not the margin, corners or shadow") {
+    const std::unique_ptr<ui::Offscreen> gl = offscreen();
+    if (!gl) {
+        return;
+    }
+    ui::FontSystem fonts;
+    ui::Renderer renderer{fonts};
+    const auto draw = [&](float zoom) {
+        renderer.begin_frame(kWidth, kHeight, 1.0F, ui::Color::rgb(0xFF0000), kMargin);
+        renderer.set_zoom(zoom);
+        CHECK(renderer.scale() == zoom);
+        renderer.fill_rect({10.0F, 10.0F, 5.0F, 5.0F}, ui::Color::rgb(0x00FF00));
+        WindowFrame::draw(renderer, true);
+        renderer.end_frame();
+        Pixels pixels;
+        glReadPixels(0, 0, kWidth, kHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels.rgba.data());
+        return pixels;
+    };
+    const Pixels plain = draw(1.0F);
+    const Pixels zoomed = draw(2.0F);
+
+    const auto m = static_cast<std::int32_t>(kMargin);
+    // At zoom 2 the square covers 20 to 30 past the margin; at 1, 10 to 15.
+    CHECK(zoomed.at(m + 21, m + 21) == std::array<std::uint8_t, 4>{0, 255, 0, 255});
+    CHECK(zoomed.at(m + 29, m + 29) == std::array<std::uint8_t, 4>{0, 255, 0, 255});
+    CHECK(zoomed.at(m + 31, m + 31) == std::array<std::uint8_t, 4>{255, 0, 0, 255});
+    CHECK(plain.at(m + 16, m + 16) == std::array<std::uint8_t, 4>{255, 0, 0, 255});
+    // The margin, the rounded corner and the shadow: the very same pixels.
+    for (const auto& [x, y] :
+         std::array<std::array<std::int32_t, 2>, 5>{{{0, 0},
+                                                     {m, m},
+                                                     {m - 1, kHeight / 2},
+                                                     {kWidth / 2, kHeight - m + 6},
+                                                     {kWidth - m, kHeight - m}}}) {
+        CAPTURE(x);
+        CAPTURE(y);
+        CHECK(zoomed.at(x, y) == plain.at(x, y));
+    }
+}

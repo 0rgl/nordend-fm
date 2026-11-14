@@ -432,7 +432,10 @@ README's [What's next](../README.md#whats-next).
   program (a 14 KB subset of the official Tabler font), so they show on any desktop.
 - Sharp at any scale: fractional scaling (1, 1.25, 1.5, 2…), boxes snapped to the pixel grid.
 - Text shaped by HarfBuzz, with font fallback for accents, emoji and CJK. Your font family and
-  monospace font come from `config.toml`.
+  monospace font come from `config.toml`, and so does the text size (`[font] size`, 13 by
+  default): the whole interface grows or shrinks with it in proportion (rows, paddings, icons,
+  the sidebar, Quick Look's text), as sharp as at a fractional scale, while the window's frame and
+  shadow stay as they are; the lists' zoom goes on from there (0rgl's issue #15).
 - **One header, as a modern file manager** (GNOME Files, Finder): Nordend asks the compositor
   to leave the title bar to it (xdg-decoration, client-side). The sidebar runs to the window's
   top; the path row is the header, with back and forward (dimmed when there is nowhere to go;
@@ -482,13 +485,13 @@ second (binary measured 2026-11-14, memory 2026-11-13).
 
 ## Settings
 
-- `~/.config/nordend/config.toml`: font family, monospace font, double-click time and distance,
+- `~/.config/nordend/config.toml`: font family, monospace font, text size, double-click time and distance,
   the icon in the accent ([example](config.example.toml)). `nordend --check-config` reports every problem with its
   line.
 - No settings window: the defaults are the system's fonts (fontconfig's `sans-serif` and
   `monospace`) and the desktop's colours, and the few settings live in the file.
-  `config.toml` is followed while Nordend runs: the double click and the icon change at once, the fonts at
-  the next start; a file with problems keeps the settings in use, with the problems in the log.
+  `config.toml` is followed while Nordend runs: the double click, the text size and the icon change at once,
+  the font families at the next start; a file with problems keeps the settings in use, with the problems in the log.
 - **`nordend --about`**: Nordend's version and commit, the distribution, the kernel, the
   desktop, the versions of Noctalia and Umbriel when they are running (asked of the very
   programs running, never of another copy) and the GPU (from a surfaceless OpenGL context), one

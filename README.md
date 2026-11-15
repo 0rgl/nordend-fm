@@ -51,7 +51,7 @@ animations come from its own renderer.
   the Open and Save dialog of other applications; every action has a key and a click.
 - **Fast.** The first frame in about 75 ms; a raw photo in Quick Look at once, sharp in about
   100 ms. Every figure is measured, with the tool to measure it again ([Numbers](#numbers)).
-- **Light.** A 3.6 MB binary, about 24 MB of memory, no CPU at all while nothing moves.
+- **Light.** A 3.7 MB binary, about 24 MB of memory, no CPU at all while nothing moves.
 - **Safe.** Files that come from outside are read in a small helper process caged by Nordend
   (seccomp and landlock: no files, no network, no programs): a broken or hostile file costs at
   most its preview. Nothing is overwritten without asking, nothing half-copied under a real name.

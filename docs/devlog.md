@@ -4,6 +4,33 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — The "may run" dot (issue #17, the author's idea)
+
+**Done**
+- `Folder::type_runs` (a regular file of a type that runs: `application/x-executable` and its
+  subclasses, `x-sharedlib`, or not known yet) and `Folder::runs_as_program` (that, and `u+x`,
+  never in the trash); `Browser::running_targets` uses `type_runs` too.
+- `draw_run_mark` (`draw_helpers`): a dot at the icon's bottom right, a quarter of itself inside
+  the corner, 32 % of the icon clamped to 6-12 px, ringed 1.5 px in the colour under it; the
+  theme's primary, the icon's colour on a filled (selected) row. Drawn in the columns, the
+  details and the grid (icons only: programs have no thumbnails).
+- The info pane: "Runs as program: Yes/No" for a file of a type that runs.
+- It follows the bit live (inotify's `IN_ATTRIB` reloads the entry): Allow, Stop and Ctrl+Z
+  show it at once.
+
+**Decisions** (with the author)
+- "May run", not "running": Nordend does not follow the programs it starts.
+- A dot or nothing, never red against green (about 8 % of men tell them apart badly), and the
+  same said in words in the info pane.
+- Only on types that run: files from a FAT stick (all 0777) would otherwise all wear one; no dot
+  on folders (their execute bit means "can be entered").
+
+**Tested by the author** (Umbriel): the dot on a script with its bit, none on the AppImage
+without it nor on a text file with 755; Allow showed it at once, Ctrl+Z and Ctrl+Shift+Z took it
+away and back; the same in the grid and the columns; "Runs as program" in the info pane.
+
+---
+
 ## 2026-11-15 — Programs: allowed to run, and started (issue #17)
 
 **Done** (Evergaster's issue #17, shape agreed on the issue, safety first)

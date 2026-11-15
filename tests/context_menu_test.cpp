@@ -624,6 +624,13 @@ TEST_CASE(
     REQUIRE(run_until(f.loop, [&] { return listed_mode() == 0744; }));
     CHECK(mode() == 0744U);
     CHECK(f.browser.status_bar().message() == "“Tool.AppImage” can run as a program");
+    const auto entry = [&f](const std::string& name) {
+        const auto& entries = f.folder()->entries();
+        const auto it = std::ranges::find(entries, name, &nordend::fs::Entry::name);
+        REQUIRE(it != entries.end());
+        return *it;
+    };
+    CHECK(f.folder()->runs_as_program(entry("Tool.AppImage")));  // the dot on its icon
 
     // Now it may: "Stop"; undone and redone with the keys.
     CHECK(f.press(key(XKB_KEY_Menu)));
@@ -651,6 +658,9 @@ TEST_CASE(
     CHECK(f.press(key(XKB_KEY_Menu)));
     CHECK(label("running") == "Stop Running as Program");
     f.menu().close();
+    CHECK_FALSE(f.folder()->runs_as_program(entry("a.txt")));  // text: no dot, even with its bit
+    CHECK(f.folder()->type_runs(entry("Tool.AppImage")));
+    CHECK_FALSE(f.folder()->type_runs(entry("sub")));
 
     // With a folder among them: never.
     f.select({"Tool.AppImage", "sub"});

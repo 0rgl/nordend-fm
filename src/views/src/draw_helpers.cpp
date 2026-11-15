@@ -36,4 +36,19 @@ std::vector<ui::ColorRun> colour_runs(std::span<const text::Span> spans,
     return runs;
 }
 
+void draw_run_mark(ui::Renderer& renderer, float x, float y, float size, ui::Color dot,
+                   ui::Color behind) {
+    const float ring = 1.5F;
+    const float diameter = std::clamp(size * 0.32F, 6.0F, 12.0F);
+    // Its centre a quarter of itself inside the icon's corner: on the edge of the glyph, not on it.
+    const float centre_x = x + size - (diameter / 4.0F);
+    const float centre_y = y + size - (diameter / 4.0F);
+    const float outer = diameter + (2.0F * ring);
+    renderer.draw_box({centre_x - (outer / 2.0F), centre_y - (outer / 2.0F), outer, outer},
+                      {.fill = dot,
+                       .radius = ui::Corners::all(outer / 2.0F),
+                       .border_width = ring,
+                       .border = behind});
+}
+
 }  // namespace nordend::views

@@ -364,6 +364,12 @@ void GridView::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
                 icons.draw(renderer, fs::icon_name(*mime_, typed),
                            x + ((cell_width_ - shown) / 2.0F),
                            y + kIconTop + ((icon - shown) / 2.0F), shown, style.icon);
+                if (folder_->runs_as_program(entry)) {
+                    draw_run_mark(renderer, x + ((cell_width_ - shown) / 2.0F),
+                                  y + kIconTop + ((icon - shown) / 2.0F), shown,
+                                  style.fill ? style.icon : palette.primary,
+                                  style.fill.value_or(palette.surface));
+                }
             }
             if (edit_ != nullptr && edit_->holds(*folder_, entry)) {
                 // One line across the cell, where the name starts.

@@ -398,6 +398,11 @@ void DetailsView::draw(ui::Renderer& renderer, const ui::Rect& bounds,
         const float name_left = layout_.left.at(index(Field::name)) + kCellPadding;
         icons.draw(renderer, fs::icon_name(*mime_, typed), name_left,
                    y + ((size_.row - size_.icon) / 2.0F), size_.icon, style.icon);
+        if (folder_->runs_as_program(entry)) {
+            draw_run_mark(renderer, name_left, y + ((size_.row - size_.icon) / 2.0F), size_.icon,
+                          style.fill ? style.icon : palette.primary,
+                          style.fill.value_or(palette.surface));
+        }
         const float name_x = name_left + size_.icon + kIconGap;
         const float name_room = layout_.left.at(index(Field::name)) +
                                 layout_.width.at(index(Field::name)) - kCellPadding - name_x;

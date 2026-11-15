@@ -113,6 +113,11 @@ void Column::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::P
         typed.mime = folder_->mime_of(entry);
         icons.draw(renderer, fs::icon_name(folder_->mime(), typed), bounds.x + kIconX,
                    y + ((size_.row - size_.icon) / 2.0F), size_.icon, style.icon);
+        if (folder_->runs_as_program(entry)) {
+            draw_run_mark(renderer, bounds.x + kIconX, y + ((size_.row - size_.icon) / 2.0F),
+                          size_.icon, style.fill ? style.icon : palette.primary,
+                          style.fill.value_or(palette.surface));
+        }
         float name_right = bounds.right() - kRightPadding;
         if (entry.is_directory()) {
             name_right -= kChevronSize + 6.0F;

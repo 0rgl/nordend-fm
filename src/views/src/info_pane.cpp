@@ -446,6 +446,10 @@ void InfoPane::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
         }
     } else {
         out.row("Size", format_size(single->size));
+        // The dot on the icon, in words (issue #17): for a file of a type that runs.
+        if (!folder.is_trash() && folder.type_runs(*single)) {
+            out.row("Runs as program", folder.runs_as_program(*single) ? "Yes" : "No");
+        }
     }
     if (photo != nullptr && photo->width > 0) {
         out.row("Dimensions", std::format("{} × {}", photo->width, photo->height));

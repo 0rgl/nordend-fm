@@ -1308,9 +1308,6 @@ Browser::RunningTargets Browser::running_targets(const Folder& folder) const {
         return found;
     }
     const std::vector<std::string> names = targets(folder);
-    const fs::MimeDatabase& mime = folder.mime();
-    const fs::MimeId executable = mime.find("application/x-executable");
-    const fs::MimeId library = mime.find("application/x-sharedlib");
     bool all = true;
     bool any = false;
     bool runnable = true;
@@ -1323,9 +1320,7 @@ Browser::RunningTargets Browser::running_targets(const Folder& folder) const {
         const bool runs = (entry.mode & S_IXUSR) != 0;
         all = all && runs;
         any = any || runs;
-        const fs::MimeId type = folder.mime_of(entry);
-        runnable = runnable && (type == fs::kUnknownMime || mime.is_a(type, executable) ||
-                                mime.is_a(type, library));
+        runnable = runnable && folder.type_runs(entry);
     }
     // Folders among them: not this entry (a folder's execute bit means something else).
     if (found.files.size() != names.size() || (!any && !runnable)) {

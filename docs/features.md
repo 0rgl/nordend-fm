@@ -276,7 +276,11 @@ README's [What's next](../README.md#whats-next).
     a type not known yet), or **Stop Running as Program** when every selected file may run
     already (any file with an execute bit, such as photos from a FAT stick): `u+x` only to
     allow, every `x` away to stop; never with a folder among them, in the trash or the file
-    chooser; in the command palette too, and undone with Ctrl+Z (issue #17);
+    chooser; in the command palette too, and undone with Ctrl+Z (issue #17); a file that may
+    run as a program wears **a small dot** at its icon's bottom right, in every view (the
+    theme's accent; the icon's colour on a selected row), said in words in the info pane ("Runs
+    as program: Yes/No"): a dot or none, never red against green, so it reads without colours;
+    only on files of a type that runs, so photos from a FAT stick (all 0777) get none;
     on a folder's empty space: New Folder, New File, Paste, Add to Sidebar, Open in Terminal,
     Copy Path; what cannot be done now is dimmed,
     and each item shows its shortcut;

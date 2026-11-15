@@ -25,7 +25,7 @@ std::filesystem::path anywhere(std::string_view program) { return std::filesyste
 constexpr std::string_view kEngine = R"([engine]
 name = "test"
 program = "nordend-test-engine"
-protocol = 4
+protocol = 5
 )";
 
 std::string manifest(std::string_view families) {
@@ -82,13 +82,13 @@ engines::Engine engine(std::string name, std::vector<engines::Family> families) 
 
 }  // namespace
 
-TEST_CASE("engines: the base engine shows what may_show listed before, and text") {
+TEST_CASE("engines: the base engine shows what may_show listed before, text and archives") {
     const std::shared_ptr<const engines::Registry> registry = engines::installed();
     REQUIRE(registry->engines().size() == 1);
     const engines::Engine& base = registry->engines().front();
     CHECK(base.manifest.name == "base");
     CHECK(base.manifest.program == "nordend-preview");
-    REQUIRE(base.manifest.families.size() == 2);
+    REQUIRE(base.manifest.families.size() == 3);
     const engines::Family& family = base.manifest.families.front();
     CHECK(family.name == "image");
     CHECK(family.shows == engines::Shows::picture);
@@ -105,13 +105,14 @@ TEST_CASE("engines: the base engine shows what may_show listed before, and text"
         CHECK(registry->find(*mime, id) == &family);
     }
     CHECK(registry->engine_of(family) == &base);
-    for (const std::string_view type : {"application/pdf", "image/heic", "application/zip"}) {
+    for (const std::string_view type :
+         {"application/pdf", "image/heic", "application/x-7z-compressed"}) {
         CAPTURE(type);
         CHECK(registry->find(*mime, mime->find(type)) == nullptr);
     }
 
     // Text: text/plain and every type under it, as the text provider took them before.
-    const engines::Family& text = base.manifest.families.back();
+    const engines::Family& text = base.manifest.families[1];
     CHECK(text.name == "text");
     CHECK(text.shows == engines::Shows::text);
     CHECK(text.subclasses);
@@ -127,6 +128,19 @@ TEST_CASE("engines: the base engine shows what may_show listed before, and text"
         CHECK(registry->find(*mime, id) == &text);
     }
     CHECK(registry->engine_of(text) == &base);
+
+    // Archives: exactly the four types read (0.9.0), not their subclasses (.docx, .jar...).
+    const engines::Family& archives = base.manifest.families.back();
+    CHECK(archives.name == "archive");
+    CHECK(archives.shows == engines::Shows::archive);
+    CHECK_FALSE(archives.subclasses);
+    for (const std::string_view type : {"application/zip", "application/x-tar",
+                                        "application/x-compressed-tar", "application/gzip"}) {
+        CAPTURE(type);
+        const nordend::fs::MimeId id = mime->find(type);
+        REQUIRE(id != nordend::fs::kUnknownMime);
+        CHECK(registry->find(*mime, id) == &archives);
+    }
 }
 
 TEST_CASE("engines: a manifest is read whole") {
@@ -173,18 +187,18 @@ TEST_CASE("engines: a manifest Nordend cannot trust is refused, saying where") {
           std::string::npos);
     // Another protocol, a path for a program, a name that is not one.
     CHECK(refused("[engine]\nname = \"x\"\nprogram = \"p\"\nprotocol = 1\n" + family)
-              .find("protocol 1, Nordend speaks 4") != std::string::npos);
-    CHECK(refused("[engine]\nname = \"x\"\nprotocol = 4\nprogram = \"../../bin/sh\"\n" + family)
+              .find("protocol 1, Nordend speaks 5") != std::string::npos);
+    CHECK(refused("[engine]\nname = \"x\"\nprotocol = 5\nprogram = \"../../bin/sh\"\n" + family)
               .find("must be a file name") != std::string::npos);
-    CHECK(refused("[engine]\nname = \"x\"\nprotocol = 4\nprogram = \"..\"\n" + family)
+    CHECK(refused("[engine]\nname = \"x\"\nprotocol = 5\nprogram = \"..\"\n" + family)
               .find("must be a file name") != std::string::npos);
-    CHECK(refused("[engine]\nname = \"Big One\"\nprotocol = 4\nprogram = \"p\"\n" + family)
+    CHECK(refused("[engine]\nname = \"Big One\"\nprotocol = 5\nprogram = \"p\"\n" + family)
               .find("is not [a-z0-9-]") != std::string::npos);
     CHECK(refused("[engine]\nname = \"x\"\nprotocol = \"3\"\nprogram = \"p\"\n" + family)
               .find("whole number") != std::string::npos);
     // Families: what they show, their types, booleans.
     CHECK(refused(manifest("[[family]]\nname = \"f\"\nshows = \"video\"\nmime = [\"a/b\"]\n"))
-              .find("'shows' must be \"picture\" or \"text\"") != std::string::npos);
+              .find("'shows' must be \"picture\", \"text\" or \"archive\"") != std::string::npos);
     CHECK(refused(manifest("[[family]]\nname = \"f\"\nshows = \"picture\"\nmime = []\n"))
               .find("not empty") != std::string::npos);
     CHECK(refused(manifest("[[family]]\nname = \"f\"\nshows = \"picture\"\nmime = [\"png\"]\n"))
@@ -242,17 +256,17 @@ TEST_CASE("engines: a directory of manifests, the broken ones skipped") {
     const nordend::test::TempDir dir;
     const std::string png =
         "\n[[family]]\nname = \"f\"\nshows = \"picture\"\nmime = [\"image/png\"]\n";
-    dir.write("b-second.toml", "[engine]\nname = \"second\"\nprogram = \"two\"\nprotocol = 4\n" +
+    dir.write("b-second.toml", "[engine]\nname = \"second\"\nprogram = \"two\"\nprotocol = 5\n" +
                                    std::string{"\n[[family]]\nname = \"f\"\nshows = \"picture\"\n"
                                                "mime = [\"image/png\", \"image/gif\"]\n"});
     dir.write("a-first.toml",
-              "[engine]\nname = \"first\"\nprogram = \"one\"\nprotocol = 4\n" + png);
+              "[engine]\nname = \"first\"\nprogram = \"one\"\nprotocol = 5\n" + png);
     dir.write("c-broken.toml", "[engine]\nname = \"broken\"\n");
     dir.write("d-missing.toml",
-              "[engine]\nname = \"missing\"\nprogram = \"absent\"\nprotocol = 4\n" +
+              "[engine]\nname = \"missing\"\nprogram = \"absent\"\nprotocol = 5\n" +
                   std::string{"\n[[family]]\nname = \"f\"\nshows = \"picture\"\nmime = "
                               "[\"image/jxl\"]\n"});
-    dir.write("e-third.toml", "[engine]\nname = \"third\"\nprogram = \"three\"\nprotocol = 4\n" +
+    dir.write("e-third.toml", "[engine]\nname = \"third\"\nprogram = \"three\"\nprotocol = 5\n" +
                                   std::string{"\n[[family]]\nname = \"f\"\nshows = \"picture\"\n"
                                               "mime = [\"image/webp\"]\n"});
     dir.write("notes.txt", "not a manifest");

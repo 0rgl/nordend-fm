@@ -28,3 +28,8 @@ endforeach()
 add_executable(nordend-fuzz-text fuzz_text.cpp)
 target_link_libraries(nordend-fuzz-text PRIVATE nordend::formats::text nordend::warnings)
 target_link_options(nordend-fuzz-text PRIVATE -fsanitize=fuzzer)
+
+# Archives (0.9.0): seeds are tests/data/archive (zip, tar, tar.gz, .gz).
+add_executable(nordend-fuzz-archive fuzz_archive.cpp)
+target_link_libraries(nordend-fuzz-archive PRIVATE nordend::formats::archive nordend::warnings)
+target_link_options(nordend-fuzz-archive PRIVATE -fsanitize=fuzzer)

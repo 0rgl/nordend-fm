@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -12,12 +13,16 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 #include <doctest/doctest.h>
 
+#include "nordend/archive/archive.hpp"
+#include "nordend/formats/archive/archive.hpp"
 #include "nordend/formats/image/load.hpp"
 #include "nordend/formats/image/photo.hpp"
 #include "nordend/formats/text/read.hpp"
@@ -378,4 +383,93 @@ TEST_CASE("helpers: a text's payload travels whole, and spans out of place are r
                                               2, true, {}, out));
     CHECK_FALSE(protocol::decode_text_payload(payload, 2, 13, 2, true, {}, out));  // lines
     CHECK_FALSE(protocol::decode_text_payload(payload, 3, 13, 2, true, {.max_line_bytes = 5}, out));
+}
+
+TEST_CASE("helpers: the helper lists and reads archives in its cage as this process does") {
+    isolate::Helpers helpers{real(1)};
+    const fs::path archives = fs::path{NORDEND_TEST_DATA} / "archive";
+    for (const char* name :
+         {"basic.zip", "aes.zip", "symlink.zip", "gnu.tar", "pax.tar.gz", "notes.txt.gz"}) {
+        CAPTURE(name);
+        const nordend::archive::Listing there = helpers.list_archive(archives / name, {});
+        const int fd = ::open((archives / name).c_str(), O_RDONLY | O_CLOEXEC);
+        REQUIRE(fd >= 0);
+        const nordend::archive::Listing here = nordend::formats::archive::list(fd, {});
+        CHECK(there.failure == here.failure);
+        CHECK(there.format == here.format);
+        CHECK(there.entries == here.entries);
+        for (const nordend::archive::Entry& entry : there.entries) {
+            CAPTURE(entry.path);
+            const int out_there = ::memfd_create("there", MFD_CLOEXEC);
+            const int out_here = ::memfd_create("here", MFD_CLOEXEC);
+            const nordend::archive::Read read_there = helpers.read_archive_entry(
+                archives / name, there.format, entry, out_there, 1 << 20);
+            const nordend::archive::Read read_here =
+                nordend::formats::archive::read_entry(fd, here.format, entry, out_here, 1 << 20);
+            CHECK(read_there.failure == read_here.failure);
+            CHECK(read_there.detail == read_here.detail);
+            CHECK(read_there.bytes == read_here.bytes);
+            struct stat a{};
+            struct stat b{};
+            REQUIRE(::fstat(out_there, &a) == 0);
+            REQUIRE(::fstat(out_here, &b) == 0);
+            CHECK(a.st_size == b.st_size);
+            ::close(out_there);
+            ::close(out_here);
+        }
+        ::close(fd);
+    }
+    // Not an archive: said, nothing else.
+    const nordend::archive::Listing text = helpers.list_archive(kData / "blocks.png", {});
+    CHECK(text.failure == nordend::archive::Failure::not_archive);
+    CHECK(helpers.running() == 1);
+}
+
+TEST_CASE("helpers: an archive's entries travel whole, and nonsense is refused") {
+    namespace protocol = nordend::isolate::protocol;
+    std::vector<nordend::archive::Entry> entries(3);
+    entries[0].path = "docs/";
+    entries[0].type = nordend::archive::Type::directory;
+    entries[1].path = "docs/a.txt";
+    entries[1].size = 13;
+    entries[1].packed = 9;
+    entries[1].mode = 0644;
+    entries[1].mtime = 1794744000;
+    entries[1].locator = 1234;
+    entries[2].path = "link";
+    entries[2].link = "docs/a.txt";
+    entries[2].type = nordend::archive::Type::symlink;
+    entries[2].unreadable = nordend::archive::Unreadable::encrypted;
+    const std::vector<std::byte> payload = protocol::encode_archive_payload(entries);
+    CHECK(payload.size() % 8 == 0);
+    const auto back = protocol::decode_archive_payload(payload, 3, {});
+    REQUIRE(back.has_value());
+    CHECK(back.value_or(std::vector<nordend::archive::Entry>{}) == entries);
+
+    CHECK_FALSE(protocol::decode_archive_payload(payload, 2, {}).has_value());  // bytes left over
+    CHECK_FALSE(protocol::decode_archive_payload(payload, 4, {}).has_value());  // too few
+    CHECK_FALSE(
+        protocol::decode_archive_payload(std::span{payload}.first(payload.size() - 8), 3, {})
+            .has_value());
+    CHECK_FALSE(
+        protocol::decode_archive_payload(payload, 3, {.max_entries = 2, .max_path_bytes = 4096})
+            .has_value());
+    CHECK_FALSE(
+        protocol::decode_archive_payload(payload, 3, {.max_entries = 10, .max_path_bytes = 5})
+            .has_value());
+    std::vector<std::byte> wrong = payload;
+    wrong[0] = std::byte{9};  // no such type
+    CHECK_FALSE(protocol::decode_archive_payload(wrong, 3, {}).has_value());
+
+    nordend::archive::Format format{};
+    const protocol::ArchiveReadRequest request =
+        protocol::encode_archive_read(nordend::archive::Format::tar_gzip, entries[1], 4096);
+    const auto entry = protocol::decode_archive_read(request, format);
+    REQUIRE(entry.has_value());
+    CHECK(format == nordend::archive::Format::tar_gzip);
+    CHECK(entry.value_or(nordend::archive::Entry{}).locator == 1234);
+    CHECK(entry.value_or(nordend::archive::Entry{}).size == 13);
+    protocol::ArchiveReadRequest bad = request;
+    bad.format = 7;
+    CHECK_FALSE(protocol::decode_archive_read(bad, format).has_value());
 }

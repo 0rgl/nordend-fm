@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 
+#include "nordend/archive/archive.hpp"
 #include "nordend/engines/engines.hpp"
 #include "nordend/picture/load.hpp"
 #include "nordend/picture/photo_info.hpp"
@@ -58,6 +59,15 @@ public:
     // The text of request.path, read by a helper. Thread-safe.
     [[nodiscard]] text::Loaded load_text(const text::LoadRequest& request);
 
+    // An archive's entries, and one entry's bytes written to out, by a helper; the time allowed
+    // grows with the archive (a tar.gz is inflated from its start). Thread-safe.
+    [[nodiscard]] archive::Listing list_archive(const std::filesystem::path& path,
+                                                const archive::Limits& limits);
+    [[nodiscard]] archive::Read read_archive_entry(const std::filesystem::path& path,
+                                                   archive::Format format,
+                                                   const archive::Entry& entry, int out,
+                                                   std::uint64_t max_bytes);
+
     // Helpers started and not yet known to be gone (tests).
     [[nodiscard]] std::size_t running() const;
 
@@ -75,12 +85,14 @@ private:
     void close_idle();           // the reaper thread: closes and waits for helpers idle too long
     [[nodiscard]] std::optional<Helper> spawn() const;
     // One request and its reply; again: the helper had left (retry in a new one).
-    Outcome exchange(Helper helper, std::span<const std::byte> request, std::span<const int> fds,
-                     protocol::Packet& reply, std::string& why) const;
+    static Outcome exchange(Helper helper, std::span<const std::byte> request,
+                            std::span<const int> fds, protocol::Packet& reply, std::string& why,
+                            std::chrono::milliseconds timeout);
     // The request to a helper (a new one if it had left), its reply handed to accept; false with
     // why when no helper answered in a way accept took.
     bool run(std::span<const std::byte> request, std::span<const int> fds,
-             const std::function<bool(protocol::Packet&, std::string&)>& accept, std::string& why);
+             const std::function<bool(protocol::Packet&, std::string&)>& accept, std::string& why,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
     HelperOptions options_;
     mutable std::mutex mutex_;
@@ -96,8 +108,8 @@ private:
 // engine through its own helpers (options.program is set from the engine): pictures to the first
 // engine with a family showing pictures (load_picture names no type to choose by), the
 // information to it when a family of it has info, texts to the first engine with a family
-// showing text. A warning in the log for each that no engine makes. The helpers live as long as
-// the loaders set.
+// showing text, archives to the first with a family showing archives. A warning in the log for each
+// that no engine makes. The helpers live as long as the loaders set.
 void use_engines(const engines::Registry& registry, HelperOptions options = {});
 
 }  // namespace nordend::isolate

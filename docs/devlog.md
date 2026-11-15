@@ -4,6 +4,49 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Archives (0.9.0), step 2: the engine reads zip, tar, tar.gz and .gz
+
+**Done**
+- `src/archive` (Nordend's side): plain data only (`Entry`, `Listing`, `Failure`, `Limits`) and
+  the hooks `list_archive` / `read_archive_entry`, set by `isolate::use_engines`. Nordend never
+  reads an archive itself.
+- `src/formats/archive` (the engine, in the cage): the format from the first bytes.
+  - zip: the end record (ZIP64 too; a self-extractor's prefix found from where the directory
+    really is), the central directory read whole (512 MiB at most) and each entry's local header
+    checked against it (same name); entries that share bytes ("better zip bomb"), or reach into
+    the directory, refuse the archive; stored and deflated entries read, their size and CRC-32
+    checked (a deflated entry giving more than it says is damaged); encrypted (flag, AES method
+    99) and other methods listed as such, never read; Unix modes and symlinks (targets read, 4
+    KiB at most); times from the Unix extra field, NTFS's, else DOS; names in UTF-8, Info-ZIP's
+    Unicode extra field, else CP437 converted; `\` as `/` for DOS/NTFS hosts.
+  - tar: ustar (prefix), GNU long names (`L`, `K`), pax (`path`, `linkpath`, `size`, `mtime`;
+    GNU sparse → other), base-256 numbers, either checksum; damage keeps the entries before it.
+  - tar.gz: the same reader over the inflater (gzip members one after the other); a single .gz
+    is one entry, named from its header (only the last part of the name) or, without one, the
+    archive's name without `.gz`.
+  - Every read goes to a sink that refuses more than allowed; zlib inflates.
+- Protocol 5 (`engines::kProtocol`, `base.toml`): `archive_list` (limits in, entries back in a
+  sealed memfd, each checked: types, lengths, limits, nothing left over) and `archive_read` (the
+  archive's descriptor and one to write to; the entry back by its locator). `shows = "archive"`
+  in manifests; the base engine's archive family: `application/zip`, `application/x-tar`,
+  `application/x-compressed-tar`, `application/gzip`. A request's time grows with the archive:
+  3 s and a second per 40 MB read, an hour at most.
+- Tests (16): archives made by GNU tar 1.35, gzip, 7-Zip and Python
+  (`tests/data/archive/make-fixtures.sh` makes them again); hostile ones made byte by byte
+  (shared bytes, a lying size, a wrong CRC, cut at every 7th byte, a broken tar header, a 4 GiB
+  claim, limits); the real helper in its cage against this process, entry by entry; the payload
+  and read request both ways and refused when wrong.
+- Fuzzing: one target, `nordend-fuzz-archive` (lists, then reads every entry, 1 MiB each), seeds
+  `tests/data/archive`: 10 minutes, 22.9 million runs, no crash, timeout or leak.
+
+**Decisions**
+- Encrypted archives are recognised and said, never opened: no password, no cryptography of our
+  own (ROADMAP "Da decidere").
+- One fuzz target instead of three: the format is chosen from the content, and the seeds reach
+  every reader.
+
+---
+
 ## 2026-11-15 — Archives (0.9.0), step 1: `.iso` mounted through udisks2
 
 **Done**

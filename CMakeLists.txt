@@ -115,6 +115,7 @@ add_subdirectory(src/theme)     # Noctalia palette, hot reload
 add_subdirectory(src/fs)        # directory loading and sorting
 add_subdirectory(src/engines)   # engines' manifests: who shows which type (3a)
 add_subdirectory(src/text)      # text files: the Text type, the loader (3b)
+add_subdirectory(src/archive)   # archives: their entries as plain data (0.9.0)
 add_subdirectory(src/picture)   # pictures: Image, turning, scaling, the cache's PNG, the loader
 add_subdirectory(src/formats)   # the families of files read in the helper (image today)
 add_subdirectory(src/thumbs)    # freedesktop thumbnail cache

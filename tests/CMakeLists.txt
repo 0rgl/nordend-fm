@@ -3,6 +3,7 @@ add_executable(nordend-tests
     about_test.cpp
     actions_test.cpp
     app_icon_test.cpp
+    archive_test.cpp
     breadcrumb_test.cpp
     clipboard_test.cpp
     column_view_test.cpp
@@ -73,14 +74,15 @@ add_executable(nordend-tests
     undo_test.cpp
     worker_pool_test.cpp
     xcursor_test.cpp)
-target_link_libraries(nordend-tests PRIVATE nordend::core nordend::theme nordend::fs nordend::views nordend::picture nordend::formats nordend::formats::image nordend::formats::text nordend::text nordend::thumbs nordend::preview nordend::engines nordend::isolate nordend::platform nordend::portal doctest::doctest nordend::warnings)
+target_link_libraries(nordend-tests PRIVATE nordend::core nordend::theme nordend::fs nordend::views nordend::picture nordend::formats nordend::formats::image nordend::formats::text nordend::formats::archive nordend::archive nordend::text nordend::thumbs nordend::preview nordend::engines nordend::isolate nordend::platform nordend::portal doctest::doctest nordend::warnings)
 
 # The helper protocol's private header, for its tests; the image family's private readers (TIFF,
 # DNG, lossless JPEG), for theirs.
 target_include_directories(nordend-tests PRIVATE ${PROJECT_SOURCE_DIR}/src/isolate/src
                                                  ${PROJECT_SOURCE_DIR}/src/formats/image/src)
-# BusLoop's and the portal's tests talk to a private dbus-daemon themselves.
-target_link_libraries(nordend-tests PRIVATE PkgConfig::SDBUSCPP)
+# BusLoop's and the portal's tests talk to a private dbus-daemon themselves; the archive tests
+# deflate their own zips with zlib.
+target_link_libraries(nordend-tests PRIVATE PkgConfig::SDBUSCPP PkgConfig::ZLIB)
 
 # LibRaw, when installed, as the reference for the DNG reader's values (tests only: never linked
 # into Nordend or its helper).
@@ -108,7 +110,7 @@ endif()
 add_executable(nordend-fake-preview fake_preview_helper.cpp
                                     ${PROJECT_SOURCE_DIR}/src/isolate/src/protocol.cpp)
 target_include_directories(nordend-fake-preview PRIVATE ${PROJECT_SOURCE_DIR}/src/isolate/src)
-target_link_libraries(nordend-fake-preview PRIVATE nordend::picture nordend::text nordend::warnings)
+target_link_libraries(nordend-fake-preview PRIVATE nordend::picture nordend::text nordend::archive nordend::warnings)
 
 # The sandbox probe: the preview helper's cage, then one forbidden (or allowed) thing.
 add_executable(nordend-sandbox-probe sandbox_probe.cpp

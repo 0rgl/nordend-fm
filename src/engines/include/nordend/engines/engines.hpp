@@ -29,7 +29,7 @@
 //
 //   [[family]]
 //   name = "image"
-//   shows = "picture"              # or "text"
+//   shows = "picture"              # or "text", "archive"
 //   info = true                    # what the file says about itself (EXIF)
 //   thumbnails = true
 //   mime = ["image/png", "image/jpeg"]
@@ -38,12 +38,13 @@ namespace nordend::engines {
 
 // The protocol Nordend speaks with its engines (isolate/src/protocol.hpp): an engine whose
 // manifest names another is skipped. Raised with every change to the messages.
-inline constexpr std::int64_t kProtocol = 4;
+inline constexpr std::int64_t kProtocol = 5;
 
 // What a family gives back for Nordend to draw.
 enum class Shows : std::uint8_t {
     picture,  // RGBA pixels (picture::Loaded)
     text,     // lines of text (text::Loaded)
+    archive,  // an archive's entries, and their bytes (archive::Listing)
 };
 
 struct Family {

@@ -280,12 +280,12 @@ int Helpers::discard(Helper helper) {
 
 Helpers::Outcome Helpers::exchange(Helper helper, std::span<const std::byte> request,
                                    std::span<const int> fds, protocol::Packet& reply,
-                                   std::string& why) const {
+                                   std::string& why, std::chrono::milliseconds timeout) {
     if (!protocol::send_packet(helper.socket, request, fds)) {
         return Outcome::again;  // it had already left
     }
     pollfd watched{.fd = helper.socket, .events = POLLIN, .revents = 0};
-    const auto deadline = std::chrono::steady_clock::now() + options_.timeout;
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
     int ready = 0;
     while (true) {
         const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -297,8 +297,7 @@ Helpers::Outcome Helpers::exchange(Helper helper, std::span<const std::byte> req
         break;
     }
     if (ready == 0) {
-        why = "the preview helper took longer than " + std::to_string(options_.timeout.count()) +
-              " ms";
+        why = "the preview helper took longer than " + std::to_string(timeout.count()) + " ms";
         return Outcome::failed;
     }
     std::optional<protocol::Packet> packet = protocol::receive_packet(helper.socket);
@@ -320,7 +319,7 @@ Helpers::Outcome Helpers::exchange(Helper helper, std::span<const std::byte> req
 
 bool Helpers::run(std::span<const std::byte> request, std::span<const int> fds,
                   const std::function<bool(protocol::Packet&, std::string&)>& accept,
-                  std::string& why) {
+                  std::string& why, std::optional<std::chrono::milliseconds> timeout) {
     using Clock = std::chrono::steady_clock;
     const auto ms = [](Clock::time_point from, Clock::time_point to) {
         return std::chrono::duration<double, std::milli>(to - from).count();
@@ -338,7 +337,8 @@ bool Helpers::run(std::span<const std::byte> request, std::span<const int> fds,
             return false;
         }
         protocol::Packet reply;
-        Outcome outcome = exchange(*helper, request, fds, reply, why);
+        Outcome outcome =
+            exchange(*helper, request, fds, reply, why, timeout.value_or(options_.timeout));
         if (outcome == Outcome::done) {
             const Clock::time_point answered = Clock::now();
             const bool accepted = accept(reply, why);
@@ -503,6 +503,132 @@ text::Loaded Helpers::load_text(const text::LoadRequest& request) {
     return result;  // moved: a conditional expression here would copy every line
 }
 
+namespace {
+
+constexpr std::uint64_t kArchiveBytesPerMs = 40'000;
+constexpr std::uint64_t kArchiveMostMs = std::uint64_t{3600} * 1000;
+
+// The time an archive's work may take: the usual one, and a second for every 40 MB read (the
+// archive, and more_bytes written), an hour at most.
+std::chrono::milliseconds archive_timeout(std::chrono::milliseconds usual, int file,
+                                          std::uint64_t more_bytes) {
+    struct stat info{};
+    const std::uint64_t size = ::fstat(file, &info) == 0 && info.st_size > 0
+                                   ? static_cast<std::uint64_t>(info.st_size)
+                                   : 0;
+    const std::uint64_t bytes = more_bytes > UINT64_MAX - size ? UINT64_MAX : size + more_bytes;
+    return usual + std::chrono::milliseconds{static_cast<std::int64_t>(
+                       std::min(bytes / kArchiveBytesPerMs, kArchiveMostMs))};
+}
+
+archive::Listing listing_failure(archive::Failure failure, std::string detail) {
+    return {.format = archive::Format::unknown,
+            .failure = failure,
+            .detail = std::move(detail),
+            .entries = {}};
+}
+
+}  // namespace
+
+archive::Listing Helpers::list_archive(const std::filesystem::path& path,
+                                       const archive::Limits& limits) {
+    const int file = open_regular(path);
+    if (file < 0) {
+        return listing_failure(archive::Failure::unreadable, errno_text());
+    }
+    const protocol::ArchiveListRequest message{.magic = protocol::kRequestMagic,
+                                               .kind = protocol::Kind::archive_list,
+                                               .max_entries = limits.max_entries,
+                                               .max_path_bytes = limits.max_path_bytes};
+    archive::Listing result;
+    const auto accept = [&](protocol::Packet& reply, std::string& why) {
+        protocol::ArchiveListResponse response;
+        if (reply.length < sizeof(response)) {
+            why = "the preview helper said something else";
+            return false;
+        }
+        std::memcpy(&response, reply.bytes.data(), sizeof(response));
+        if (response.magic != protocol::kArchiveListMagic ||
+            reply.length != sizeof(response) + response.detail_length ||
+            response.failure > static_cast<std::uint8_t>(archive::Failure::unreadable) ||
+            response.format > static_cast<std::uint8_t>(archive::Format::gzip) ||
+            response.payload_bytes > protocol::kMaxArchivePayload ||
+            (response.entries > 0) != (reply.fds[0] >= 0)) {
+            why = "the preview helper said something else";
+            return false;
+        }
+        result.failure = static_cast<archive::Failure>(response.failure);
+        result.format = static_cast<archive::Format>(response.format);
+        result.detail.assign(reinterpret_cast<const char*>(  // NOLINT: bytes to chars
+                                 reply.bytes.data() + sizeof(response)),
+                             response.detail_length);
+        if (response.entries > 0) {
+            const std::optional<std::vector<std::byte>> payload =
+                read_sealed(reply.fds[0], response.payload_bytes);
+            std::optional<std::vector<archive::Entry>> entries =
+                payload ? protocol::decode_archive_payload(*payload, response.entries, limits)
+                        : std::nullopt;
+            if (!entries) {
+                why = "the preview helper's list is wrong";
+                return false;
+            }
+            result.entries = std::move(*entries);
+        }
+        return true;
+    };
+    std::string why;
+    const std::array<int, 1> fds{file};
+    const bool done = run(std::as_bytes(std::span{&message, 1}), fds, accept, why,
+                          archive_timeout(options_.timeout, file, 0));
+    ::close(file);
+    if (!done) {
+        return listing_failure(archive::Failure::unreadable, std::move(why));
+    }
+    return result;
+}
+
+archive::Read Helpers::read_archive_entry(const std::filesystem::path& path, archive::Format format,
+                                          const archive::Entry& entry, int out,
+                                          std::uint64_t max_bytes) {
+    const int file = open_regular(path);
+    if (file < 0) {
+        return {.failure = archive::Failure::unreadable, .detail = errno_text(), .bytes = 0};
+    }
+    const protocol::ArchiveReadRequest message =
+        protocol::encode_archive_read(format, entry, max_bytes);
+    archive::Read result;
+    const auto accept = [&](protocol::Packet& reply, std::string& why) {
+        protocol::ArchiveReadResponse response;
+        if (reply.length < sizeof(response)) {
+            why = "the preview helper said something else";
+            return false;
+        }
+        std::memcpy(&response, reply.bytes.data(), sizeof(response));
+        if (response.magic != protocol::kArchiveReadMagic ||
+            reply.length != sizeof(response) + response.detail_length ||
+            response.failure > static_cast<std::uint8_t>(archive::Failure::unreadable) ||
+            response.bytes > max_bytes) {
+            why = "the preview helper said something else";
+            return false;
+        }
+        result.failure = static_cast<archive::Failure>(response.failure);
+        result.bytes = response.bytes;
+        result.detail.assign(reinterpret_cast<const char*>(  // NOLINT: bytes to chars
+                                 reply.bytes.data() + sizeof(response)),
+                             response.detail_length);
+        return true;
+    };
+    std::string why;
+    const std::array<int, 2> fds{file, out};
+    const bool done = run(std::as_bytes(std::span{&message, 1}), fds, accept, why,
+                          archive_timeout(options_.timeout, file, std::min(entry.size, max_bytes)));
+    ::close(file);
+    if (!done) {
+        return {.failure = archive::Failure::unreadable, .detail = std::move(why), .bytes = 0};
+    }
+    return result;
+}
+
 void use_engines(const engines::Registry& registry, HelperOptions options) {
     // One set of helpers per engine, shared by what it makes.
     std::vector<std::pair<const engines::Engine*, std::shared_ptr<Helpers>>> started;
@@ -545,6 +671,20 @@ void use_engines(const engines::Registry& registry, HelperOptions options) {
             [helpers](const text::LoadRequest& request) { return helpers->load_text(request); });
     } else {
         log::warn("no engine reads text: no previews of text");
+    }
+    if (const engines::Engine* engine = first_showing(engines::Shows::archive)) {
+        std::shared_ptr<Helpers> helpers = helpers_of(*engine);
+        archive::set_lister(
+            [helpers](const std::filesystem::path& path, const archive::Limits& limits) {
+                return helpers->list_archive(path, limits);
+            });
+        archive::set_entry_reader([helpers](const std::filesystem::path& path,
+                                            archive::Format format, const archive::Entry& entry,
+                                            int out, std::uint64_t max_bytes) {
+            return helpers->read_archive_entry(path, format, entry, out, max_bytes);
+        });
+    } else {
+        log::warn("no engine reads archives: archives are not opened");
     }
 }
 

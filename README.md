@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.6"><img src="https://img.shields.io/badge/release-v0.7.6-2a6a9e" alt="release v0.7.6"></a>
+  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.8.0"><img src="https://img.shields.io/badge/release-v0.8.0-2a6a9e" alt="release v0.8.0"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Wayland-native-FFBC00?logo=wayland&logoColor=black" alt="Wayland native">
-  <img src="https://img.shields.io/badge/tests-529%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="529 tests, ASan, TSan">
+  <img src="https://img.shields.io/badge/tests-540%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="540 tests, ASan, TSan">
   <a href="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-3DA639" alt="MIT license">
 </p>
@@ -24,10 +24,10 @@
 </p>
 
 > [!NOTE]
-> **Nordend 0.7.6**, the latest release: **programs and AppImages** start with Enter, asking
-> first when they may not run yet, and a dot marks what can run; **"Show in Folder"** from
-> browsers opens Nordend with the file selected. Young software, used every day by its author.
-> [Install it](#install).
+> **Nordend 0.8.0**, the latest release: **copying about twice as fast**, a folder's files on
+> eight threads, close to fcp and ahead of cp ([Numbers](#numbers)); merging two folders now
+> **asks about each file** whose name is taken, and Shift+Escape stops a transfer. Young
+> software, used every day by its author. [Install it](#install).
 
 ## Contents
 
@@ -51,7 +51,7 @@ animations come from its own renderer.
   the Open and Save dialog of other applications; every action has a key and a click.
 - **Fast.** The first frame in about 75 ms; a raw photo in Quick Look at once, sharp in about
   100 ms. Every figure is measured, with the tool to measure it again ([Numbers](#numbers)).
-- **Light.** A 3.8 MB binary, about 24 MB of memory, no CPU at all while nothing moves.
+- **Light.** A 3.8 MB binary, about 25 MB of memory, no CPU at all while nothing moves.
 - **Safe.** Files that come from outside are read in a small helper process caged by Nordend
   (seccomp and landlock: no files, no network, no programs): a broken or hostile file costs at
   most its preview. Nothing is overwritten without asking, nothing half-copied under a real name.
@@ -89,9 +89,10 @@ animations come from its own renderer.
   trash
 
 **Files**
-- Copy and move with progress and conflict questions, rename, new folder or file from
-  templates, undo and redo (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), a real freedesktop trash with
-  restore, delete permanently
+- Copy and move with progress and conflict questions, a folder's files on eight threads
+  (nearly twice as fast as `cp`), merging folders asking about each taken file; rename, new
+  folder or file from templates, undo and redo (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), a real
+  freedesktop trash with restore, delete permanently
 - Drag and drop within Nordend and with other apps; rubber-band selection; the system clipboard
 - Actions of your own in the context menu (`[[action]]` in `config.toml`, like Thunar's custom
   actions): a name, a command, and which files they fit
@@ -132,7 +133,7 @@ openSUSE Tumbleweed. Ubuntu 24.04 and Linux Mint 22 cannot build Nordend (their 
 Download it, read it, run it:
 
 ```sh
-curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.7.6/scripts/nordend-setup
+curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.8.0/scripts/nordend-setup
 less nordend-setup
 sh nordend-setup           # asks what to do; or: sh nordend-setup install
 ```
@@ -163,7 +164,7 @@ cp -r /tmp/nordend-fm/packaging/void/nordend srcpkgs/
 sudo xbps-install -R hostdir/binpkgs nordend
 ```
 
-The package is the latest release, **0.7.6**. What `main` gains after it comes with the next
+The package is the latest release, **0.8.0**. What `main` gains after it comes with the next
 release; to have it at once, build from source.
 
 </details>
@@ -235,7 +236,7 @@ command and it shows where things stand and asks what to do, or name the command
 A new release, for example:
 
 ```sh
-nordend-setup check     # ✓ Nordend 0.7.6 is out: nordend-setup update
+nordend-setup check     # ✓ Nordend 0.8.0 is out: nordend-setup update
 nordend-setup update    # builds and installs it; your settings stay
 ```
 
@@ -321,8 +322,8 @@ report), and `--set-file-chooser` / `--unset-file-chooser`.
 |---|---|
 | Binary | **4.55 MB** (3.78 MB stripped), x86-64; the decoders and text readers in `nordend-preview`, 1.15 MB (1.03 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
 | Libraries | 17 direct (the helper and the service: 8 each); no GTK, no Qt, no GLib |
-| Code | about 59 400 lines of C++20, 22 200 of tests (529 test cases, under ASan and TSan too) |
-| Memory | **24 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
+| Code | about 59 800 lines of C++20, 22 600 of tests (540 test cases, under ASan and TSan too) |
+| Memory | **25 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
 | Idle | **0 CPU**: nothing is drawn while nothing moves |
 
 The design's four targets (Ryzen 7 5700G, RX 6650 XT, SATA SSD), measured again on 2026-11-13
@@ -335,6 +336,23 @@ where the date says so:
 | Quick Look of an ORF raw photo: < 100 ms | **110 ms** for a portrait shot, median **about 102** over 18 photos (2026-11-14, from 144 ms): **nearly met**; the thumbnail shows in 20 ms |
 | Scrolling with no dropped frame | worst frame **3.7 ms** of 13.3 (75 Hz) (2026-11-01) |
 
+Against other tools, on the same machine. Copying since 0.8.0: eight threads copy a folder's
+files while one walks the tree ahead of them; folders keep their dates,
+and a cancelled copy leaves nothing behind.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/chart-copy-dark.svg">
+  <img alt="Copying 10 000 small files from the disk: Nordend 1.26 s, fcp 1.09, xcp 1.63, cp 2.04. A 4.3 GB tree already in the page cache: Nordend 3.49 s, fcp 3.40, xcp 4.00, cp 6.6." src="docs/images/chart-copy-light.svg" width="760">
+</picture>
+
+Raw photos are read by Nordend's own code, in a caged helper; exiv2 stays as the reference in
+the tests, which check the same previews on every sample.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/chart-raw-dark.svg">
+  <img alt="Finding a raw photo's thumbnail, exiv2 against Nordend: OM System ORF 3.45 against 0.03 ms, Nikon NEF 2.46 against 0.14, Sony ARW 3.31 against 0.21, Fujifilm RAF 3.56 against 0.38, Panasonic RW2 2.21 against 0.04, DJI DNG 1.87 against 0.03." src="docs/images/chart-raw-light.svg" width="760">
+</picture>
+
 Every measurement and its method is in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Versions
@@ -346,9 +364,9 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 | Version | What it brought |
 |---|---|
+| [0.8.0](https://github.com/pankaspe/nordend-fm/releases/tag/v0.8.0), 2026-11-15 | Copying about twice as fast: a folder's files on eight threads, close to fcp and ahead of `cp`; merging folders asks about each taken file, and Ctrl+Z after it takes away only what was copied; Shift+Escape stops a transfer |
 | [0.7.6](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.6), 2026-11-15 | Programs and AppImages start with Enter ("Allow and Run" first when they may not run yet, never a script), "Allow Running as Program" in the menu, a dot on what can run, from Evergaster's issue; "Show in Folder" opens Nordend (`nordend --set-file-manager`), from 0rgl's issue |
 | [0.7.5](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.5), 2026-11-15 | The text size in `config.toml` (`[font] size`), the whole interface following it; actions of your own in the context menu (`[[action]]`), both from 0rgl's issues; a folder's size in the info pane, or several selected |
-| [0.7.4](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.4), 2026-11-14 | Small fixes: the developer tools answer `--help` and refuse unknown options; an ordinary logout is no longer logged as an error |
 
 ## What's next
 

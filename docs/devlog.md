@@ -4,6 +4,23 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Nordend 0.8.0
+
+**Done**
+- Release 0.8.0, copy speed (ROADMAP 0.8.0): the 128 KiB buffer between disks, a copied
+  folder's files under their own names and sources never followed, a folder's files and loose
+  files on eight copiers; merging folders asks about each taken file and its undo takes away
+  only what was made; Shift+Escape stops a transfer; nordend-setup without the tag warning.
+- The README gains two charts (static SVGs, light and dark, `scripts/readme-charts.py`): copying
+  against cp, fcp and xcp, and a raw photo's thumbnail against exiv2.
+- No long fuzzing run: no new parser in this release.
+
+**Measured** (after rebuilding as 0.8.0): `nordend` 4.59 / 3.81 MiB stripped, `nordend-preview`
+1.15 / 1.03, `nordend-portal` 0.44 / 0.35; `readelf -d` NEEDED 17, 8 and 8; 59 835 + 22 577
+lines, 540 test cases; the memory log's Anonymous 24.7-25.5 MB for fresh windows.
+
+---
+
 ## 2026-11-15 — Copying (0.8.0): Shift+Escape stops a transfer
 
 **Done**

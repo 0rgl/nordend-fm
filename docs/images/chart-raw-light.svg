@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="584" viewBox="0 0 760 584" role="img" aria-label="A raw photo's thumbnail: Nordend's own reader against exiv2">
+<title>A raw photo's thumbnail: Nordend's own reader against exiv2</title>
+<text x="0" y="24" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="17" font-weight="600" fill="#16202a">A raw photo's thumbnail: Nordend's own reader against exiv2</text>
+<text x="0" y="46" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="#4c5c6c">Milliseconds, lower is better: open the file, find the preview for a 160 px thumbnail, read it.</text>
+<text x="0" y="80" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">OM System ORF</text>
+<line x1="129.5" y1="88" x2="129.5" y2="136" stroke="#d0d9e2" stroke-width="1"/>
+<text x="118" y="104.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#4c5c6c">exiv2</text>
+<path d="M130 93.0 h519.3 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-519.3 z" fill="#a9b6c3"/>
+<text x="661.3" y="104.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="400" fill="#4c5c6c">3.45 ms</text>
+<text x="118" y="128.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Nordend</text>
+<path d="M130 117.0 h2.3 a2.2752808988764044 2.2752808988764044 0 0 1 2.2752808988764044 2.2752808988764044 v9.44943820224719 a2.2752808988764044 2.2752808988764044 0 0 1 -2.2752808988764044 2.2752808988764044 h-2.3 z" fill="#2a6a9e"/>
+<text x="142.6" y="128.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="600" fill="#16202a">0.03 ms</text>
+<text x="0" y="162" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Nikon NEF</text>
+<line x1="129.5" y1="170" x2="129.5" y2="218" stroke="#d0d9e2" stroke-width="1"/>
+<text x="118" y="186.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#4c5c6c">exiv2</text>
+<path d="M130 175.0 h369.1 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-369.1 z" fill="#a9b6c3"/>
+<text x="511.1" y="186.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="400" fill="#4c5c6c">2.46 ms</text>
+<text x="118" y="210.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Nordend</text>
+<path d="M130 199.0 h17.2 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-17.2 z" fill="#2a6a9e"/>
+<text x="159.2" y="210.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="600" fill="#16202a">0.14 ms</text>
+<text x="0" y="244" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Sony ARW</text>
+<line x1="129.5" y1="252" x2="129.5" y2="300" stroke="#d0d9e2" stroke-width="1"/>
+<text x="118" y="268.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#4c5c6c">exiv2</text>
+<path d="M130 257.0 h498.1 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-498.1 z" fill="#a9b6c3"/>
+<text x="640.1" y="268.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="400" fill="#4c5c6c">3.31 ms</text>
+<text x="118" y="292.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Nordend</text>
+<path d="M130 281.0 h27.9 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-27.9 z" fill="#2a6a9e"/>
+<text x="169.9" y="292.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="600" fill="#16202a">0.21 ms</text>
+<text x="0" y="326" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Fujifilm RAF</text>
+<line x1="129.5" y1="334" x2="129.5" y2="382" stroke="#d0d9e2" stroke-width="1"/>
+<text x="118" y="350.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#4c5c6c">exiv2</text>
+<path d="M130 339.0 h536.0 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-536.0 z" fill="#a9b6c3"/>
+<text x="678.0" y="350.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="400" fill="#4c5c6c">3.56 ms</text>
+<text x="118" y="374.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Nordend</text>
+<path d="M130 363.0 h53.6 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-53.6 z" fill="#2a6a9e"/>
+<text x="195.6" y="374.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="600" fill="#16202a">0.38 ms</text>
+<text x="0" y="408" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Panasonic RW2</text>
+<line x1="129.5" y1="416" x2="129.5" y2="464" stroke="#d0d9e2" stroke-width="1"/>
+<text x="118" y="432.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#4c5c6c">exiv2</text>
+<path d="M130 421.0 h331.2 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-331.2 z" fill="#a9b6c3"/>
+<text x="473.2" y="432.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="400" fill="#4c5c6c">2.21 ms</text>
+<text x="118" y="456.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Nordend</text>
+<path d="M130 445.0 h3.0 a3.0337078651685396 3.0337078651685396 0 0 1 3.0337078651685396 3.0337078651685396 v7.932584269662921 a3.0337078651685396 3.0337078651685396 0 0 1 -3.0337078651685396 3.0337078651685396 h-3.0 z" fill="#2a6a9e"/>
+<text x="144.1" y="456.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="600" fill="#16202a">0.04 ms</text>
+<text x="0" y="490" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">DJI DNG</text>
+<line x1="129.5" y1="498" x2="129.5" y2="546" stroke="#d0d9e2" stroke-width="1"/>
+<text x="118" y="514.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#4c5c6c">exiv2</text>
+<path d="M130 503.0 h279.7 a4.0 4.0 0 0 1 4.0 4.0 v6.0 a4.0 4.0 0 0 1 -4.0 4.0 h-279.7 z" fill="#a9b6c3"/>
+<text x="421.7" y="514.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="400" fill="#4c5c6c">1.87 ms</text>
+<text x="118" y="538.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#16202a">Nordend</text>
+<path d="M130 527.0 h2.3 a2.2752808988764044 2.2752808988764044 0 0 1 2.2752808988764044 2.2752808988764044 v9.44943820224719 a2.2752808988764044 2.2752808988764044 0 0 1 -2.2752808988764044 2.2752808988764044 h-2.3 z" fill="#2a6a9e"/>
+<text x="142.6" y="538.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" font-weight="600" fill="#16202a">0.03 ms</text>
+<text x="0" y="576" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" fill="#6a7a8a">Best of 30, page cache warm, exiv2 0.28 · Ryzen 7 5700G · 2026-11-08</text>
+</svg>

@@ -24,10 +24,11 @@
 </p>
 
 > [!NOTE]
-> **Nordend 0.8.0**, the latest release: **copying about twice as fast**, a folder's files on
-> eight threads, close to fcp and ahead of cp ([Numbers](#numbers)); merging two folders now
-> **asks about each file** whose name is taken, and Shift+Escape stops a transfer. Young
-> software, used every day by its author. [Install it](#install).
+> **Latest update · Nordend 0.8.0**
+>
+> **Copying about twice as fast**: a folder's files on eight threads, close to fcp and ahead of
+> cp ([Numbers](#numbers)); merging two folders now **asks about each file** whose name is
+> taken, and Shift+Escape stops a transfer. [Install it](#install).
 
 ## Contents
 
@@ -115,9 +116,9 @@ Everything it does, area by area: [docs/features.md](docs/features.md).
 
 ## Install
 
-Nordend needs Linux with a Wayland compositor that offers xdg-shell (developed on Umbriel, also
-tried on GNOME, Plasma and niri) and a GPU driver with OpenGL ES 3.0 (Mesa). Four ways, each
-opens with a click:
+Nordend is young software, used every day by its author. It needs Linux with a Wayland
+compositor that offers xdg-shell (developed on Umbriel, also tried on GNOME, Plasma and niri)
+and a GPU driver with OpenGL ES 3.0 (Mesa). Four ways, each opens with a click:
 
 <details>
 <summary><b>On any distribution</b>: nordend-setup builds, installs and updates it</summary>

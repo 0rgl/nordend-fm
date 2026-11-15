@@ -1,0 +1,2 @@
+# Words in %description that rpmlint's dictionary doesn't know.
+addFilter(r"spelling-error \('(sandboxed|xdg)'")

@@ -17,8 +17,10 @@
 namespace nordend::fs {
 namespace {
 
-constexpr std::size_t kChunk = std::size_t{8} << 20U;      // bytes per copy_file_range call
-constexpr std::size_t kBuffer = std::size_t{1} << 20U;     // read/write fallback
+constexpr std::size_t kChunk = std::size_t{8} << 20U;  // bytes per copy_file_range call
+// read/write fallback (between file systems): 128 KiB as cp; 256 KiB and more were 20 % slower
+// into a compressed btrfs (benchmarks.md, 0.8.0), the same in tmpfs.
+constexpr std::size_t kBuffer = std::size_t{128} << 10U;
 constexpr std::string_view kTemporary = ".nordend-part-";  // hidden, recognisable
 
 std::error_code last_error() { return {errno, std::generic_category()}; }

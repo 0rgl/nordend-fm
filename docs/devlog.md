@@ -4,6 +4,32 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Copy speed (0.8.0), first measurements and the read/write buffer
+
+**Done**
+- Measured where copying stands against `cp`, fcp and xcp (benchmarks.md, "Copying"): small
+  files are the weak spot (3-4 times fcp, behind `cp`), mixed trees 2 times fcp when warm; cold
+  copies of large data are bound by the data disk.
+- The read/write fallback (between file systems, where `copy_file_range` answers EXDEV) reads
+  128 KiB at a time instead of 1 MiB: the 4 GiB file into `/home` from 6.62 to 5.52 s, level with
+  `cp` (5.57). A test copies into `/dev/shm` (its own tmpfs: EXDEV) and checks every byte; the
+  fallback had no test before.
+
+**Decisions** (with the author)
+- 0.8.0 in three steps, each measured: the buffer (done), less work per file inside a copied
+  folder (the folder is already built under a hidden name: its files can be written under their
+  own names with `O_EXCL`; the source opened with `O_NOFOLLOW`), then files copied in parallel
+  on threads of the transfer's own, not the worker pool. No guarantee lost: a cancelled copy
+  leaves nothing visible, folders keep their dates, undo and sidecars stay.
+- Copy benchmarks write to `/home` only: the data disk (SPCC SATA, DRAM-less) collapses after
+  30-40 GB written in a row (10 s → 60-110 s for the same copy).
+
+**Open**
+- Why writes over 128 KiB cost 20 % more into the compressed btrfs: *to be verified*.
+- Same-file-system copies on btrfs (reflinks) not measured yet.
+
+---
+
 ## 2026-11-15 — Nordend 0.7.6
 
 **Done**

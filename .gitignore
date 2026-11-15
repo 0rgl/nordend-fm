@@ -16,3 +16,6 @@ docs/ROADMAP.md
 
 # The website draft: local only for now (2026-11-14)
 site/
+
+# Copy benchmarks: our own tools, local only
+scripts/bench-copy/

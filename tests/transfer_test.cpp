@@ -13,6 +13,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -183,6 +184,60 @@ TEST_CASE("transfer: a move on one disk renames; between disks it copies, then d
                                         .destination = u.from},
                                        {}, {});
     CHECK(result.placed == Names{"notes.txt"});
+}
+
+TEST_CASE("transfer: between two file systems the bytes go through read and write") {
+    // /dev/shm is a tmpfs of its own: copy_file_range refuses (EXDEV), the fallback copies.
+    std::string pattern = "/dev/shm/nordend-test-XXXXXX";
+    if (mkdtemp(pattern.data()) == nullptr) {
+        MESSAGE("no /dev/shm: skipped");
+        return;
+    }
+
+    struct Removed {
+        fs::path path;
+
+        explicit Removed(fs::path made) : path{std::move(made)} {}
+
+        Removed(const Removed&) = delete;
+        Removed& operator=(const Removed&) = delete;
+        Removed(Removed&&) = delete;
+        Removed& operator=(Removed&&) = delete;
+
+        ~Removed() {
+            std::error_code ignored;
+            fs::remove_all(path, ignored);
+        }
+    };
+
+    const Removed other_disk{fs::path{pattern}};
+    Tree t;
+    if (stat_of(other_disk.path).st_dev == stat_of(t.from).st_dev) {
+        MESSAGE("/dev/shm on the same file system as the temporary folder: skipped");
+        return;
+    }
+    // Several buffers and a piece: every byte different from its neighbours.
+    std::string data(std::size_t{1} << 20U, '\0');
+    data += "-a tail";
+    for (std::size_t i = 0; i < data.size() - 7; ++i) {
+        data[i] = static_cast<char>((i * 31U) % 251U);
+    }
+    std::ofstream{t.from / "big.raw", std::ios::binary} << data;
+
+    std::vector<TransferProgress> seen;
+    const TransferResult result = nordend::fs::run_transfer(
+        {.kind = TransferKind::copy,
+         .source = t.from,
+         .names = {"big.raw"},
+         .destination = other_disk.path,
+         .force_copy = false},
+        {},
+        {.progress = [&](const TransferProgress& p) { seen.push_back(p); }, .resolve = nullptr});
+    CHECK(result.errors.empty());
+    CHECK(read_file(other_disk.path / "big.raw") == data);
+    CHECK(listing(other_disk.path) == Names{"big.raw"});  // no temporary left
+    REQUIRE_FALSE(seen.empty());
+    CHECK(seen.back().bytes_done == data.size());
 }
 
 TEST_CASE("transfer: conflicts are asked; replace, skip, keep both, cancel") {

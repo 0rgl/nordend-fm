@@ -115,6 +115,61 @@ at 2560x1440, 75 Hz (a frame is 13.3 ms).
 
 Details in "Start-up", "Directory loading", "Quick Look" and "Column view scrolling" below.
 
+## Copying (0.8.0)
+
+### 2026-11-15: the read/write buffer, 1 MiB → 128 KiB
+
+Between two file systems `copy_file_range` answers EXDEV (ext4 → btrfs here, `strace`), so
+every tool falls back to `read`/`write`. `strace -c` on the 4 GiB file: `cp` reads 128 KiB at a
+time (11 µs a call, 0.38 s in all), Nordend read 1 MiB (330 µs a call, 1.36 s). `hyperfine`, 5
+runs, the 4 GiB file from the data disk (page cache warm) to `/home`, each run ending in `sync`:
+
+| Buffer | Mean | |
+|---|---:|---|
+| `cp` (128 KiB) | 5.57 s ± 0.07 | |
+| 1 MiB (0.7.6) | 6.62 s ± 0.05 | |
+| 256 KiB | 6.60 s ± 0.04 | |
+| **128 KiB** | **5.52 s ± 0.02** | now |
+| 64 KiB | 5.60 s ± 0.03 | |
+
+Into tmpfs the sizes do not differ (1 MiB 3.28 s, 256 KiB 3.29 s, 128 KiB 3.33 s; 3 runs, no
+`sync`): the step is on btrfs's side. `/home` is mounted `compress=zstd:1`, and btrfs compresses
+in 128 KiB pieces (the NVMe's `max_sectors_kb` is 128 too); why a larger write costs 20 % more
+there is *to be verified*. 128 KiB is never slower.
+
+### 2026-11-15: where Nordend stands, against cp, fcp and xcp
+
+Before any change (0.7.6's `nordend-transfer`, one thread, every file through a hidden temporary
+and a rename). Tools: GNU `cp` 9.4 (`-r --preserve=mode,timestamps`), fcp 0.2.2 and xcp 0.24.9
+(`cargo install --root` in a scratch folder, references only), `build/nordend-transfer`.
+`hyperfine` 1.20, every run ending in `sync` (the data on the disk). Source trees made of random
+bytes on the data disk: **small** = 10 000 files of 1-16 KiB in 10 folders (103 MB); **mixed** =
+5024 files in 300 nested folders, log-normal sizes (median 32 KiB) plus 24 files of 40-300 MiB,
+20 links (4.3 GB); **big** = one 4 GiB file. "Cold" drops the source files' pages with
+`posix_fadvise(DONTNEED)` before each run (no root: directory metadata stays cached); "warm"
+reads them first. All four copies were checked identical with `diff -r` (fcp and xcp do not keep
+folders' dates; cp and Nordend do).
+
+Data disk (ext4) → `/home` (btrfs, NVMe), mean:
+
+| Case | cp | fcp | xcp | Nordend |
+|---|---:|---:|---:|---:|
+| small, warm (10 runs) | 1.06 s | **0.49 s** | 0.56 s | 1.45 s |
+| small, cold (10 runs) | 1.98 s | **0.77 s** | 1.13 s | 3.24 s |
+| mixed, warm (5 runs) | 6.64 s | **3.22 s** | 3.70 s | 6.58 s |
+| mixed, cold (3 runs) | 17.0 s | **14.9 s** | 15.6 s | 17.8 s |
+| big, warm (3 runs) | 5.45 s | **5.41 s** | 8.48 s | 6.64 s |
+| big, cold (3 runs) | **14.3 s** | 16.0 s | 15.1 s | 14.8 s |
+
+Data disk → data disk (ext4), small files only, mean of 10 runs: warm cp 0.82 s, fcp **0.34 s**,
+xcp 0.51 s, Nordend 1.14 s; cold 1.65 / **0.65** / 0.95 / 2.84 s.
+
+Reading the numbers: small files are Nordend's weak spot (3-4 times fcp, behind `cp`): one
+thread, and per file a temporary name looked up, a rename and two metadata calls. Cold copies
+of large data are bound by the data disk's reads (~300 MB/s): every tool within 14-18 s.
+**Writing to the data disk is not measured**: after 30-40 GB written in a row it collapses (the
+same copy from 10 s to 60-110 s, whichever tool runs), so those runs measured the disk.
+
 ## The window's frame (0.6.1)
 
 ### 2026-11-13

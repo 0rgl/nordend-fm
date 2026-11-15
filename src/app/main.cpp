@@ -690,6 +690,7 @@ int main(int argc, char** argv) {
             update_icon();
             if (opener) {
                 opener->set_terminal(configured_terminal(fresh));
+                opener->set_programs(fresh.open.programs);
             }
             give_actions(fresh);
         };
@@ -728,6 +729,12 @@ int main(int argc, char** argv) {
                 [&](std::function<void(std::string)> done) {
                     activation.request(display.seat(), seat.input_serial(), window.surface(),
                                        std::move(done));
+                });
+            opener->set_programs(config.open.programs);
+            // A program without its execute bit: Nordend's card asks before it runs.
+            opener->set_ask_to_run(
+                [&](const std::filesystem::path& program, std::function<void()> allow_and_run) {
+                    columns->ask_to_run(program, std::move(allow_and_run));
                 });
             if (pick) {
                 columns->set_pick(

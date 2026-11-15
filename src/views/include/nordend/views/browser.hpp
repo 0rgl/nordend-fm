@@ -283,6 +283,10 @@ public:
 
     void set_folder_chooser(FolderChooser chooser) { folder_chooser_ = std::move(chooser); }
 
+    // A program the user opened may not run yet (no execute bit): the card asks, and
+    // allow_and_run() is called on "Allow and Run" (issue #17).
+    void ask_to_run(const std::filesystem::path& program, std::function<void()> allow_and_run);
+
     // Where "New File" takes its templates from: fs::templates_dir() unless set (tests).
     void set_templates_dir(std::filesystem::path directory) {
         templates_dir_ = std::move(directory);
@@ -684,6 +688,22 @@ private:
     void start_inverse(const FileOperation& operation, Purpose purpose);
     // Moves paths to the trash as one operation of purpose.
     void trash_paths(const std::vector<std::filesystem::path>& paths, Purpose purpose);
+
+    // The regular files among the targets (what "Allow Running as Program" changes), and
+    // whether every one of them may run already. Offered (files not empty) only when it means
+    // something: one of them may run already, or each is of a type that runs (a program, an
+    // AppImage, a script: application/x-executable and its kin) or not known yet; never with a
+    // folder among them, in the trash or in the file chooser.
+    struct RunningTargets {
+        std::vector<std::filesystem::path> files;
+        bool all_run{false};
+    };
+
+    [[nodiscard]] RunningTargets running_targets(const Folder& folder) const;
+    // Lets the targeted files run as programs (u+x), or no longer (a-x), on a worker.
+    void set_running(bool allow);
+    // A change of permissions done (the user's, an undo or a redo): recorded and said.
+    void modes_done(const fs::ModeResult& result, Purpose purpose);
     void report_done(const fs::TransferRequest& request, const fs::TransferResult& result);
     // Ctrl+V in the name's field: the clipboard's text.
     void paste_text();

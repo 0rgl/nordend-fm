@@ -8,6 +8,7 @@ add_library(nordend_fs
     src/icon.cpp
     src/mime.cpp
     src/operations.cpp
+    src/permissions.cpp
     src/places.cpp
     src/sort.cpp
     src/transfer.cpp

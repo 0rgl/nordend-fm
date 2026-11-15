@@ -47,6 +47,7 @@ bool stat_entry(int dir_fd, Entry& entry) {
         info = target;
     }
     entry.kind = kind_of(info.st_mode);
+    entry.mode = static_cast<std::uint16_t>(info.st_mode & 07777);
     entry.size = static_cast<std::uint64_t>(info.st_size);
     entry.modified_ns = (info.st_mtim.tv_sec * 1'000'000'000) + info.st_mtim.tv_nsec;
     return true;

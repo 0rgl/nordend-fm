@@ -55,6 +55,13 @@ follow_accent = true
 # program = "ghostty"
 # args = []
 
+[open]
+# Enter on a program starts it: an ELF executable or an AppImage, named as one (a program named
+# like a document opens as a document), that may already run (its execute bit set). One that may
+# not run is asked about first ("Allow and Run"); one on a disk mounted noexec is reported.
+# Scripts never start this way: they open as text. false: Nordend never starts a program.
+programs = true
+
 # Actions: entries of your own in the context menu, each running a program on the selected files.
 # None by default. An action shows only when every selected entry fits it: its kinds ("file",
 # "folder"; files only by default), and its patterns (globs on the whole name, case left aside)

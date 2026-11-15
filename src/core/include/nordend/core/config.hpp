@@ -55,6 +55,12 @@ struct Config {
         std::vector<std::string> args;  // its own options, before the command
     };
 
+    struct Open {
+        // Enter on a program (an ELF executable or AppImage that may run) starts it; false:
+        // Nordend never starts one, programs open as any other file. Followed live.
+        bool programs{true};
+    };
+
     // A custom entry of the context menu ([[action]]): a program run on the selected entries,
     // shown only when every one of them passes the filters. Followed live.
     struct Action {
@@ -82,6 +88,7 @@ struct Config {
     Icon icon;
     Window window;
     Terminal terminal;
+    Open open;
     std::vector<Action> actions;  // in the file's order; a broken one is left out
 };
 

@@ -4,6 +4,50 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Programs: allowed to run, and started (issue #17)
+
+**Done** (Evergaster's issue #17, shape agreed on the issue, safety first)
+- `fs::Entry::mode`: the permission bits, read with the rest of the entry (a link: its target's).
+- `fs/permissions`: `running_mode` (`u+x` to allow, `a-x` to stop, other bits kept),
+  `set_running` (regular files only, through links as chmod, the changes and errors listed),
+  `restore_modes` (undo and redo, a file changed since left alone and named).
+- The context menu and the command palette: "Allow Running as Program" / "Stop Running as
+  Program" (`Browser::running_targets`): offered when a file may run already, or every target is
+  of a type that runs (`application/x-executable` and its subclasses: AppImages, sh, fish,
+  python, perl, ruby, lua, js…, `x-sharedlib`) or not known yet; never with a folder, in the
+  trash or the file chooser. On a worker; recorded as `FileOperation::Kind::permissions`
+  (Ctrl+Z, Ctrl+Shift+Z): "“Tool.AppImage” can run as a program".
+- `platform/program`: `is_elf_program` (our minimal ELF header reader: EXEC, or DYN with a
+  PT_INTERP program header = a PIE; a shared library, an object, a core are not; 512 headers at
+  most, every read bounded), `check_program` (that, `access(X_OK)`, `fstatvfs` `ST_NOEXEC`).
+- `Opener::open`: before looking for an application, a file whose type may be a program
+  (`may_be_program`: x-executable or x-sharedlib by name, then content) and that is an ELF
+  program starts by itself in its folder ("Starting Tool.AppImage…"), with an activation token;
+  without its execute bit it is not started: `set_ask_to_run` hands it to the Browser's card
+  ("Allow “Tool.AppImage” to run?" — "Allow and Run"), and `allow_and_run` gives it `u+x` and
+  starts it; on a `noexec` disk it is reported. `[open] programs = false` turns it all off,
+  live.
+- Tests: `permissions_test.cpp`, `program_test.cpp` (made-up ELF headers, a copy of `true(1)` run
+  for real, never the test binary; asked, allowed, a program named `invoice.pdf` never started,
+  a script never run, programs off), the menu and the card in `context_menu_test.cpp`, the
+  config key.
+
+**Decisions** (with the author: "la sicurezza al primo posto, sempre")
+- A program is started only when its type says so: an ELF renamed `invoice.pdf` with its bit
+  set opens as a PDF, never runs (added while writing it, beyond the shape on the issue).
+- Scripts never start on Enter, even with their bit set; no automatic running anywhere; `noexec`
+  respected; no sandbox for other people's programs (a weak cage would only look safe).
+- The undo of "Allow and Run" is not recorded: the program has started by then.
+- The info pane stays read-only.
+
+**Tested by the author** (Umbriel, a copy of foot named `Foot-test-x86_64.AppImage`): Enter asked,
+Escape ran nothing, Allow and Run started it, Enter again started it at once; Stop Running from the
+menu, Ctrl+Z, the palette entry; `invoice.pdf` (foot inside) opened in zathura and never ran;
+`test.sh` with its bit opened in Helix and never ran; `[open] programs = false` gave "No
+application opens application/vnd.appimage".
+
+---
+
 ## 2026-11-15 — Nordend 0.7.5
 
 **Done**

@@ -137,6 +137,13 @@ std::vector<PaletteItem> Browser::palette_items() {
     if (editable && names.size() == 1) {
         command(Command::rename, "rename", "Rename…");
     }
+    if (folder) {
+        if (const RunningTargets running = running_targets(*folder); !running.files.empty()) {
+            const bool stop = running.all_run;
+            add("command:running", stop ? "Stop Running as Program" : "Allow Running as Program",
+                "", [this, stop] { set_running(!stop); });
+        }
+    }
     if (!names.empty() && !in_trash) {
         command(Command::trash, "trash", "Move to Trash");
     }

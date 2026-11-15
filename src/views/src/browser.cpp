@@ -858,7 +858,8 @@ void Browser::submit_erase() {
     const bool emptying = erase_->request.kind == fs::TransferKind::empty_trash;
     submit(std::move(erase_->request), 0);
     erase_.reset();
-    undo_ = FileOperation{.kind = FileOperation::Kind::erase, .items = {}};  // no way back
+    undo_ =
+        FileOperation{.kind = FileOperation::Kind::erase, .items = {}, .modes = {}};  // no way back
     redo_.reset();
     if (!status_bar_.transfer()) {
         status_bar_.set_transfer(TransferStatus{
@@ -1113,8 +1114,8 @@ void Browser::transfer_done(const fs::TransferRequest& request, const fs::Transf
     if (--done.pending == 0) {
         Batch finished = std::move(done);
         batches_.erase(batch);
-        record({.kind = finished.kind, .items = std::move(finished.items)}, finished.purpose,
-               finished.failed);
+        record({.kind = finished.kind, .items = std::move(finished.items), .modes = {}},
+               finished.purpose, finished.failed);
     }
 }
 
@@ -1301,6 +1302,97 @@ void Browser::redo() {
     }
 }
 
+Browser::RunningTargets Browser::running_targets(const Folder& folder) const {
+    RunningTargets found;
+    if (pick_ || folder.is_trash()) {
+        return found;
+    }
+    const std::vector<std::string> names = targets(folder);
+    const fs::MimeDatabase& mime = folder.mime();
+    const fs::MimeId executable = mime.find("application/x-executable");
+    const fs::MimeId library = mime.find("application/x-sharedlib");
+    bool all = true;
+    bool any = false;
+    bool runnable = true;
+    for (const fs::Entry& entry : folder.entries()) {
+        if (entry.kind != fs::EntryKind::file ||
+            std::ranges::find(names, entry.name) == names.end()) {
+            continue;
+        }
+        found.files.push_back(folder.path() / entry.name);
+        const bool runs = (entry.mode & S_IXUSR) != 0;
+        all = all && runs;
+        any = any || runs;
+        const fs::MimeId type = folder.mime_of(entry);
+        runnable = runnable && (type == fs::kUnknownMime || mime.is_a(type, executable) ||
+                                mime.is_a(type, library));
+    }
+    // Folders among them: not this entry (a folder's execute bit means something else).
+    if (found.files.size() != names.size() || (!any && !runnable)) {
+        found.files.clear();
+    }
+    found.all_run = !found.files.empty() && all;
+    return found;
+}
+
+void Browser::set_running(bool allow) {
+    const std::shared_ptr<Folder> folder = current_folder();
+    if (!folder) {
+        return;
+    }
+    RunningTargets found = running_targets(*folder);
+    if (found.files.empty()) {
+        return;
+    }
+    ++operations_;
+    pool_.submit(
+        core::Priority::visible,
+        [files = std::move(found.files), allow](const core::CancelToken& /*token*/) {
+            return fs::set_running(files, allow);
+        },
+        [this, alive = alive_](const fs::ModeResult& result) {
+            if (*alive) {
+                --operations_;
+                modes_done(result, Purpose::user);
+            }
+        });
+}
+
+void Browser::modes_done(const fs::ModeResult& result, Purpose purpose) {
+    FileOperation operation{.kind = FileOperation::Kind::permissions, .items = {}, .modes = {}};
+    for (const fs::ModeChange& change : result.changed) {
+        operation.items.push_back({.from = change.path, .to = change.path});
+    }
+    operation.modes = result.changed;
+    const bool failed = !result.errors.empty();
+    if (purpose == Purpose::user && !failed && !operation.items.empty()) {
+        show_message(describe(operation), false);
+    }
+    record(std::move(operation), purpose, failed);
+    if (failed) {
+        show_message(
+            result.errors.size() == 1
+                ? result.errors.front()
+                : std::format("{} and {} more", result.errors.front(), result.errors.size() - 1),
+            true);
+    }
+}
+
+void Browser::ask_to_run(const std::filesystem::path& program,
+                         std::function<void()> allow_and_run) {
+    const std::string name = program.filename().string();
+    confirm_.open(
+        std::format("Allow \u201c{}\u201d to run?", name),
+        "It is a program, and it is not allowed to run yet.", "Allow and Run",
+        [allow_and_run = std::move(allow_and_run)](bool confirmed) {
+            if (confirmed) {
+                allow_and_run();
+            }
+        },
+        "Run only programs you trust: they run with your permissions.");
+    redraw_();
+}
+
 void Browser::trash_paths(const std::vector<std::filesystem::path>& paths, Purpose purpose) {
     const std::uint64_t batch = open_batch(purpose, FileOperation::Kind::trash);
     std::vector<std::pair<std::filesystem::path, std::vector<std::string>>> folders;
@@ -1336,6 +1428,21 @@ void Browser::start_inverse(const FileOperation& operation, Purpose purpose) {
         case FileOperation::Kind::erase:
             show_message("A permanent delete cannot be undone", false);
             return;
+        case FileOperation::Kind::permissions:
+            undoing_ = true;
+            ++operations_;
+            pool_.submit(
+                core::Priority::visible,
+                [modes = operation.modes](const core::CancelToken& /*token*/) {
+                    return fs::restore_modes(modes, true);
+                },
+                [this, alive = alive_, purpose](const fs::ModeResult& result) {
+                    if (*alive) {
+                        --operations_;
+                        modes_done(result, purpose);
+                    }
+                });
+            return;
         case FileOperation::Kind::rename: {
             const fs::PlacedItem item = operation.items.front();
             undoing_ = true;
@@ -1357,7 +1464,8 @@ void Browser::start_inverse(const FileOperation& operation, Purpose purpose) {
                         return;
                     }
                     record({.kind = FileOperation::Kind::rename,
-                            .items = {{.from = item.to, .to = item.from}}},
+                            .items = {{.from = item.to, .to = item.from}},
+                            .modes = {}},
                            purpose, !renamed.problem.empty());
                     if (!renamed.problem.empty()) {
                         show_message(renamed.problem, true);
@@ -1475,7 +1583,8 @@ void Browser::new_folder() {
             }
             folder->expect_name(made.name);  // lands when the watcher reports it
             record({.kind = FileOperation::Kind::create,
-                    .items = {{.from = {}, .to = folder->path() / made.name}}},
+                    .items = {{.from = {}, .to = folder->path() / made.name}},
+                    .modes = {}},
                    Purpose::user, false);
             if (current_folder() == folder && !editor_.active()) {
                 editor_.start(folder, made.name, true);
@@ -1507,7 +1616,8 @@ void Browser::new_file(const std::string& name, const std::filesystem::path& fro
             }
             folder->expect_name(made.name);  // lands when the watcher reports it
             record({.kind = FileOperation::Kind::create,
-                    .items = {{.from = from, .to = folder->path() / made.name}}},
+                    .items = {{.from = from, .to = folder->path() / made.name}},
+                    .modes = {}},
                    Purpose::user, false);
             if (current_folder() == folder && !editor_.active()) {
                 editor_.start(folder, made.name, false);
@@ -1636,6 +1746,11 @@ std::vector<MenuItem> Browser::entry_menu(const std::shared_ptr<Folder>& folder)
             }
         }
         add_actions(items, fits, paths, folder->path(), false);
+    }
+    if (const RunningTargets running = running_targets(*folder); !running.files.empty()) {
+        const bool stop = running.all_run;
+        add("running", stop ? "Stop Running as Program" : "Allow Running as Program", "",
+            [this, stop] { set_running(!stop); });
     }
     add("copy", "Copy", keys_for(Command::copy), [this] { take_selection(false); }, true);
     add("cut", "Cut", keys_for(Command::cut), [this] { take_selection(true); });
@@ -1863,7 +1978,8 @@ void Browser::rename(const std::shared_ptr<Folder>& folder, const std::string& f
                 folder->expect_name(to);
             }
             record({.kind = FileOperation::Kind::rename,
-                    .items = {{.from = folder->path() / from, .to = folder->path() / to}}},
+                    .items = {{.from = folder->path() / from, .to = folder->path() / to}},
+                    .modes = {}},
                    Purpose::user, false);
             if (!renamed.problem.empty()) {
                 show_message(renamed.problem, true);

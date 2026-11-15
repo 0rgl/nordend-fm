@@ -35,6 +35,7 @@ void check_defaults(const Config& config) {
     CHECK(config.icon.follow_accent == defaults.icon.follow_accent);
     CHECK(config.terminal.program.empty());
     CHECK(config.terminal.args.empty());
+    CHECK(config.open.programs);
     CHECK(config.actions.empty());
 }
 
@@ -325,6 +326,18 @@ TEST_CASE("terminal: a program and a list of strings, else nothing changes") {
         CHECK(result.config.terminal.program.empty());
         CHECK(result.config.terminal.args.empty());
     }
+}
+
+TEST_CASE("open: programs may be turned off; anything but a boolean is reported") {
+    const auto off = parse("[open]\nprograms = false\n");
+    CHECK(off.problems.empty());
+    CHECK_FALSE(off.config.open.programs);
+    const auto wrong = parse("[open]\nprograms = \"no\"\n");
+    REQUIRE(wrong.problems.size() == 1);
+    CHECK(contains(wrong.problems[0], "'open.programs'"));
+    CHECK(wrong.config.open.programs);
+    const auto unknown = parse("[open]\nscripts = true\n");
+    CHECK(unknown.problems.size() == 1);
 }
 
 TEST_CASE("actions: every key, the defaults, a line or a list, in the file's order") {

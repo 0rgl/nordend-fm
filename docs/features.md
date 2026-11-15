@@ -174,7 +174,15 @@ README's [What's next](../README.md#whats-next).
     kitty, ghostty, alacritty, wezterm...);
   - the new window comes up in front, through an xdg-activation token;
   - apps run detached: no zombies, and closing Nordend leaves them open;
-  - an executable is never run: it opens in the app for its type;
+  - **a program starts itself** (issue #17): an ELF executable or an AppImage, named as one
+    (Nordend's type, by name then content: a program called `invoice.pdf` is a PDF), that may
+    already run, starts in its folder like any app. One that may not run yet asks first, on the
+    card ("Allow “Tool.AppImage” to run?", **Allow and Run** gives it `u+x` and starts it).
+    Safety first: scripts never start this way (a downloaded `.sh` looks like a document: it
+    opens as text), nothing ever runs by itself (a stick plugged in, a folder opened, Quick
+    Look), a disk mounted `noexec` stays so (said in the status bar), and `[open] programs =
+    false` in `config.toml` turns it off. A program runs with your permissions, as from a
+    terminal: Nordend's cage is for its own preview helper, not for other people's programs;
   - the status bar says what happened ("Opening 5 files with Darktable…"), in red when there is
     no app for a type or the app fails at once.
 - **Open in a terminal.** F4 opens a terminal in the folder under the cursor, else in the folder
@@ -264,6 +272,11 @@ README's [What's next](../README.md#whats-next).
   or on the info pane, the Menu key or Shift+F10:
   - on files and folders: Open, Open With, Copy, Cut, Paste, Rename (one entry), Move to Trash,
     Delete Permanently; on a folder also Open in Terminal and Add to Sidebar;
+    **Allow Running as Program** on files of a type that runs (programs, AppImages, scripts, or
+    a type not known yet), or **Stop Running as Program** when every selected file may run
+    already (any file with an execute bit, such as photos from a FAT stick): `u+x` only to
+    allow, every `x` away to stop; never with a folder among them, in the trash or the file
+    chooser; in the command palette too, and undone with Ctrl+Z (issue #17);
     on a folder's empty space: New Folder, New File, Paste, Add to Sidebar, Open in Terminal,
     Copy Path; what cannot be done now is dimmed,
     and each item shows its shortcut;

@@ -3,6 +3,7 @@
 #include <fstream>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -14,6 +15,11 @@
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
+#include "nordend/theme/palette.hpp"
+#include "nordend/ui/icons.hpp"
+#include "nordend/ui/offscreen.hpp"
+#include "nordend/ui/renderer.hpp"
+#include "nordend/ui/text.hpp"
 #include "nordend/views/browser.hpp"
 #include "temp_dir.hpp"
 
@@ -225,4 +231,60 @@ TEST_CASE("info pane: its width stays within limits and leaves the view room") {
     CHECK(pane.width_in(2000.0F) == 500.0F);
     CHECK(pane.width_in(700.0F) == 700.0F - InfoPane::kMinContent);  // narrowed for the view
     CHECK(pane.width_in(500.0F) == 0.0F);  // not even the narrowest fits: left out
+}
+
+TEST_CASE("info pane: a folder's size is added up once the cursor rests on it") {
+    constexpr std::int32_t width = 1000;
+    constexpr std::int32_t height = 600;
+    std::unique_ptr<nordend::ui::Offscreen> gl;
+    try {
+        gl = std::make_unique<nordend::ui::Offscreen>(width, height);
+    } catch (const std::runtime_error& error) {
+        MESSAGE("no offscreen OpenGL: " << error.what());
+        return;
+    }
+    nordend::ui::FontSystem fonts;
+    nordend::ui::Renderer renderer{fonts};
+    nordend::ui::IconSet icons{fonts};
+    Fixture f;
+    REQUIRE(f.settle());
+    write(f.root / "alpha" / "more.txt", 2000);
+    fs::create_directories(f.root / "alpha" / "deeper");
+    write(f.root / "alpha" / "deeper" / "last.txt", 30);
+    f.press(XKB_KEY_3, {.ctrl = true});
+    if (!f.browser.info_visible()) {
+        f.press(XKB_KEY_I, {.ctrl = true});
+    }
+    const nordend::views::InfoPane& pane = f.browser.info_pane();
+    const auto draw = [&] {
+        renderer.begin_frame(width, height, 1.0F, {});
+        f.browser.draw(renderer, {0.0F, 0.0F, width, height}, nordend::theme::Palette{}, icons,
+                       Browser::Clock::now());
+        renderer.end_frame();
+    };
+
+    f.press(XKB_KEY_Down);  // alpha
+    REQUIRE(cursor_name(*f.browser.columns().focused_folder()) == "alpha");
+    draw();
+    CHECK_FALSE(pane.folder_size());  // not before kMeasureDelay
+    f.press(XKB_KEY_Down);            // gamma: alpha's count never starts
+    draw();
+    REQUIRE(run_until(f.loop, [&] { return pane.folder_size_done(); }));
+    CHECK(pane.folder_size()->entries() == 1);  // gamma, empty
+    CHECK(pane.folder_size()->bytes == 0);
+
+    f.press(XKB_KEY_Up);  // alpha
+    draw();
+    REQUIRE(run_until(f.loop, [&] { return pane.folder_size_done(); }));
+    const nordend::fs::Tally& alpha = *pane.folder_size();
+    CHECK(alpha.files == 3);
+    CHECK(alpha.folders == 2);
+    CHECK(alpha.bytes == 1 + 2000 + 30);
+    CHECK(alpha.complete());
+    draw();  // the rows drawn with the sum
+
+    f.press(XKB_KEY_Down);
+    f.press(XKB_KEY_Down);  // a.md: a file, no count
+    draw();
+    CHECK_FALSE(pane.folder_size());
 }

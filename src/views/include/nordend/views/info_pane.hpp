@@ -1,12 +1,16 @@
 #pragma once
 
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 
+#include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
+#include "nordend/fs/measure.hpp"
 #include "nordend/preview/preview.hpp"
 #include "nordend/theme/palette.hpp"
 #include "nordend/ui/geometry.hpp"
@@ -28,7 +32,8 @@ namespace nordend::views {
 // lens, exposure, the darktable rating) for photos, and on request ("More details") permissions,
 // owner, location and the rest of the exposure. Several entries selected: how many and how big;
 // nothing selected: the folder itself. What the directory entry says shows at once, the rest when
-// read on a worker.
+// read on a worker. A folder's size is added up on a worker too, once the cursor rests on it
+// (kMeasureDelay), showing the sum as it grows; moving on cancels it.
 //
 // Loop thread only. Draw it while drawing (thumbnail textures are made then).
 class InfoPane {
@@ -43,8 +48,13 @@ public:
     // Either side of the pane's edge, where the pointer grabs it (grid and details).
     static constexpr float kEdgeGrab = 4.0F;
 
+    // How long the cursor rests on a folder before its size is added up: walking past folders
+    // with the arrows starts nothing.
+    static constexpr std::chrono::milliseconds kMeasureDelay{250};
+
     // thumbnails may be nullptr: icons only.
-    InfoPane(core::WorkerPool& pool, Thumbnails* thumbnails, std::function<void()> redraw);
+    InfoPane(core::EventLoop& loop, core::WorkerPool& pool, Thumbnails* thumbnails,
+             std::function<void()> redraw);
     ~InfoPane();
 
     InfoPane(const InfoPane&) = delete;
@@ -84,17 +94,33 @@ public:
 
     void set_expanded(bool expanded);
 
-    // What it shows is still being read (snapshots, tests).
-    [[nodiscard]] bool loading() const noexcept { return job_.has_value(); }
+    // What it shows is still being read, a folder's size included (snapshots, tests).
+    [[nodiscard]] bool loading() const noexcept {
+        return job_.has_value() || size_timer_ != 0 || size_job_.has_value();
+    }
 
     // What was read about the entry shown last; nullptr before it arrives (tests).
     [[nodiscard]] const preview::Summary* summary() const noexcept { return summary_.get(); }
+
+    // The folder's size as added up so far; nullopt before it starts (tests).
+    [[nodiscard]] const std::optional<fs::Tally>& folder_size() const noexcept { return size_; }
+
+    // The folder's size is all added up (tests).
+    [[nodiscard]] bool folder_size_done() const noexcept { return size_done_; }
 
 private:
     // Reads path's summary unless it is the one shown or on its way.
     void request(const std::filesystem::path& path, std::int64_t modified_ns, std::string mime,
                  preview::Kind kind);
 
+    // Adds up the folder path's size after kMeasureDelay unless it is the one measured; an empty
+    // path stops measuring.
+    void measure(const std::filesystem::path& path, std::int64_t modified_ns);
+
+    // The "Size" row of a folder: what is known so far.
+    [[nodiscard]] std::string size_text() const;
+
+    core::EventLoop& loop_;
     core::WorkerPool& pool_;
     Thumbnails* thumbnails_;
     std::function<void()> redraw_;
@@ -102,6 +128,11 @@ private:
     std::string key_;  // what summary_ is (or will be) about
     std::optional<core::CancelToken> job_;
     std::shared_ptr<const preview::Summary> summary_;
+    std::string size_key_;  // the folder size_ is (or will be) about
+    core::EventLoop::SourceId size_timer_{0};
+    std::optional<core::CancelToken> size_job_;
+    std::optional<fs::Tally> size_;  // so far
+    bool size_done_{false};
     bool expanded_{false};
     float width_{kWidth};
     ui::Rect bounds_{};  // as last drawn

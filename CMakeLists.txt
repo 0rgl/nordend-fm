@@ -168,6 +168,10 @@ add_executable(nordend-bench-find src/tools/bench_find.cpp)
 target_link_libraries(nordend-bench-find PRIVATE nordend::core nordend::fs nordend::views
                                                  nordend::warnings)
 
+# Development tool: a folder's size benchmark (the info pane). Not installed.
+add_executable(nordend-bench-size src/tools/bench_size.cpp)
+target_link_libraries(nordend-bench-size PRIVATE nordend::core nordend::fs nordend::warnings)
+
 # Development tool: start-up benchmark, runs nordend and times each step of its start
 # (ROADMAP 7.6). Not installed.
 add_executable(nordend-bench-start src/tools/bench_start.cpp)

@@ -47,7 +47,7 @@ Browser::Browser(core::EventLoop& loop, core::WorkerPool& pool, fs::DirectoryWat
       redraw_{redraw},
       set_cursor_{std::move(set_cursor)},
       thumbnails_{thumbnails ? std::make_unique<Thumbnails>(pool, thumbnails, redraw) : nullptr},
-      info_pane_{pool, thumbnails_.get(), redraw},
+      info_pane_{loop, pool, thumbnails_.get(), redraw},
       watcher_{watcher},
       mime_{mime},
       quick_look_{pool, mime, std::move(thumbnails), redraw},

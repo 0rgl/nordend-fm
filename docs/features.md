@@ -151,6 +151,14 @@ README's [What's next](../README.md#whats-next).
   dates (including the birth time), type, and for photos the shot itself (camera, lens,
   exposure, aperture, ISO, focal length, when). "More details" adds permissions, owner and group, link target and item count. In the
   grid and the details Ctrl+I hides it, and its edge can be dragged from 240 to 720 px.
+- **A folder's size** in the info pane: once the cursor rests on a folder for a quarter of a
+  second, a worker adds up everything inside ("Counting… 1.2 GB" as it grows), then "Size" and
+  "Contains" (files and folders). Moving on cancels it, and nothing is read on the main thread.
+  Sizes are the files' own (as their rows show; hidden files included); a hard link counts once;
+  links inside are never followed. Disks mounted inside and btrfs subvolumes are not entered
+  (as `du -x`), nor folders deeper than 64 levels: the size then says "at least". Folders on a
+  network or FUSE file system (NFS, SMB, sshfs) are not counted at all ("—"), so a stuck server
+  never holds a worker; NTFS and exFAT disks (fuseblk) are.
 - **darktable-aware:** sidecars get their own icon and follow their photo when it is renamed,
   copied, moved or trashed. Their ratings are not read: Nordend's own ratings come later.
 

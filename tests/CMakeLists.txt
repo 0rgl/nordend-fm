@@ -62,6 +62,7 @@ add_executable(nordend-tests
     window_frame_test.cpp
     erase_test.cpp
     erase_view_test.cpp
+    measure_test.cpp
     file_finder_test.cpp
     transfer_test.cpp
     trash_test.cpp

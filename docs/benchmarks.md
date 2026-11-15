@@ -663,6 +663,28 @@ throwaway program built `-O2` against `jpeg_segments.cpp`.
 sorts them. **0.10-0.15 ms a key** in the Release build (target < 1 ms), 2.3 ms under ASan,
 3.8 ms under TSan. The palette itself offers about 50 items plus the places and tabs.
 
+## A folder's size (the info pane, 0.7.5)
+
+### 2026-11-15: `nordend-bench-size`, warm caches
+
+`nordend-bench-size --runs 3 DIR...`: `fs::measure` with the info pane's options (one file system,
+64 levels, remote file systems skipped), on one thread, as one worker of the pool runs it. Three
+runs each; the caches were warm (the folders had been walked minutes before), so these are the
+second-time numbers; a cold run needs `drop_caches` first (*to be measured*).
+
+| Folder | Disk | Files | Folders | Median |
+|---|---|---:|---:|---:|
+| `DATA/fotografia` | SATA SSD, ext4 | 2 642 | 55 | 5.2 ms |
+| `/usr` | NVMe, btrfs | 100 373 | 12 293 | 313.6 ms |
+| `/home/pankaspe` | NVMe, btrfs | 107 782 | 14 673 | 356.6 ms |
+| `/` | NVMe, btrfs | 186 546 | 56 591 | 942.4 ms |
+
+About 3 µs an entry warm. `/` leaves out 9 folders (`/proc`, `/sys`, `/run`, the btrfs
+subvolume `/home`…: another device number) and 15 it cannot read; the pane says "at least". The
+progress is told every 150 ms at most: twice for `/home/pankaspe`, so a folder counted in under
+150 ms shows its size straight away, without "Counting…". The main thread does nothing but draw
+the rows when a result arrives.
+
 ## Finding files (ROADMAP 8b)
 
 ### 2026-11-06: `nordend-bench-find`, warm caches

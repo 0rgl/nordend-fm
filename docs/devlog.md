@@ -4,6 +4,51 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — A folder's size in the info pane (0.7.5)
+
+**Done**
+- `fs::measure` / `fs::Measurer` (`fs/measure.{hpp,cpp}`): adds up a tree without recursion (one
+  open folder per level): files, folders, others, bytes (`st_size`, a hard link once), folders
+  unreadable and not entered; progress told at most every 150 ms, polled every 256 entries;
+  cancelled between entries. Options: one file system (on), a depth of 64, remote file systems
+  skipped, a root link followed. `plan_erase` and `run_erase` count with it (everything: other
+  file systems, any depth, no link followed, as before); erase's own `Counter` is gone.
+- `fs::is_remote`: `statfs`'s type (NFS, SMB, CIFS, SMB2, 9P, Ceph, AFS, Coda, NCP) and FUSE
+  unless the mount is `fuseblk` (from `/proc/self/mountinfo`, by the device's major:minor).
+- The info pane (`InfoPane::measure`): a single folder selected and the cursor resting on it for
+  250 ms (`kMeasureDelay`, a loop timer) starts the count on the worker pool (`nearby`, streaming):
+  "Counting… 1.2 GB" while it grows, then "Size" ("at least" when something was left out) and
+  "Contains" (files, folders under it). Another entry, a file or several selected cancel it; the
+  key is the path and its mtime. `InfoPane` takes the `EventLoop`; its `loading()` includes the
+  count (snapshots wait for it).
+- `nordend-bench-size [--runs N] DIR...`.
+- Tests: `measure_test.cpp` (8: links, hard links across trees, depth, unreadable, cancel,
+  progress, a file root, the remote decision) and an info pane test (no count before the delay,
+  a count cancelled by moving, the sum, a file stops it), through `ui::Offscreen`.
+
+**Decisions** (proposed and agreed on 2026-11-15)
+- Only for a single selected folder in this step; several selected keep "Size of the files", the
+  folder shown with nothing selected shows its items. No cache: a folder is counted again when the
+  cursor comes back.
+- The files' own sizes (as Nautilus and the rows), not the blocks on disk: btrfs reflinks and
+  compression count in full.
+- Network and FUSE folders are not counted at all, not even with a time limit: a stuck server
+  would hold a worker. NTFS/exFAT disks through `fuseblk` are local.
+- btrfs subvolumes have their own device number, so `/home` is not entered when `/` is counted,
+  as `du -x` does; the size then says "at least".
+
+**Measured**: see `docs/benchmarks.md`, "A folder's size".
+
+**Tested by the author** (Umbriel): Size and Contains on Documents (the bytes `find` sums), no
+count while holding Down, files and two folders selected as before, "at least" on `/home` from
+`/`, DATA (264.6 GB), the permanent delete card still counting.
+
+**Open**
+- `statfs` on a stuck network mount itself may block the worker that asks (as the item count of
+  `read_info` already may); the real answer comes with network shares (0.10.0).
+
+---
+
 ## 2026-11-14 — Actions of your own in the context menu (0.7.5, issue #14)
 
 **Done**

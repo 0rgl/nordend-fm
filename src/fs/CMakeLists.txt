@@ -4,6 +4,7 @@ add_library(nordend_fs
     src/directory_watcher.cpp
     src/erase.cpp
     src/file_filter.cpp
+    src/measure.cpp
     src/icon.cpp
     src/mime.cpp
     src/operations.cpp

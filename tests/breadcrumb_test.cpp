@@ -5,19 +5,25 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <doctest/doctest.h>
 
+#include "nordend/core/config.hpp"
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
+#include "nordend/ui/text.hpp"
 #include "nordend/views/browser.hpp"
 #include "temp_dir.hpp"
 
+using nordend::core::Config;
 using nordend::core::EventLoop;
 using nordend::test::TempDir;
+using nordend::ui::Ellipsis;
+using nordend::ui::FontSystem;
 using nordend::views::Browser;
 using nordend::views::Crumb;
 using nordend::views::crumbs_of;
@@ -84,6 +90,27 @@ TEST_CASE("breadcrumb: steps from the home or the root") {
     // A sibling whose name starts like the home is not in it.
     CHECK(crumbs_of("/home/me2", "/home/me").front().icon == "server");
     CHECK(crumbs_of("/home/me/x", "").front().icon == "server");
+}
+
+TEST_CASE("breadcrumb: a name with room is drawn whole, at any text size and scale") {
+    // Zoom 15/13 drew "Downloads" as "Dow…oads".
+    constexpr float kTextSize = 14.0F;
+    constexpr float kInsets = 12.0F;
+    FontSystem fonts;
+    for (const float output : {1.0F, 1.25F, 1.5F, 2.0F}) {
+        for (int size = 8; size <= 32; ++size) {
+            const float scale = output * (static_cast<float>(size) / Config::Font::kUsualSize);
+            for (const std::string_view name :
+                 {"Downloads", "Documents", "Pictures", "Desktop", "Templates", "2026"}) {
+                CAPTURE(output);
+                CAPTURE(size);
+                CAPTURE(name);
+                const float step = (fonts.layout(name, kTextSize, scale).width / scale) + kInsets;
+                const float room = step - kInsets;
+                CHECK_FALSE(fonts.layout(name, kTextSize, scale, room, Ellipsis::middle).truncated);
+            }
+        }
+    }
 }
 
 TEST_CASE("breadcrumb: going up in the grid and the details") {

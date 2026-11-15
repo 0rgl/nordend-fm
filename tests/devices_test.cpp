@@ -1,9 +1,11 @@
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <utility>
 #include <vector>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 #include <doctest/doctest.h>
 
@@ -162,6 +164,45 @@ TEST_CASE("volumes: ejecting a drive unmounts every mounted file system on it") 
     CHECK(nordend::platform::on_same_drive(volumes, "/nothing").empty());
 }
 
+TEST_CASE("volumes: a disc image on a loop device is shown as a disc that ejects") {
+    UdisksObject named = partition("/org/freedesktop/UDisks2/block_devices/loop0", "/",
+                                   "nixos-minimal", {"/run/media/me/nixos-minimal"});
+    named.loop = true;
+    named.backing_file = "/home/me/Downloads/nixos.iso";
+    UdisksObject unnamed = partition("/org/freedesktop/UDisks2/block_devices/loop1", "/", "");
+    unnamed.loop = true;
+    unnamed.backing_file = "/home/me/old disc.iso";
+    // A loop device without a file behind it (cleared) is not an image.
+    UdisksObject cleared = partition("/org/freedesktop/UDisks2/block_devices/loop2", "/", "x");
+    cleared.loop = true;
+
+    const std::vector<Volume> volumes = nordend::platform::volumes_from({named, unnamed, cleared});
+    REQUIRE(volumes.size() == 3);
+    CHECK(volumes[0].name == "nixos-minimal");
+    CHECK(volumes[0].external);
+    CHECK(volumes[0].image == fs::path{"/home/me/Downloads/nixos.iso"});
+    CHECK(volumes[1].name == "old disc.iso");  // no label: its file's name
+    CHECK(volumes[1].external);
+    CHECK(volumes[2].image.empty());
+    CHECK_FALSE(volumes[2].external);
+
+    std::vector<Place> places{{.section = Place::Section::devices,
+                               .label = "nixos-minimal",
+                               .path = "/run/media/me/nixos-minimal",
+                               .icon = "database",
+                               .disk = {}}};
+    places = nordend::platform::with_volumes(std::move(places), volumes);
+    REQUIRE(places.size() == 3);
+    CHECK(places[0].icon == "disc");
+    CHECK(places[0].disk.image);
+    CHECK(places[0].disk.ejectable);
+    CHECK(places[1].label == "old disc.iso");
+    CHECK(places[1].icon == "disc");
+    CHECK_FALSE(places[1].disk.mounted);
+    CHECK(places[2].icon == "database-off");
+    CHECK_FALSE(places[2].disk.image);
+}
+
 namespace {
 
 // A browser with disks of its own.
@@ -197,6 +238,13 @@ struct Fixture {
                 [this](const std::string& volume, nordend::views::Devices::Done done) {
                     calls.push_back("eject " + volume);
                     loop.post([this, done = std::move(done)] { done(answer); });
+                },
+            .mount_image =
+                [this](const fs::path& image, nordend::views::Devices::Mounted done) {
+                    calls.push_back("mount_image " + image.filename().string());
+                    loop.post([this, done = std::move(done)] {
+                        done(answer.empty() ? disk : fs::path{}, answer);
+                    });
                 },
         });
     }
@@ -266,6 +314,65 @@ TEST_CASE("devices: unmounting and ejecting leave the disk first, and say how it
     REQUIRE(f.settle());
     CHECK(f.calls.empty());
     CHECK(f.shown() == f.disk);
+}
+
+TEST_CASE("devices: Enter on an .iso mounts it and opens it; other files are opened as ever") {
+    Fixture f;
+    const fs::path files = f.dir.path / "files";
+    fs::create_directories(files);
+    for (const char* name : {"nixos.iso", "notes.txt"}) {
+        std::ofstream{files / name} << "some bytes\n";
+    }
+    std::vector<std::string> opened;
+    f.browser.set_open_handler(
+        [&opened](const fs::path& /*directory*/, const std::vector<nordend::fs::Entry>& entries) {
+            for (const nordend::fs::Entry& entry : entries) {
+                opened.push_back(entry.name);
+            }
+        });
+    const auto press = [&f](xkb_keysym_t keysym) {
+        nordend::ui::KeyEvent event;
+        event.keysym = keysym;
+        f.browser.key(event, Browser::Clock::now());
+        REQUIRE(f.settle());
+    };
+    const auto enter_on = [&f, &files, &press](const std::string& name) {
+        f.browser.go_to(files, name);
+        REQUIRE(f.settle());
+        press(XKB_KEY_Return);
+    };
+
+    enter_on("nixos.iso");
+    CHECK(f.calls == std::vector<std::string>{"mount_image nixos.iso"});
+    CHECK(opened.empty());
+    CHECK(f.shown() == f.disk);
+    CHECK(f.message() == "“nixos.iso” mounted, read-only");
+
+    f.calls.clear();
+    f.answer = "not allowed";
+    enter_on("nixos.iso");
+    CHECK(f.calls == std::vector<std::string>{"mount_image nixos.iso"});
+    CHECK(f.shown() == files);
+    CHECK(f.message() == "“nixos.iso” could not be mounted: not allowed");
+
+    f.calls.clear();
+    press(XKB_KEY_Down);  // notes.txt, after the image
+    press(XKB_KEY_Return);
+    CHECK(f.calls.empty());
+    CHECK(opened == std::vector<std::string>{"notes.txt"});
+
+    // Ejecting an image says it is unmounted: there is nothing to unplug.
+    f.answer.clear();
+    Place image = f.place(true);
+    image.label = "nixos-minimal";
+    image.disk.image = true;
+    f.browser.eject_place(image);
+    REQUIRE(f.settle());
+    CHECK(f.message() == "“nixos-minimal” unmounted");
+
+    CHECK(nordend::views::is_disc_image("application/vnd.efi.iso"));
+    CHECK(nordend::views::is_disc_image("application/x-cd-image"));
+    CHECK_FALSE(nordend::views::is_disc_image("application/vnd.efi.img"));
 }
 
 TEST_CASE("devices: udisks2 on the real system bus lists the disks (reads only)") {

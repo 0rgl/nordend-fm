@@ -851,6 +851,7 @@ TEST_CASE("sidebar disks: a click on the eject icon ejects; the right click offe
             [&calls](const std::string& volume, const nordend::views::Devices::Done& /*done*/) {
                 calls.push_back("eject " + volume);
             },
+        .mount_image = {},
     });
     std::vector<nordend::fs::Place> places = f.browser.sidebar().places();
     places.push_back({.section = nordend::fs::Place::Section::devices,

@@ -29,6 +29,7 @@ struct Place {
         std::string volume;     // its object
         bool mounted{true};     // false: listed by udisks2, not mounted (path empty)
         bool ejectable{false};  // an external drive, which can be powered off
+        bool image{false};      // a disc image (.iso) on a loop device: ejecting lets it go
 
         bool operator==(const Disk&) const = default;
     };

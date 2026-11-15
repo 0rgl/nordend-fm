@@ -369,6 +369,11 @@ README's [What's next](../README.md#whats-next).
   an external disk unmounts every partition on it and powers it off, taking the view home first if
   it shows that disk; "in use" says to close what is open there. The right click mounts, unmounts
   and ejects. The list follows disks coming and going; nothing waits on udisks2.
+- **Disc images:** Enter (or a double click) on an `.iso` mounts it read-only through udisks2 and
+  opens it: Nordend opens the file itself and hands udisks2 the open file, never a path; the
+  kernel reads the file system, no parser of Nordend's. It shows among the devices with a disc
+  icon; ejecting it unmounts it and lets its loop device go. An image mounted already just opens;
+  a file without a file system the kernel can read says so and leaves nothing behind.
 - **Favourites:** Ctrl+D adds the folder shown, "Add to Sidebar" the folders selected (or the
   folder, from its empty part), and folders dragged onto the "BOOKMARKS" title or below the last
   place are added at the end, a line showing where; dropping onto a place still moves into it.

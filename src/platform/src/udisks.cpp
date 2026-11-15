@@ -1,12 +1,17 @@
 #include "nordend/platform/udisks.hpp"
 
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <exception>
+#include <fcntl.h>
 #include <map>
 #include <optional>
 #include <sdbus-c++/sdbus-c++.h>
+#include <set>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include "nordend/core/log.hpp"
@@ -20,6 +25,12 @@ constexpr std::string_view kManagerPath = "/org/freedesktop/UDisks2";
 constexpr std::string_view kBlock = "org.freedesktop.UDisks2.Block";
 constexpr std::string_view kFilesystem = "org.freedesktop.UDisks2.Filesystem";
 constexpr std::string_view kDrive = "org.freedesktop.UDisks2.Drive";
+constexpr std::string_view kLoop = "org.freedesktop.UDisks2.Loop";
+constexpr std::string_view kManager = "org.freedesktop.UDisks2.Manager";
+constexpr std::string_view kManagerObject = "/org/freedesktop/UDisks2/Manager";
+// A new loop device gets its Filesystem once udisks2 has probed it: try mounting that often.
+constexpr std::chrono::milliseconds kProbeWait{100};
+constexpr int kProbeTries = 40;
 // Signals come in bursts (a disk plugged in: a dozen objects): read the objects once after.
 constexpr std::chrono::milliseconds kSettle{150};
 
@@ -79,7 +90,20 @@ UdisksObject object_from(const sdbus::ObjectPath& path, const Interfaces& interf
         object.can_power_off = property<bool>(p, "CanPowerOff");
         object.connection_bus = property<std::string>(p, "ConnectionBus");
     }
+    if (const auto loop = interfaces.find(std::string{kLoop}); loop != interfaces.end()) {
+        object.loop = true;
+        object.backing_file =
+            bytes_text(property<std::vector<std::uint8_t>>(loop->second, "BackingFile"));
+    }
     return object;
+}
+
+// The loop device has no Filesystem yet (udisks2 still probing it), or never will.
+bool no_filesystem(const sdbus::Error& error) {
+    const std::string& name = error.getName();
+    return name == "org.freedesktop.DBus.Error.UnknownMethod" ||
+           name == "org.freedesktop.DBus.Error.UnknownInterface" ||
+           name == "org.freedesktop.DBus.Error.UnknownObject";
 }
 
 // udisks2's errors as a person reads them.
@@ -114,11 +138,17 @@ struct Udisks::Impl {
 
     std::unique_ptr<BusLoop> bus;
     core::EventLoop::SourceId settle{0};
+    std::set<core::EventLoop::SourceId> probes;  // loop devices waiting for their file system
 
     Impl(core::EventLoop& event_loop, std::function<void()> on_change)
         : loop{event_loop}, changed{std::move(on_change)} {}
 
-    ~Impl() { loop.remove(settle); }
+    ~Impl() {
+        loop.remove(settle);
+        for (const core::EventLoop::SourceId probe : probes) {
+            loop.remove(probe);
+        }
+    }
 
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
@@ -178,6 +208,65 @@ struct Udisks::Impl {
             settle = 0;
             read_objects();
         });
+    }
+
+    // Lets a loop device go; it may be gone already (autoclear took it with the mount).
+    void delete_loop(const std::string& path, std::function<void()> then) {
+        proxy(path)
+            .callMethodAsync("Delete")
+            .onInterface(std::string{kLoop})
+            .withArguments(std::map<std::string, sdbus::Variant>{})
+            .uponReplyInvoke([path, then = std::move(then)](std::optional<sdbus::Error> error) {
+                if (error && !no_filesystem(*error)) {
+                    log::debug("udisks: {} not deleted: {}", path, error->getMessage());
+                }
+                then();
+            });
+        pump();
+    }
+
+    // Mounts the new loop device at path, waiting for udisks2 to find its file system; on any
+    // failure the loop goes. Mounted, it is set to go away by itself when unmounted.
+    void mount_loop(
+        const std::string& path, int tries,
+        std::function<void(const std::filesystem::path& where, const std::string& error)> done) {
+        proxy(path)
+            .callMethodAsync("Mount")
+            .onInterface(std::string{kFilesystem})
+            .withArguments(std::map<std::string, sdbus::Variant>{})
+            .uponReplyInvoke([this, path, tries, done = std::move(done)](
+                                 std::optional<sdbus::Error> error, const std::string& where) {
+                if (!error) {
+                    proxy(path)
+                        .callMethodAsync("SetAutoclear")
+                        .onInterface(std::string{kLoop})
+                        .withArguments(true, std::map<std::string, sdbus::Variant>{})
+                        .uponReplyInvoke([path](std::optional<sdbus::Error> failed) {
+                            if (failed) {
+                                log::debug("udisks: no autoclear on {}: {}", path,
+                                           failed->getMessage());
+                            }
+                        });
+                    pump();
+                    done(where, {});
+                    return;
+                }
+                if (no_filesystem(*error) && tries > 1) {
+                    auto id = std::make_shared<core::EventLoop::SourceId>(0);
+                    *id = loop.add_timer(kProbeWait, std::chrono::milliseconds{0},
+                                         [this, path, tries, done, id] {
+                                             probes.erase(*id);
+                                             mount_loop(path, tries - 1, done);
+                                         });
+                    probes.insert(*id);
+                    return;
+                }
+                const std::string why = no_filesystem(*error)
+                                            ? std::string{"no file system Nordend can open"}
+                                            : readable(*error);
+                delete_loop(path, [done, why] { done({}, why); });
+            });
+        pump();
     }
 
     [[nodiscard]] const UdisksObject* object(const std::string& path) const {
@@ -254,6 +343,54 @@ void Udisks::unmount(const std::string& volume, Done done) {
     impl_->pump();
 }
 
+void Udisks::mount_image(
+    const std::filesystem::path& file,
+    std::function<void(const std::filesystem::path& where, const std::string& error)> done) {
+    if (!available()) {
+        done({}, "udisks2 is not running");
+        return;
+    }
+    std::error_code error;
+    const std::filesystem::path real = std::filesystem::canonical(file, error);
+    if (error) {
+        done({}, error.message());
+        return;
+    }
+    const auto known = std::ranges::find(impl_->volumes, real, &Volume::image);
+    if (known != impl_->volumes.end()) {
+        if (known->mount_point) {
+            done(*known->mount_point, {});
+        } else {
+            mount(known->object, std::move(done));
+        }
+        return;
+    }
+    // Opened here, read-only: udisks2 gets the file itself, never a path to open as root.
+    const int fd = ::open(real.c_str(), O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0) {
+        done({}, std::strerror(errno));
+        return;
+    }
+    sdbus::UnixFd image{fd, sdbus::adopt_fd};
+    impl_->proxy(std::string{kManagerObject})
+        .callMethodAsync("LoopSetup")
+        .onInterface(std::string{kManager})
+        .withArguments(image,
+                       std::map<std::string, sdbus::Variant>{
+                           {"read-only", sdbus::Variant{true}},
+                           {"no-part-scan", sdbus::Variant{true}},
+                       })
+        .uponReplyInvoke([this, done = std::move(done)](std::optional<sdbus::Error> failed,
+                                                        const sdbus::ObjectPath& loop) {
+            if (failed) {
+                done({}, readable(*failed));
+                return;
+            }
+            impl_->mount_loop(loop, kProbeTries, done);
+        });
+    impl_->pump();
+}
+
 void Udisks::eject(const std::string& volume, Done done) {
     if (!available()) {
         done("udisks2 is not running");
@@ -262,6 +399,23 @@ void Udisks::eject(const std::string& volume, Done done) {
     const auto it = std::ranges::find(impl_->volumes, volume, &Volume::object);
     if (it == impl_->volumes.end()) {
         done("it is gone already");
+        return;
+    }
+    if (!it->image.empty()) {  // a disc image: unmounted, then its loop device let go
+        const auto let_go = [this, volume, done] {
+            impl_->delete_loop(volume, [done] { done({}); });
+        };
+        if (!it->mount_point) {
+            let_go();
+            return;
+        }
+        unmount(volume, [let_go, done](const std::string& error) {
+            if (!error.empty()) {
+                done(error);
+                return;
+            }
+            let_go();
+        });
         return;
     }
     std::vector<std::string> mounted;

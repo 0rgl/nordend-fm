@@ -42,8 +42,16 @@ public:
 
     void unmount(const std::string& volume, Done done);
 
+    // Mounts a disc image (.iso): udisks2 sets up a read-only loop device on it (from the file
+    // opened here, so udisks2 never opens a path of ours), the kernel reads the file system, and
+    // the loop goes away by itself once unmounted. An image mounted already is not set up again:
+    // done gets its folder.
+    void mount_image(
+        const std::filesystem::path& file,
+        std::function<void(const std::filesystem::path& where, const std::string& error)> done);
+
     // Unmounts every file system on volume's drive, then powers the drive off (or ejects its
-    // medium): it can be unplugged then.
+    // medium): it can be unplugged then. A disc image: unmounted, its loop device let go.
     void eject(const std::string& volume, Done done);
 
 private:

@@ -120,7 +120,12 @@ struct Devices {
     std::function<void(const std::string& volume, Done done)> unmount;
     // Every file system on the volume's drive unmounted, then the drive powered off.
     std::function<void(const std::string& volume, Done done)> eject;
+    // A disc image (.iso) mounted read-only; done gets its folder.
+    std::function<void(const std::filesystem::path& image, Mounted done)> mount_image;
 };
+
+// A file Enter mounts instead of opening: an .iso (its type and the type's older names).
+[[nodiscard]] bool is_disc_image(std::string_view mime);
 
 // Loop thread only. Must not outlive the loop, pool or watcher.
 class Browser {
@@ -453,6 +458,9 @@ public:
     void mount_place(const fs::Place& place, bool open);
     void unmount_place(const fs::Place& place);
     void eject_place(const fs::Place& place);
+
+    // A disc image (.iso): mounted read-only, then opened, with a message.
+    void mount_image(const std::filesystem::path& image);
 
     // Where a drop would go now, as the views mark it.
     [[nodiscard]] const DropMark& drop_mark() const noexcept { return drop_mark_; }

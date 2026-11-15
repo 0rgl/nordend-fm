@@ -4,6 +4,38 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Archives (0.9.0), step 1: `.iso` mounted through udisks2
+
+**Done**
+- Enter or a double click on an `.iso` (`application/vnd.efi.iso`, or its older names
+  `application/x-cd-image`, `application/x-iso9660-image`; the name's type while the content's
+  is not known yet) mounts it: `Udisks::mount_image` opens the file read-only in
+  Nordend (`O_RDONLY|O_CLOEXEC|O_NONBLOCK`, after `canonical`) and passes the fd to `Manager.LoopSetup` (`read-only`,
+  `no-part-scan`: a hybrid ISO's partition table is not scanned, the whole device is the
+  iso9660), then `Filesystem.Mount` on the new loop, tried every 100 ms (40 times) while
+  udisks2 probes it; mounted, `Loop.SetAutoclear(true)` so the loop goes with the mount
+  whatever unmounts it. Any failure deletes the loop ("no file system Nordend can open").
+- `UdisksObject` reads the `Loop` interface (`BackingFile`); a loop with a backing file is a
+  `Volume` with `image` set, shown as external (it ejects) with the `disc` icon, named by its
+  label or else its file. An image already set up (same canonical file) is not set up again:
+  its folder opens, or it is mounted.
+- Ejecting an image: unmounted, then `Loop.Delete` (an error there is only logged: autoclear may
+  have taken it); the message says "unmounted", not "can be unplugged now".
+- Tests (3): volumes from loop objects (named, unnamed, cleared), the sidebar's disc places,
+  Enter on an `.iso` against a fake `Devices` (mounted and opened, refused, a text file opened as
+  ever), the eject message.
+
+**Measured / checked**
+- On the author's Void, udisks2 sets up and mounts a user's loop device without a password
+  (`udisksctl --no-user-interaction`; `HintSystem` is true for loops, but the device set up by the
+  caller mounts as the user's own).
+
+**Tested by the author** (2026-11-15): NixOS minimal 26.05 ISO, with Enter and with a double
+click: mounted read-only and opened, a second Enter opened the same folder, eject unmounted it and
+no loop device was left (`lsblk`).
+
+---
+
 ## 2026-11-15 — Nordend 0.8.1
 
 **Done**

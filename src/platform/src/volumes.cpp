@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <string_view>
 #include <utility>
 
 namespace nordend::platform {
@@ -29,6 +30,21 @@ std::string size_name(std::uint64_t bytes) {
     return std::format("{:.0f} MB Volume", std::max(1.0, std::round(value / 1e6)));
 }
 
+namespace {
+
+// Its label; a disc image without one: its file's name; else its size, as GNOME says it.
+std::string volume_name(const UdisksObject& object, bool image) {
+    if (!object.id_label.empty()) {
+        return object.id_label;
+    }
+    if (image) {
+        return object.backing_file.filename().string();
+    }
+    return size_name(object.size);
+}
+
+}  // namespace
+
 std::vector<Volume> volumes_from(const std::vector<UdisksObject>& objects) {
     std::vector<Volume> volumes;
     for (const UdisksObject& object : objects) {
@@ -37,10 +53,11 @@ std::vector<Volume> volumes_from(const std::vector<UdisksObject>& objects) {
             continue;
         }
         const UdisksObject* const drive = find(objects, object.drive);
+        const bool image = object.loop && !object.backing_file.empty();
         const bool external =
-            drive != nullptr && drive->drive_interface &&
-            (drive->removable || drive->ejectable || drive->connection_bus == "usb" ||
-             drive->connection_bus == "sdio" || drive->connection_bus == "ieee1394");
+            image || (drive != nullptr && drive->drive_interface &&
+                      (drive->removable || drive->ejectable || drive->connection_bus == "usb" ||
+                       drive->connection_bus == "sdio" || drive->connection_bus == "ieee1394"));
         const bool mounted = !object.mount_points.empty();
         if (object.hint_system && !external && !mounted) {
             continue;  // another system's partition, the EFI one...
@@ -48,10 +65,11 @@ std::vector<Volume> volumes_from(const std::vector<UdisksObject>& objects) {
         volumes.push_back(
             {.object = object.path,
              .device = object.device,
-             .name = object.id_label.empty() ? size_name(object.size) : object.id_label,
+             .name = volume_name(object, image),
              .drive = object.drive,
              .external = external,
-             .mount_point = mounted ? std::optional{object.mount_points.front()} : std::nullopt});
+             .mount_point = mounted ? std::optional{object.mount_points.front()} : std::nullopt,
+             .image = image ? object.backing_file : std::filesystem::path{}});
     }
     std::ranges::sort(volumes, {}, &Volume::name);
     return volumes;
@@ -67,8 +85,14 @@ std::vector<fs::Place> with_volumes(std::vector<fs::Place> places,
             return candidate.mount_point && *candidate.mount_point == place.path;
         });
         if (volume != volumes.end()) {
-            place.disk = {.volume = volume->object, .mounted = true, .ejectable = volume->external};
-            if (volume->external) {
+            const bool image = !volume->image.empty();
+            place.disk = {.volume = volume->object,
+                          .mounted = true,
+                          .ejectable = volume->external,
+                          .image = image};
+            if (image) {
+                place.icon = "disc";
+            } else if (volume->external) {
                 place.icon = "usb";
             }
         }
@@ -77,12 +101,18 @@ std::vector<fs::Place> with_volumes(std::vector<fs::Place> places,
         if (volume.mount_point) {
             continue;  // listed from the mount table, where it is mounted
         }
-        places.push_back(
-            {.section = fs::Place::Section::devices,
-             .label = volume.name,
-             .path = {},
-             .icon = volume.external ? "usb" : "database-off",
-             .disk = {.volume = volume.object, .mounted = false, .ejectable = volume.external}});
+        std::string_view icon = volume.external ? "usb" : "database-off";  // literals: they last
+        if (!volume.image.empty()) {
+            icon = "disc";
+        }
+        places.push_back({.section = fs::Place::Section::devices,
+                          .label = volume.name,
+                          .path = {},
+                          .icon = icon,
+                          .disk = {.volume = volume.object,
+                                   .mounted = false,
+                                   .ejectable = volume.external,
+                                   .image = !volume.image.empty()}});
     }
     return places;
 }

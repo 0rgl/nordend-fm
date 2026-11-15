@@ -994,6 +994,10 @@ int main(int argc, char** argv) {
                         [&](const std::string& volume, views::Devices::Done done) {
                             udisks->eject(volume, std::move(done));
                         },
+                    .mount_image =
+                        [&](const std::filesystem::path& image, views::Devices::Mounted done) {
+                            udisks->mount_image(image, std::move(done));
+                        },
                 });
             }
             show_places();

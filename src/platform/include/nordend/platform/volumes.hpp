@@ -37,6 +37,10 @@ struct UdisksObject {
     bool ejectable{false};
     bool can_power_off{false};
     std::string connection_bus;  // "usb", "sdio", "ieee1394", "" for internal ones
+
+    // org.freedesktop.UDisks2.Loop: a loop device and the file behind it (a mounted .iso)
+    bool loop{false};
+    std::filesystem::path backing_file;
 };
 
 // A file system the sidebar can show.
@@ -47,13 +51,15 @@ struct Volume {
     std::string drive;     // the Drive's object path; "/" for none
     bool external{false};  // the drive can be unplugged (removable, USB, SD, FireWire)
     std::optional<std::filesystem::path> mount_point;  // the first one
+    std::filesystem::path image;  // a disc image's file, on a loop device; empty for a disk
 };
 
 // "466 GB Volume", "1.0 TB Volume" (decimal units, as GNOME names a disk without a label).
 [[nodiscard]] std::string size_name(std::uint64_t bytes);
 
 // The file systems worth showing: a Block with a Filesystem, not to be ignored, whose usage is a
-// file system; the system's own (internal, not removable) only while mounted.
+// file system; the system's own (internal, not removable) only while mounted. A disc image on a
+// loop device is shown as one that ejects, named after its label or else its file.
 [[nodiscard]] std::vector<Volume> volumes_from(const std::vector<UdisksObject>& objects);
 
 // The places with the volumes in: a mounted disk's place (from the mount table) learns its

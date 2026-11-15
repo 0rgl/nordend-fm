@@ -3639,6 +3639,33 @@ void Browser::mount_place(const fs::Place& place, bool open) {
         });
 }
 
+bool is_disc_image(std::string_view mime) {
+    return mime == "application/vnd.efi.iso" || mime == "application/x-cd-image" ||
+           mime == "application/x-iso9660-image";
+}
+
+void Browser::mount_image(const std::filesystem::path& image) {
+    if (!devices_.mount_image) {
+        return;
+    }
+    const std::string name = image.filename().string();
+    show_message(std::format("Mounting “{}”…", name), false);
+    ++operations_;
+    devices_.mount_image(image, [this, alive = alive_, name](const std::filesystem::path& where,
+                                                             const std::string& error) {
+        if (!*alive) {
+            return;
+        }
+        --operations_;
+        if (!error.empty()) {
+            show_message(std::format("“{}” could not be mounted: {}", name, error), true);
+            return;
+        }
+        open(where);
+        show_message(std::format("“{}” mounted, read-only", name), false);
+    });
+}
+
 void Browser::leave_disk(const std::filesystem::path& mount_point) {
     const std::shared_ptr<Folder> shown = current_folder();
     if (!shown || mount_point.empty()) {
@@ -3680,8 +3707,8 @@ void Browser::eject_place(const fs::Place& place) {
     leave_disk(place.path);
     show_message(std::format("Ejecting “{}”…", place.label), false);
     ++operations_;
-    devices_.eject(place.disk.volume, [this, alive = alive_,
-                                       name = place.label](const std::string& error) {
+    devices_.eject(place.disk.volume, [this, alive = alive_, name = place.label,
+                                       image = place.disk.image](const std::string& error) {
         if (!*alive) {
             return;
         }
@@ -3690,6 +3717,8 @@ void Browser::eject_place(const fs::Place& place) {
             show_message(std::format("“{}” is in use: close the files open from it", name), true);
         } else if (!error.empty()) {
             show_message(std::format("“{}” could not be ejected: {}", name, error), true);
+        } else if (image) {
+            show_message(std::format("“{}” unmounted", name), false);
         } else {
             show_message(std::format("“{}” can be unplugged now", name), false);
         }
@@ -4052,6 +4081,16 @@ bool Browser::open_selection() {
             paths.push_back(folder->path() / file.name);
         }
         choose(std::move(paths));
+        return true;
+    }
+    // The type from the content once the view knows it, from the name until then.
+    const auto disc_image = [this](const fs::Entry& file) {
+        const fs::MimeId type =
+            file.mime != fs::kUnknownMime ? file.mime : mime_->by_name(file.name).mime;
+        return is_disc_image(mime_->name(type));
+    };
+    if (files.size() == 1 && disc_image(files.front()) && devices_.mount_image) {
+        mount_image(folder->path() / files.front().name);
         return true;
     }
     open_(folder->path(), std::move(files));

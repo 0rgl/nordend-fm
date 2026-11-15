@@ -4,6 +4,60 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Nordend 0.7.6
+
+**Done**
+- Release 0.7.6, a patch with small features asked for in issues: programs and AppImages
+  started safely, "Allow Running as Program", the "may run" dot (#17); "Show in Folder" through
+  org.freedesktop.FileManager1, `nordend --reveal`, the activation token read at start (#16).
+
+**Measured** (after rebuilding as 0.7.6): `nordend` 4.55 / 3.78 MiB stripped, `nordend-preview`
+1.15 / 1.03, `nordend-portal` 0.44 / 0.35; `readelf -d` NEEDED 17, 8 and 8; 59 362 + 22 176
+lines, 529 test cases.
+
+---
+
+## 2026-11-15 — "Show in Folder": org.freedesktop.FileManager1 (issue #16)
+
+**Done** (0rgl's issue #16, shape agreed on the issue)
+- `nordend --reveal PATH...` / `--properties PATH...` (and `--` before paths that start with
+  "-"): `Browser::show_items` groups the items by folder in their order, the first folder in the
+  tab shown, each other in a tab after it, the items selected (`Folder::expect_names`), a folder
+  selected in its parent, a folder that is gone left out; `--properties` shows the info pane with
+  "More details".
+- The activation token: `take_activation_token()` reads `XDG_ACTIVATION_TOKEN` (else
+  `DESKTOP_STARTUP_ID`) at start and unsets both; `ui::Activation::activate` hands it to
+  xdg-activation once the first frame is committed (posted after the first draw).
+- `portal::FileManager` (`nordend-portal --file-manager1`): ShowFolders, ShowItems and
+  ShowItemProperties `(as uris, s startup_id)`; each answers at once, then (posted) starts nordend
+  through `platform::Launcher` with `show_arguments` (local `file://` URIs only, `--` before the
+  paths) and the token as `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID`; gone after 30 s idle.
+  No new binary.
+- `core::path_from_uri` (moved from views, which keeps a wrapper): the portal needs it.
+- `nordend --set-file-manager` / `--unset-file-manager` (`platform/file_manager_config`): the
+  service file in the first data dir's `dbus-1/services`, marked as Nordend's (first line), its
+  Exec the `nordend-portal` beside this program (`portal_program()`: libexec for an installed
+  bin, else the build tree); another program's file is left alone either way; the owner of the
+  bus name now (NameHasOwner, GetConnectionUnixProcessID, `/proc/PID/comm`) and the
+  `inode/directory` default are said.
+- Tests: `file_manager_test.cpp` (the arguments, the three methods on a private bus with a
+  made-up nordend writing its arguments and token, the idle exit, the service file set and unset,
+  `path_from_uri`), `show_items` in `tabs_test.cpp`.
+
+**Decisions**
+- No tab in an already open window yet: Nordend instances do not talk to each other (later).
+- The service file only in the user's data dir, on request; never in `/usr/share`.
+- `--set-file-manager` does not change `inode/directory`: it says so, `nordend-setup configure`
+  does it.
+
+**Tested by the author** (Umbriel, nothing else owning the name): `--set-file-manager` wrote the
+file and said nothing more (no other owner, folders already Nordend's); `nordend --reveal`; the
+three methods through `gdbus call` (one item, two folders in two tabs, the properties' details,
+a folder); the service still there within 30 s; "all works", Firefox's "Show in Folder"
+included as he reported.
+
+---
+
 ## 2026-11-15 — The "may run" dot (issue #17, the author's idea)
 
 **Done**

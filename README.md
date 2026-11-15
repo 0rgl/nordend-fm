@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.5"><img src="https://img.shields.io/badge/release-v0.7.5-2a6a9e" alt="release v0.7.5"></a>
+  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.6"><img src="https://img.shields.io/badge/release-v0.7.6-2a6a9e" alt="release v0.7.6"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Wayland-native-FFBC00?logo=wayland&logoColor=black" alt="Wayland native">
-  <img src="https://img.shields.io/badge/tests-514%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="514 tests, ASan, TSan">
+  <img src="https://img.shields.io/badge/tests-529%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="529 tests, ASan, TSan">
   <a href="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-3DA639" alt="MIT license">
 </p>
@@ -24,10 +24,10 @@
 </p>
 
 > [!NOTE]
-> **Nordend 0.7.5**, the latest release: **the text size** in `config.toml`, the whole interface
-> following it; **actions of your own** in the context menu, like Thunar's; and **a folder's
-> size** in the info pane, added up as you stop on it. Young software, used every day by its
-> author. [Install it](#install).
+> **Nordend 0.7.6**, the latest release: **programs and AppImages** start with Enter, asking
+> first when they may not run yet, and a dot marks what can run; **"Show in Folder"** from
+> browsers opens Nordend with the file selected. Young software, used every day by its author.
+> [Install it](#install).
 
 ## Contents
 
@@ -51,7 +51,7 @@ animations come from its own renderer.
   the Open and Save dialog of other applications; every action has a key and a click.
 - **Fast.** The first frame in about 75 ms; a raw photo in Quick Look at once, sharp in about
   100 ms. Every figure is measured, with the tool to measure it again ([Numbers](#numbers)).
-- **Light.** A 3.7 MB binary, about 24 MB of memory, no CPU at all while nothing moves.
+- **Light.** A 3.8 MB binary, about 24 MB of memory, no CPU at all while nothing moves.
 - **Safe.** Files that come from outside are read in a small helper process caged by Nordend
   (seccomp and landlock: no files, no network, no programs): a broken or hostile file costs at
   most its preview. Nothing is overwritten without asking, nothing half-copied under a real name.
@@ -95,10 +95,13 @@ animations come from its own renderer.
 - Drag and drop within Nordend and with other apps; rubber-band selection; the system clipboard
 - Actions of your own in the context menu (`[[action]]` in `config.toml`, like Thunar's custom
   actions): a name, a command, and which files they fit
+- Programs and AppImages start with <kbd>Enter</kbd>; "Allow Running as Program" from the menu,
+  asked first when they may not run yet, never a script, and a small dot marks what can run
 
 **On your desktop**
 - The file chooser of other applications (the desktop portal's): open and save with Nordend's
   views, thumbnails and Quick Look, the application's filters and choices
+- "Show in Folder" from browsers and other apps opens Nordend with the file selected
 - Default applications and "Open With", resolved exactly as GLib does; a terminal in any folder
   (<kbd>F4</kbd>), the one you choose in `config.toml`
 - Your theme's colours, live (Noctalia, Stylix, matugen, a hand-made `gtk.css`), or the
@@ -129,7 +132,7 @@ openSUSE Tumbleweed. Ubuntu 24.04 and Linux Mint 22 cannot build Nordend (their 
 Download it, read it, run it:
 
 ```sh
-curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.7.5/scripts/nordend-setup
+curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.7.6/scripts/nordend-setup
 less nordend-setup
 sh nordend-setup           # asks what to do; or: sh nordend-setup install
 ```
@@ -160,7 +163,7 @@ cp -r /tmp/nordend-fm/packaging/void/nordend srcpkgs/
 sudo xbps-install -R hostdir/binpkgs nordend
 ```
 
-The package is the latest release, **0.7.5**. What `main` gains after it comes with the next
+The package is the latest release, **0.7.6**. What `main` gains after it comes with the next
 release; to have it at once, build from source.
 
 </details>
@@ -232,7 +235,7 @@ command and it shows where things stand and asks what to do, or name the command
 A new release, for example:
 
 ```sh
-nordend-setup check     # ✓ Nordend 0.7.5 is out: nordend-setup update
+nordend-setup check     # ✓ Nordend 0.7.6 is out: nordend-setup update
 nordend-setup update    # builds and installs it; your settings stay
 ```
 
@@ -252,8 +255,8 @@ With nordend-setup, `nordend-setup configure` does the first two for you.
 
 ### Folders and a key
 
-Make Nordend the default for folders (a browser's "Show in folder", `xdg-open`) and give it a
-key:
+Make Nordend the default for folders (`xdg-open`, and every "Show in Folder" without the
+service below) and give it a key:
 
 ```sh
 xdg-mime default nordend.desktop inode/directory
@@ -263,6 +266,19 @@ xdg-mime default nordend.desktop inode/directory
 # Umbriel's config.toml; other compositors have their own way
 "Mod+E" = { action = "spawn nordend", repeat = false }
 ```
+
+### "Show in Folder"
+
+Browsers (Firefox, Chromium and those built on it), Electron apps and Flatpak apps ask the
+desktop's file manager to show a download selected in its folder. To have Nordend answer, once:
+
+```sh
+nordend --set-file-manager     # --unset-file-manager gives it back
+```
+
+It writes a D-Bus service file in your own `~/.local/share/dbus-1/services`, which the session
+bus prefers to the system's (Thunar's, Nautilus's), and tells you when another file manager holds
+the name right now (Nordend takes over once it exits, or at the next login).
 
 ### As the file chooser of other applications
 
@@ -303,9 +319,9 @@ report), and `--set-file-chooser` / `--unset-file-chooser`.
 
 | | |
 |---|---|
-| Binary | **4.43 MB** (3.68 MB stripped), x86-64; the decoders and text readers in `nordend-preview`, 1.15 MB (1.03 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.36 MB (0.29 stripped), started only when an application asks |
+| Binary | **4.55 MB** (3.78 MB stripped), x86-64; the decoders and text readers in `nordend-preview`, 1.15 MB (1.03 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
 | Libraries | 17 direct (the helper and the service: 8 each); no GTK, no Qt, no GLib |
-| Code | about 58 100 lines of C++20, 21 500 of tests (514 test cases, under ASan and TSan too) |
+| Code | about 59 400 lines of C++20, 22 200 of tests (529 test cases, under ASan and TSan too) |
 | Memory | **24 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
 | Idle | **0 CPU**: nothing is drawn while nothing moves |
 
@@ -330,9 +346,9 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 | Version | What it brought |
 |---|---|
+| [0.7.6](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.6), 2026-11-15 | Programs and AppImages start with Enter ("Allow and Run" first when they may not run yet, never a script), "Allow Running as Program" in the menu, a dot on what can run, from Evergaster's issue; "Show in Folder" opens Nordend (`nordend --set-file-manager`), from 0rgl's issue |
 | [0.7.5](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.5), 2026-11-15 | The text size in `config.toml` (`[font] size`), the whole interface following it; actions of your own in the context menu (`[[action]]`), both from 0rgl's issues; a folder's size in the info pane, or several selected |
 | [0.7.4](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.4), 2026-11-14 | Small fixes: the developer tools answer `--help` and refuse unknown options; an ordinary logout is no longer logged as an error |
-| [0.7.3](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.3), 2026-11-14 | Scrollbars that widen under the pointer and can be dragged, or clicked on their track, in every list and on Quick Look's text pages; the keyboard shortcuts card scrolls in a low window, from llego's issue |
 
 ## What's next
 

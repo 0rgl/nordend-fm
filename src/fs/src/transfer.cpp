@@ -9,8 +9,10 @@
 #include <deque>
 #include <fcntl.h>
 #include <format>
+#include <functional>
 #include <mutex>
 #include <ranges>
+#include <set>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <system_error>
@@ -149,13 +151,10 @@ struct Building {
     bool failed{false};  // something in it did not arrive (Engine::state_)
 };
 
-// One file for the copiers.
+// Work for the copiers: a file inside a folder being built, or a loose file and its sidecars.
 struct Job {
-    std::filesystem::path source;
-    std::filesystem::path target;
-    struct stat info{};
-    std::string where;
-    Building* folder{nullptr};
+    std::function<bool()> work;  // false: it did not arrive (the error is already written)
+    Building* folder{nullptr};   // marked incomplete then
 };
 
 class Engine {
@@ -276,7 +275,7 @@ private:
     std::atomic<bool> cancelled_{false};
     bool copying_{false};  // data is copied (a copy, or a move between file systems)
     bool moving_{false};
-    unsigned temporaries_{0};
+    std::atomic<unsigned> temporaries_{0};  // copiers ask for temporaries too
 
     std::size_t threads_;
     std::mutex jobs_mutex_;
@@ -320,8 +319,7 @@ void Engine::copier() {
             ++busy_;
         }
         room_.notify_all();
-        const bool copied =
-            !cancelled() && copy_file(job.source, job.info, job.target, job.where, false, true);
+        const bool copied = !cancelled() && job.work();
         if (!copied) {
             fail(job.folder);
         }
@@ -580,11 +578,12 @@ void Engine::fill(Building& folder, std::deque<Building>& folders) {
             continue;
         }
         if (S_ISREG(info->st_mode)) {
-            hand_over({.source = entry.path(),
-                       .target = target,
-                       .info = *info,
-                       .where = std::move(where),
-                       .folder = &folder});
+            hand_over(
+                {.work =
+                     [this, source = entry.path(), target, info = *info, where = std::move(where)] {
+                         return copy_file(source, info, target, where, false, true);
+                     },
+                 .folder = &folder});
         } else if (S_ISDIR(info->st_mode)) {
             if (mkdir(target.c_str(), 0700) != 0) {
                 error(where, last_error());
@@ -799,7 +798,15 @@ TransferResult Engine::run() {
     }
     report();
 
-    for (const Group& group : groups) {
+    // Loose files are copied by the copiers, each with its sidecars, while the next ones are
+    // looked at: the names they will take are claimed here, before they exist on the disk.
+    std::set<std::string> claimed;
+    const auto taken_here = [&](const std::string& name) {
+        return claimed.contains(name) || taken(r.destination / name);
+    };
+    std::vector<std::optional<std::string>> placed_as(groups.size());  // state_
+    for (std::size_t index = 0; index < groups.size(); ++index) {
+        const Group& group = groups[index];
         if (cancelled()) {
             break;
         }
@@ -808,9 +815,9 @@ TransferResult Engine::run() {
         const auto sidecar_target = [&group](const std::string& sidecar, const std::string& as) {
             return sidecar_name(sidecar, group.name, as);
         };
-        bool conflict = taken(r.destination / name);
+        bool conflict = taken_here(name);
         for (const std::string& sidecar : group.sidecars) {
-            conflict = conflict || taken(r.destination / sidecar_target(sidecar, name));
+            conflict = conflict || taken_here(sidecar_target(sidecar, name));
         }
         bool replace = false;
         if (conflict) {
@@ -833,31 +840,69 @@ TransferResult Engine::run() {
                 continue;
             }
             if (resolution == Resolution::keep_both) {
-                name = free_name(r.destination, group.name, folder, group.sidecars);
+                for (int number = 2;; ++number) {
+                    name = numbered(group.name, folder, number);
+                    bool free = !taken_here(name);
+                    for (const std::string& sidecar : group.sidecars) {
+                        free = free && !taken_here(sidecar_target(sidecar, name));
+                    }
+                    if (free) {
+                        break;
+                    }
+                }
             } else {
                 replace = true;
             }
         }
-        progress_.current = name;
-        report();
-        if (!place(r.source / group.name, r.destination / name, group.name, replace)) {
-            if (cancelled()) {
-                break;
-            }
-            continue;  // the photo did not arrive: its sidecars stay with it
-        }
-        result_.placed.push_back(name);
-        result_.items.push_back({.from = r.source / group.name, .to = r.destination / name});
+        claimed.insert(name);
         for (const std::string& sidecar : group.sidecars) {
-            if (!place(r.source / sidecar, r.destination / sidecar_target(sidecar, name), sidecar,
-                       replace) &&
-                cancelled()) {
-                break;
+            claimed.insert(sidecar_target(sidecar, name));
+        }
+        {
+            const std::scoped_lock lock{state_};
+            progress_.current = name;
+            report_locked();
+        }
+        // The photo first, its sidecars only once it arrived.
+        auto item = [this, &r, &group, &placed_as, sidecar_target, index, name, replace] {
+            if (!place(r.source / group.name, r.destination / name, group.name, replace)) {
+                return false;  // the photo did not arrive: its sidecars stay with it
             }
+            {
+                const std::scoped_lock lock{state_};
+                placed_as[index] = name;
+            }
+            for (const std::string& sidecar : group.sidecars) {
+                if (!place(r.source / sidecar, r.destination / sidecar_target(sidecar, name),
+                           sidecar, replace) &&
+                    cancelled()) {
+                    break;
+                }
+            }
+            return true;
+        };
+        if (copying_ && S_ISREG(group.info.st_mode)) {
+            hand_over({.work = std::move(item), .folder = nullptr});
+        } else {
+            // A folder (its own files go to the copiers), a link, a rename: here, once the
+            // loose files before it are done, so errors come in order.
+            wait_for_copiers();
+            item();
         }
     }
-    progress_.current.clear();
-    report();
+    wait_for_copiers();
+    for (std::size_t index = 0; index < groups.size(); ++index) {
+        if (placed_as[index]) {
+            result_.placed.push_back(*placed_as[index]);
+            result_.items.push_back(
+                {.from = r.source / groups[index].name, .to = r.destination / *placed_as[index]});
+        }
+    }
+    {
+        const std::scoped_lock lock{state_};
+        progress_.current.clear();
+        report_locked();
+    }
     return finished();
 }
 

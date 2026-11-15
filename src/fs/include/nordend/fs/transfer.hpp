@@ -103,7 +103,9 @@ struct TransferCallbacks {
 // - Between file systems a source is deleted only after its copy is complete and flushed to disk
 //   (fsync), and a folder only if all of it arrived.
 // - A regular file takes its darktable sidecars along (sidecars_of), named after its new name;
-//   a conflict on any of them is a conflict on the file.
+//   a conflict on any of them is a conflict on the file. Loose files are copied by the same
+//   threads, each with its sidecars (only once it arrived), while the next ones are looked at
+//   (conflicts asked one at a time, the names given claimed at once); placed keeps the order.
 // - Taken names go to callbacks.resolve, except a copy into its own folder: always keep_both.
 //   A file never replaces a folder, nor a folder a file.
 // - Refused before anything is done: a folder into itself or below, or a copy bigger than the

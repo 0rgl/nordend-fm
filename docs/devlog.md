@@ -4,6 +4,22 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Copy speed (0.8.0): loose files copied at once too
+
+**Done**
+- Files selected loose (500 photos picked in a folder) go to the copiers as well: each job is a
+  file and then its sidecars, the sidecars only once the file arrived. Conflicts are still asked
+  one at a time on the transfer's thread while the copiers work. A folder, a link or a rename
+  first waits for the loose files before it, so its errors come after theirs.
+- The names given are claimed at once: a file still being copied as "x 2" is not on the disk
+  yet, so a second one that wants "x 2" sees it taken and becomes "x 2 2" (without the claim the
+  two met at the rename and one failed: the new test catches that). `placed` and `items` keep
+  the order asked, whatever order the copies end in.
+- Checked: 120 photos with 40 sidecars copied with 8 threads (contents, order, sidecars), the
+  name test, TSan and ASan three runs each, 1000 real loose files (identical).
+
+---
+
 ## 2026-11-15 — Copy speed (0.8.0): a folder's files copied by several threads
 
 **Done**
@@ -29,7 +45,7 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 - Measured tonight on the NVMe (it had tired after ~100 GB written that day): threads 2/4/8/16,
   then the default.
 - Loose files selected at the top level still go one by one (next: a photo and its sidecars as
-  one job, conflict questions still one at a time).
+  one job, conflict questions still one at a time). Done the same day, entry above.
 
 ---
 

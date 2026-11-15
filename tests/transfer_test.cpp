@@ -241,6 +241,66 @@ TEST_CASE("transfer: between two file systems the bytes go through read and writ
     CHECK(seen.back().bytes_done == data.size());
 }
 
+TEST_CASE("transfer: loose files copied at once, each with its sidecars, in the order asked") {
+    TempDir dir;
+    const fs::path from = dir.path / "from";
+    const fs::path to = dir.path / "to";
+    fs::create_directories(from);
+    fs::create_directories(to);
+    Names names;
+    for (int i = 0; i < 120; ++i) {
+        const std::string photo = std::format("P{:03}.ORF", i);
+        std::ofstream{from / photo} << std::string(std::size_t{4096} + (std::size_t(i) * 97U),
+                                                   static_cast<char>('a' + (i % 26)));
+        if (i % 3 == 0) {
+            std::ofstream{from / (photo + ".xmp")} << "sidecar of " << photo;
+        }
+        names.push_back(photo);
+    }
+    std::ranges::reverse(names);  // not the folder's order
+    const TransferResult result = nordend::fs::run_transfer({.kind = TransferKind::copy,
+                                                             .source = from,
+                                                             .names = names,
+                                                             .destination = to,
+                                                             .force_copy = false,
+                                                             .threads = 8},
+                                                            {}, {});
+    CHECK(result.errors.empty());
+    CHECK(result.placed == names);
+    REQUIRE(result.items.size() == names.size());
+    CHECK(result.items.front().to == to / names.front());
+    CHECK(listing(to).size() == 160);  // 120 photos, 40 sidecars
+    for (int i = 0; i < 120; i += 7) {
+        const std::string photo = std::format("P{:03}.ORF", i);
+        CHECK(read_file(to / photo) == read_file(from / photo));
+    }
+    CHECK(read_file(to / "P099.ORF.xmp") == "sidecar of P099.ORF");
+    CHECK(result.files_done == 160);
+}
+
+TEST_CASE("transfer: a name kept for one file still being copied is not given to another") {
+    // "x" is there: the new "x" becomes "x 2" while it is copied; "x 2" then finds its name
+    // taken although nothing is on the disk yet, and becomes "x 2 2".
+    Tree t;
+    std::ofstream{t.from / "x"} << std::string(std::size_t{1} << 20U, 'x');
+    std::ofstream{t.from / "x 2"} << "the second";
+    std::ofstream{t.to / "x"} << "there before";
+    Answer answer{.resolution = Resolution::keep_both};
+    const TransferResult result = nordend::fs::run_transfer({.kind = TransferKind::copy,
+                                                             .source = t.from,
+                                                             .names = {"x", "x 2"},
+                                                             .destination = t.to,
+                                                             .force_copy = false,
+                                                             .threads = 8},
+                                                            {}, answer.callbacks());
+    CHECK(result.errors.empty());
+    CHECK(answer.asked == 2);
+    CHECK(result.placed == Names{"x 2", "x 2 2"});
+    CHECK(read_file(t.to / "x") == "there before");
+    CHECK(fs::file_size(t.to / "x 2") == std::size_t{1} << 20U);
+    CHECK(read_file(t.to / "x 2 2") == "the second");
+}
+
 TEST_CASE("transfer: conflicts are asked; replace, skip, keep both, cancel") {
     Tree t;
     std::ofstream{t.to / "notes.txt"} << "old notes";

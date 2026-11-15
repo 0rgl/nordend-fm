@@ -1,0 +1,73 @@
+# The Fedora RPM (packaging/rpm/nordend.spec) built from the commit under test, each release in
+# its own container: the spec's build dependencies, rpmbuild with the test suite in %check (run
+# as a plain user, as in ci.yml), rpmlint, then the package installed, asked for its version,
+# verified and removed. Weekly too, since Fedora moves on under the spec.
+name: rpm
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rpm-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rpm:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ${{ matrix.image }}
+      # %check sets up the preview helper's cage (seccomp and landlock), as in ci.yml.
+      options: --security-opt seccomp=unconfined
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fedora-44
+            image: registry.fedoraproject.org/fedora:44
+          - name: fedora-45
+            image: registry.fedoraproject.org/fedora:45
+    steps:
+      - name: Tools
+        run: dnf install -y --setopt=install_weak_deps=False git rpm-build rpmlint dnf5-plugins
+      - uses: actions/checkout@v4
+      - name: Build dependencies
+        run: dnf builddep -y --setopt=install_weak_deps=False packaging/rpm/nordend.spec
+      - name: Source tarball of this commit
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          version=$(rpmspec -q --srpm --qf '%{version}' packaging/rpm/nordend.spec)
+          project=$(sed -n 's/^project(nordend VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ "$version" != "$project" ]; then
+            echo "::warning file=packaging/rpm/nordend.spec::Version is $version, CMakeLists.txt says $project"
+          fi
+          useradd -m builder
+          mkdir -p /home/builder/rpmbuild/SOURCES
+          # Named and laid out as GitHub's archive of a tag, which Source0 points to.
+          git archive --format=tar.gz --prefix="nordend-fm-$version/" \
+            -o "/home/builder/rpmbuild/SOURCES/nordend-$version.tar.gz" HEAD
+          cp packaging/rpm/nordend.spec /home/builder/
+          chown -R builder: /home/builder
+      - name: rpmbuild (build, %check, package)
+        run: su builder -s /bin/bash -c 'rpmbuild -ba ~/nordend.spec'
+      - name: rpmlint
+        run: |
+          rpmlint -r packaging/rpm/nordend.rpmlintrc packaging/rpm/nordend.spec \
+            /home/builder/rpmbuild/SRPMS/*.rpm /home/builder/rpmbuild/RPMS/*/*.rpm
+      - name: Install, start, remove
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            /home/builder/rpmbuild/RPMS/x86_64/nordend-[0-9]*.rpm
+          nordend --version
+          rpm -V nordend
+          dnf remove -y nordend
+          test ! -e /usr/bin/nordend

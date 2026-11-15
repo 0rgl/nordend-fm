@@ -4,6 +4,26 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Nordend 0.8.1
+
+**Done**
+- Release 0.8.1, a patch: 0rgl's pull request #18 (`c1e06fa`, merged as is). With a zoom that
+  is not exact in binary (`[font] size` 15 → 15/13) or a fractional output, a width measured by
+  `FontSystem::layout()` and given back as the limit came back a few ULPs short, and the text was
+  cut (`Dow…oads`). `layout()` now cuts only when the text is wider by more than one 26.6 unit
+  (1/64 px), which covers the breadcrumb, the chooser's buttons, the context menu and Quick
+  Look's caption. A new breadcrumb test over sizes 8-32 and scales 1-2 fails without the fix (74
+  of 600 combinations cut; checked here too).
+
+**Measured** (after rebuilding as 0.8.1): binaries as in 0.8.0 (`nordend` 4.59 / 3.81 MiB
+stripped, helper 1.15 / 1.03, portal 0.44 / 0.35; NEEDED 17, 8, 8); 59 836 + 22 604 lines, 541
+test cases.
+
+**Tested by the author** (2026-11-15): `[font] size = 15` and `20`, `~/Downloads` whole in the
+path bar and in the file chooser.
+
+---
+
 ## 2026-11-15 — Nordend 0.8.0
 
 **Done**

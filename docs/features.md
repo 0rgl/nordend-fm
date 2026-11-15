@@ -216,9 +216,11 @@ README's [What's next](../README.md#whats-next).
   - dates (to the nanosecond), permissions and symbolic links are kept, and darktable sidecars
     travel with their photo, even under a new name;
   - cut files fade until pasted (Escape keeps them where they are);
-  - a taken name asks on a card: Replace (the old file goes only once the new one is complete;
-    folders are merged), Skip, Keep both ("P1 2.ORF", sidecars included), for this one or for
-    the rest; pasting into the same folder keeps both by itself;
+  - a taken name asks on a card: Replace (the old file goes only once the new one is complete),
+    Skip, Keep both ("P1 2.ORF", sidecars included), for this one or for the rest; for two
+    folders Merge: their files put together, each file whose name is taken there asked on the
+    same card (a photo with its sidecars, folders inside merged without a question; a Merge for
+    the rest never answers for the files); pasting into the same folder keeps both by itself;
   - refused before anything moves: a folder into itself, or more than the free space.
 - **Undo** (Ctrl+Z, in any view and in Quick Look) the last operation on files, and redo it
   (Ctrl+Shift+Z):
@@ -226,6 +228,9 @@ README's [What's next](../README.md#whats-next).
     from, across disks too; a Delete is restored; a restore goes back to the trash;
   - copies and new folders or files go to the trash, never deleted, so even an undo can be
     undone; a new folder only while it is empty, a new file only while it is as it was made;
+  - after a merge only what the copy or move put there that was not there goes (a move's files
+    go back, their folder made again if the move took it away); a replaced file's old contents
+    are gone, and the undo says how many ("1 replaced file cannot be brought back");
   - a permanent delete cannot be undone, and the status bar says so; what changed meanwhile
     (a file another program moved) is skipped and said;
   - the status bar says what happened: "Undone: “Lake.ORF” is “P1.ORF” again", "Undone: 3

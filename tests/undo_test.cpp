@@ -17,6 +17,7 @@
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
 #include "nordend/views/browser.hpp"
+#include "nordend/views/conflict_dialog.hpp"
 #include "temp_dir.hpp"
 
 using nordend::core::EventLoop;
@@ -182,6 +183,108 @@ TEST_CASE("undo: copies go to the trash, never deleted; redo brings them back") 
     CHECK(listing(f.album) == Names{"P1.ORF", "P1.ORF.xmp"});
     CHECK(listing(f.trash / "files").empty());
     CHECK(f.message() == "Redone: “P1.ORF” restored");
+}
+
+TEST_CASE("undo: after a merge only what the copy made goes; what was there stays") {
+    Fixture f;
+    // album/photos is there already, with a file of its own and an older P2.ORF.
+    fs::create_directories(f.album / "photos");
+    std::ofstream{f.album / "photos" / "mine.txt"} << "mine";
+    std::ofstream{f.album / "photos" / "P2.ORF"} << "album's P2";
+    nordend::views::ConflictDialog& dialog = f.browser.conflict_dialog();
+    f.show(f.root, "photos");
+    CHECK(f.press(key(XKB_KEY_c, kCtrl)));
+    f.show(f.album, "");
+    CHECK(f.press(key(XKB_KEY_v, kCtrl)));
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(f.press(key(XKB_KEY_r)));  // merge the folders
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open() || !f.browser.loading(); }));
+    if (dialog.is_open()) {
+        CHECK(dialog.conflict().name == "P2.ORF");
+        CHECK(f.press(key(XKB_KEY_r)));  // replace the older P2.ORF
+    }
+    REQUIRE(f.settle());
+    REQUIRE(listing(f.album / "photos") == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF", "mine.txt"});
+
+    f.run(key(XKB_KEY_z, kCtrl));
+    // The new files go to the trash; the folder and what it held before stay.
+    CHECK(listing(f.album / "photos") == Names{"P2.ORF", "mine.txt"});
+    CHECK(listing(f.trash / "files") == Names{"P1.ORF", "P1.ORF.xmp"});
+}
+
+TEST_CASE("undo: a move merged into a folder goes back into its own, made again") {
+    Fixture f;
+    fs::create_directories(f.album / "photos");
+    std::ofstream{f.album / "photos" / "mine.txt"} << "mine";
+    std::ofstream{f.album / "photos" / "P2.ORF"} << "album's P2";
+    nordend::views::ConflictDialog& dialog = f.browser.conflict_dialog();
+    f.show(f.root, "photos");
+    CHECK(f.press(key(XKB_KEY_x, kCtrl)));
+    f.show(f.album, "");
+    CHECK(f.press(key(XKB_KEY_v, kCtrl)));
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(f.press(key(XKB_KEY_r)));  // merge
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(dialog.conflict().name == "P2.ORF");
+    CHECK(f.press(key(XKB_KEY_s)));  // keep album's P2.ORF: photos/P2.ORF stays behind
+    REQUIRE(f.settle());
+    REQUIRE(listing(f.album / "photos") == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF", "mine.txt"});
+    REQUIRE(listing(f.photos) == Names{"P2.ORF"});
+
+    f.run(key(XKB_KEY_z, kCtrl));
+    CHECK(listing(f.photos) == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF"});
+    CHECK(listing(f.album / "photos") == Names{"P2.ORF", "mine.txt"});
+    CHECK(f.message() == "Undone: “P1.ORF” back in photos");
+
+    // All of it moved this time: the emptied photos folder is gone, and made again by the undo.
+    fs::remove(f.album / "photos" / "P2.ORF");
+    f.show(f.root, "photos");
+    CHECK(f.press(key(XKB_KEY_x, kCtrl)));
+    f.show(f.album, "");
+    CHECK(f.press(key(XKB_KEY_v, kCtrl)));
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(f.press(key(XKB_KEY_r)));
+    REQUIRE(f.settle());
+    REQUIRE_FALSE(fs::exists(f.photos));
+    f.run(key(XKB_KEY_z, kCtrl));
+    CHECK(listing(f.photos) == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF"});
+    CHECK(listing(f.album / "photos") == Names{"mine.txt"});
+}
+
+TEST_CASE("undo: replaced files are said, never brought back") {
+    Fixture f;
+    std::ofstream{f.album / "P2.ORF"} << "album's P2";
+    nordend::views::ConflictDialog& dialog = f.browser.conflict_dialog();
+    f.show(f.photos, "P2.ORF");
+    CHECK(f.press(key(XKB_KEY_c, kCtrl)));
+    f.show(f.album, "");
+    CHECK(f.press(key(XKB_KEY_v, kCtrl)));
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(f.press(key(XKB_KEY_r)));
+    REQUIRE(f.settle());
+    REQUIRE(listing(f.album) == Names{"P2.ORF"});
+
+    CHECK(f.press(key(XKB_KEY_z, kCtrl)));  // only a replaced file: nothing to bring back
+    CHECK(f.message() == "1 replaced file cannot be brought back");
+    CHECK(listing(f.album) == Names{"P2.ORF"});
+    CHECK(f.press(key(XKB_KEY_z, kCtrl)));
+    CHECK(f.message() == "Nothing to undo");
+
+    // Everything in photos: P1.ORF is new, P2.ORF replaces album's again.
+    f.show(f.photos, "P1.ORF");
+    CHECK(f.press(key(XKB_KEY_a, kCtrl)));
+    CHECK(f.press(key(XKB_KEY_c, kCtrl)));
+    f.show(f.album, "");
+    CHECK(f.press(key(XKB_KEY_v, kCtrl)));
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(dialog.conflict().name == "P2.ORF");
+    CHECK(f.press(key(XKB_KEY_r)));
+    REQUIRE(f.settle());
+    REQUIRE(listing(f.album) == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF"});
+    f.run(key(XKB_KEY_z, kCtrl));
+    CHECK(listing(f.album) == Names{"P2.ORF"});
+    CHECK(f.message() ==
+          "Undone: “P1.ORF” moved to the trash; 1 replaced file cannot be brought back");
 }
 
 TEST_CASE("undo: Delete is undone by restoring; a permanent delete cannot be") {

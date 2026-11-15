@@ -990,17 +990,20 @@ void Browser::cancel_transfer() {
 }
 
 void Browser::ask(const fs::Conflict& conflict, std::function<void(fs::Resolution)> answer) {
-    if (for_the_rest_ && (*for_the_rest_ != fs::Resolution::replace ||
-                          (conflict.directory == conflict.target_directory &&
-                           (!conflict.directory || conflict.merge)))) {
+    if (for_the_rest_ &&
+        (*for_the_rest_ != fs::Resolution::replace ||
+         (conflict.directory == conflict.target_directory &&
+          conflict.directory == for_the_rest_folder_ && (!conflict.directory || conflict.merge)))) {
         answer(*for_the_rest_);
         return;
     }
     copy_started_.reset();  // the time spent on the question does not count in the rate
     conflict_.open(conflict, conflict.destination.filename().string(),
-                   [this, answer = std::move(answer)](fs::Resolution resolution, bool rest) {
+                   [this, folder = conflict.directory, answer = std::move(answer)](
+                       fs::Resolution resolution, bool rest) {
                        if (rest) {
                            for_the_rest_ = resolution;
+                           for_the_rest_folder_ = folder;
                        }
                        answer(resolution);
                    });
@@ -1109,12 +1112,16 @@ void Browser::transfer_done(const fs::TransferRequest& request, const fs::Transf
     }
     Batch& done = batch->second;
     done.items.insert(done.items.end(), result.items.begin(), result.items.end());
+    done.replaced += result.replaced;
     done.failed =
         done.failed || result.cancelled || !result.errors.empty() || !result.refused.empty();
     if (--done.pending == 0) {
         Batch finished = std::move(done);
         batches_.erase(batch);
-        record({.kind = finished.kind, .items = std::move(finished.items), .modes = {}},
+        record({.kind = finished.kind,
+                .items = std::move(finished.items),
+                .modes = {},
+                .replaced = finished.replaced},
                finished.purpose, finished.failed);
     }
 }
@@ -1254,11 +1261,22 @@ bool unchanged_since_made(const fs::PlacedItem& item) {
 
 }  // namespace
 
+namespace {
+
+// A replaced file's old contents are gone: an undo says so.
+std::string cannot_undo(std::size_t replaced) {
+    return replaced == 1 ? "1 replaced file cannot be brought back"
+                         : std::format("{} replaced files cannot be brought back", replaced);
+}
+
+}  // namespace
+
 void Browser::record(FileOperation operation, Purpose purpose, bool failed) {
+    const std::size_t replaced = std::exchange(undo_replaced_, 0);
     if (purpose != Purpose::user) {
         undoing_ = false;
     }
-    if (operation.items.empty()) {
+    if (operation.items.empty() && operation.replaced == 0) {
         return;  // nothing was done: what Ctrl+Z undoes stays
     }
     const std::string what = describe(operation);
@@ -1277,8 +1295,12 @@ void Browser::record(FileOperation operation, Purpose purpose, bool failed) {
             break;
     }
     if (!failed) {  // otherwise the transfer's own message says what went wrong
-        show_message(std::format("{}: {}", purpose == Purpose::undo ? "Undone" : "Redone", what),
-                     false);
+        std::string message =
+            std::format("{}: {}", purpose == Purpose::undo ? "Undone" : "Redone", what);
+        if (purpose == Purpose::undo && replaced > 0) {
+            message += "; " + cannot_undo(replaced);
+        }
+        show_message(message, false);
     }
 }
 
@@ -1288,6 +1310,12 @@ void Browser::undo() {
     } else if (!undo_) {
         show_message("Nothing to undo", false);
     } else {
+        if (undo_->items.empty() && undo_->replaced > 0) {  // only files replaced: none back
+            show_message(cannot_undo(undo_->replaced), false);
+            undo_.reset();
+            return;
+        }
+        undo_replaced_ = undo_->replaced;
         start_inverse(*undo_, Purpose::undo);
     }
 }
@@ -1531,7 +1559,8 @@ void Browser::start_inverse(const FileOperation& operation, Purpose purpose) {
                         .source = folders.first,
                         .names = std::move(names),
                         .destination = folders.second,
-                        .force_copy = false},
+                        .force_copy = false,
+                        .make_destination = true},
                        batch);
             }
             return;

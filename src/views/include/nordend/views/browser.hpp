@@ -966,6 +966,7 @@ private:
         FileOperation::Kind kind{FileOperation::Kind::copy};
         std::size_t pending{0};
         std::vector<fs::PlacedItem> items;
+        std::size_t replaced{0};
         bool failed{false};  // something could not be done, or it was stopped
     };
 
@@ -974,12 +975,16 @@ private:
     std::optional<FileOperation> undo_;  // what Ctrl+Z undoes
     std::optional<FileOperation> redo_;  // what Ctrl+Shift+Z undoes again
     bool undoing_{false};                // an undo or redo on its way
+    std::size_t undo_replaced_{0};       // the undo on its way left these replaced files
     std::filesystem::path home_trash_;
     std::vector<fs::Place> places_;
     fs::DirectoryModel trash_model_;  // every trash, for the sidebar's icon
     bool trash_full_{false};
     CutMarks cut_marks_;
     std::optional<fs::Resolution> for_the_rest_;
+    // The card it was given on asked about a folder: a Merge for the rest merges folders, and
+    // never replaces the files met inside them (those are asked), nor a Replace merges.
+    bool for_the_rest_folder_{false};
 
     // The delete the card asks about.
     struct PendingErase {

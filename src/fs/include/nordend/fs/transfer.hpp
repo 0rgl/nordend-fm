@@ -34,6 +34,9 @@ struct TransferRequest {
                                         // for designated initializers that leave it out
     // Threads copying a folder's files at once; 0: Nordend's choice. Tests and measurements.
     std::size_t threads{0};
+    // An undo of a move: the destination (where the items came from) is made again when that
+    // move took the folder away, emptied by a merge.
+    bool make_destination{false};
 };
 
 // What to do with an item whose name is taken in the destination.
@@ -77,6 +80,10 @@ struct TransferResult {
     // The same items, sidecars left out (they follow their photo): copied or moved from where to
     // where; trashed from their place to the trash's files/; restored from files/ to their place.
     std::vector<PlacedItem> items;
+    // Files that took the place of one that was there (the old one is gone): not in items, an
+    // undo cannot bring the old one back. Inside a merged folder, items holds what the merge
+    // made there, not the folder.
+    std::size_t replaced{0};
     std::size_t files_done{0};
     std::uint64_t bytes_done{0};
     std::vector<std::string> errors;  // "Trip/P1.ORF: Permission denied"

@@ -4,6 +4,37 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Copying (0.8.0): merging two folders asks about each taken file
+
+**Done**
+- Two folders meeting are merged only when asked (the card's button now says "Merge" for them),
+  and inside the merge every file whose name is taken there is asked on the same card (Skip,
+  Replace, Keep both, for the rest), instead of being replaced without a word. Folders inside
+  are merged without a question: the merge was already chosen. A "for the rest" given on a
+  folder's card merges the next folders but never answers for files.
+- The merge reuses the loop of the items picked (`Engine::group` + `Engine::place_all`, one
+  place for both): a photo keeps its sidecars there too ("P1 2.ORF" with "P1 2.ORF.xmp"), the
+  names are claimed at once, and its loose files go to the copiers (before: one by one).
+- Undo after a merge took away the whole merged folder, the files that were there before
+  included (to the trash: nothing lost, but wrong), and after a move it would have moved them
+  all back. Now a transfer's items are what it put there that was not there: inside a merged
+  folder its new files and folders, never the folder. A replaced file is not an item (its old
+  contents are gone): `TransferResult::replaced` counts them, and the undo says "1 replaced
+  file cannot be brought back" (alone when nothing else can be undone). An undone move makes
+  the folder it came from again when the merge emptied it (`TransferRequest::make_destination`).
+- Tests (each fails on the code before, checked): a merge asks each taken file, keeps sidecars
+  with their photo, merges folders inside silently, lists only what it made (1 and 8 threads,
+  a copy and a move between disks); undo after a copy merge and after a move merge (partial and
+  whole); replaced files said by the undo; Merge for the rest. `nordend-snapshot --conflict`
+  asks as two folders when NAME is a folder there (the card checked with "Merge   R").
+
+**Tested by the author**
+- A copy merged into a folder that was there (Merge, Keep both on a photo, Replace on a file in
+  a subfolder), its undo (the new files to the trash, the folder and its own files kept), a
+  move merged with Skip for the rest and its undo (the files back where they came from).
+
+---
+
 ## 2026-11-15 — nordend-setup: no warning for a release's tag, a refused portal copy told
 
 **Done**
@@ -4847,7 +4878,7 @@ into `/tmp` (tmpfs), page cache warm, three runs each: Nordend 1.38-1.39 s (abou
   (an SD card or a USB disk) are for the author's test.
 - No drag and drop yet: proposed as a next step on the same engine.
 - The temporary is visible (dimmed, hidden name) in the destination while a file is copied.
-- Merging folders replaces same-named files without asking again inside them.
+- ~~Merging folders replaces same-named files without asking again inside them.~~ Asked since 2026-11-15 (0.8.0).
 - No key stops a transfer (the × only); copying files between Nordend and other apps is 6.5.
 
 ---

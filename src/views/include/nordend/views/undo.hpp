@@ -28,6 +28,9 @@ struct FileOperation {
     Kind kind{Kind::copy};
     std::vector<fs::PlacedItem> items;  // sidecars left out: they follow their photo
     std::vector<fs::ModeChange> modes;  // permissions only, one per item
+    // Copies and moves: files put in the place of others, not in items (the old ones are gone);
+    // the undo says so.
+    std::size_t replaced{0};
 };
 
 // What the operation did, for "Undone: ..." and "Redone: ...": "“P1.ORF” is “Lake.ORF” again",

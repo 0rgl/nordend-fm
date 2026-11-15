@@ -27,6 +27,7 @@
 using nordend::core::CancelToken;
 using nordend::core::EventLoop;
 using nordend::fs::Conflict;
+using nordend::fs::PlacedItem;
 using nordend::fs::Resolution;
 using nordend::fs::TransferCallbacks;
 using nordend::fs::TransferKind;
@@ -346,6 +347,63 @@ TEST_CASE("transfer: folders merge on replace; a file never replaces a folder") 
     REQUIRE(result.errors.size() == 1);
     CHECK(result.errors.front() == "link: a folder has its name; a file does not replace a folder");
     CHECK(fs::is_directory(t.to / "link"));
+}
+
+TEST_CASE("transfer: inside a merge each taken file is asked; photos keep their sidecars") {
+    for (const std::size_t threads : {std::size_t{1}, std::size_t{8}}) {
+        for (const bool between_disks : {false, true}) {
+            CAPTURE(threads);
+            CAPTURE(between_disks);
+            Tree t;
+            for (const char* name : {"P1.ORF", "P1.ORF.xmp", "P1_01.ORF.xmp"}) {
+                fs::copy_file(t.from / name, t.from / "Trip" / name);
+            }
+            fs::create_directories(t.to / "Trip" / "deep");
+            std::ofstream{t.to / "Trip" / "P1.ORF"} << "old P1";
+            std::ofstream{t.to / "Trip" / "deep" / "b.jpg"} << "old b";
+            std::ofstream{t.to / "Trip" / "deep" / "mine.jpg"} << "mine";
+            std::vector<std::string> asked;
+            const TransferCallbacks callbacks{
+                .progress = nullptr, .resolve = [&](const Conflict& conflict) {
+                    asked.push_back(
+                        (conflict.destination / conflict.name).lexically_relative(t.to).string());
+                    if (conflict.name == "Trip") {
+                        return Resolution::replace;  // merge
+                    }
+                    return conflict.name == "P1.ORF" ? Resolution::keep_both : Resolution::replace;
+                }};
+            const TransferResult result = nordend::fs::run_transfer(
+                {.kind = between_disks ? TransferKind::move : TransferKind::copy,
+                 .source = t.from,
+                 .names = {"Trip"},
+                 .destination = t.to,
+                 .force_copy = between_disks,
+                 .threads = threads},
+                {}, callbacks);
+            CHECK(result.errors.empty());
+            // Trip itself, then its files only: deep merged without a question.
+            CHECK(asked == Names{"Trip", "Trip/P1.ORF", "Trip/deep/b.jpg"});
+            CHECK(listing(t.to / "Trip") ==
+                  Names{"P1 2.ORF", "P1 2.ORF.xmp", "P1 2_01.ORF.xmp", "P1.ORF", "a.jpg", "deep"});
+            CHECK(read_file(t.to / "Trip" / "P1.ORF") == "old P1");
+            CHECK(read_file(t.to / "Trip" / "P1 2.ORF.xmp") == "P1.ORF.xmp");
+            CHECK(read_file(t.to / "Trip" / "deep" / "b.jpg") == "Trip/deep/b.jpg");
+            CHECK(read_file(t.to / "Trip" / "deep" / "mine.jpg") == "mine");
+            CHECK(result.placed == Names{"Trip"});
+            CHECK(result.replaced == 1);  // deep/b.jpg
+            // What an undo takes away: what was not there before, never the folders that were.
+            std::vector<std::string> made;
+            made.reserve(result.items.size());
+            for (const PlacedItem& item : result.items) {
+                made.push_back(item.to.lexically_relative(t.to).string());
+            }
+            std::ranges::sort(made);
+            CHECK(made == Names{"Trip/P1 2.ORF", "Trip/a.jpg"});
+            if (between_disks) {
+                CHECK_FALSE(fs::exists(t.from / "Trip"));  // all of it moved
+            }
+        }
+    }
 }
 
 TEST_CASE("transfer: a copy into its own folder keeps both by itself") {

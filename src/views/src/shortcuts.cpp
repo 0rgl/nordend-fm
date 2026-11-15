@@ -360,7 +360,7 @@ constexpr std::array kShortcuts{
              .keysyms = {XKB_KEY_v, XKB_KEY_V}},
     Shortcut{.group = "Files",
              .keys = "R  S  Enter",
-             .action = "Name taken: replace, skip, both",
+             .action = "Name taken: replace or merge, skip, both",
              .scope = scope::kConflict,
              .keysyms = {XKB_KEY_r, XKB_KEY_s, XKB_KEY_Return, XKB_KEY_KP_Enter}},
     Shortcut{.group = "Files",

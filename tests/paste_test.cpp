@@ -208,6 +208,35 @@ TEST_CASE("paste: a taken name asks; skip, replace, both for the rest, stop") {
     CHECK(f.browser.status_bar().message() == "Stopped: 0 files copied so far");
 }
 
+TEST_CASE("paste: Merge for the rest merges folders; the files inside are still asked") {
+    Fixture f;
+    nordend::views::ConflictDialog& dialog = f.browser.conflict_dialog();
+    for (const char* folder : {"one", "two"}) {
+        fs::create_directories(f.root / "photos" / folder);
+        fs::create_directories(f.root / "album" / folder);
+        std::ofstream{f.root / "photos" / folder / "x.jpg"} << "new";
+        std::ofstream{f.root / "album" / folder / "x.jpg"} << "old";
+    }
+    f.show(f.root / "photos", {"one", "two"});
+    CHECK(f.press(key(XKB_KEY_c, {.ctrl = true})));
+    f.show(f.root / "album", {});
+    CHECK(f.press(key(XKB_KEY_v, {.ctrl = true})));
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(dialog.conflict().name == "one");
+    CHECK(f.press(key(XKB_KEY_a)));
+    CHECK(f.press(key(XKB_KEY_r)));  // merge, for the rest
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(dialog.conflict().name == "x.jpg");  // one/x.jpg: asked all the same
+    CHECK(f.press(key(XKB_KEY_s)));
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    CHECK(dialog.conflict().name == "x.jpg");  // two merged without a question, its x.jpg asked
+    CHECK(dialog.conflict().destination == f.root / "album" / "two");
+    CHECK(f.press(key(XKB_KEY_r)));
+    REQUIRE(f.settle());
+    CHECK(read_file(f.root / "album" / "one" / "x.jpg") == "old");
+    CHECK(read_file(f.root / "album" / "two" / "x.jpg") == "new");
+}
+
 TEST_CASE("paste: every key listed for the question works on it") {
     Fixture f;
     nordend::views::ConflictDialog& dialog = f.browser.conflict_dialog();

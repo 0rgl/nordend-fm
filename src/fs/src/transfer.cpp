@@ -11,6 +11,7 @@
 #include <format>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <ranges>
 #include <set>
 #include <sys/stat.h>
@@ -141,6 +142,14 @@ struct Group {
     std::vector<std::string> sidecars;
 };
 
+// What became of a group: placed under name (none: skipped, failed or cancelled).
+struct Outcome {
+    std::optional<std::string> name;
+    bool replaced{false};          // it took the place of a file that was there
+    bool merged{false};            // a folder merged into the one there
+    std::vector<PlacedItem> made;  // merged: what it put there that was not there
+};
+
 // A folder being copied: finished (permissions, dates, the source removed on a move) only once
 // every file in it has been copied, bottom-up.
 struct Building {
@@ -261,8 +270,22 @@ private:
                      const std::filesystem::path& target, const std::string& where, bool fresh);
     // Walks a folder being built: links and folders made at once, files handed to the copiers.
     void fill(Building& folder, std::deque<Building>& folders);
+    // The items named in source, each regular file with its sidecars (sidecars_of among
+    // listing); a sidecar named along with its photo goes with it.
+    std::vector<Group> group(const std::filesystem::path& source,
+                             const std::vector<std::string>& names,
+                             const std::vector<std::string>& listing, const std::string& where);
+    // Places groups from source into target, asking about taken names (inside: within a merge,
+    // where a folder meets a folder they merge without asking). Loose files go to the copiers,
+    // each with its sidecars; done when they are.
+    std::vector<Outcome> place_all(const std::filesystem::path& source,
+                                   const std::filesystem::path& target,
+                                   const std::vector<Group>& groups, const std::string& where,
+                                   bool inside, bool same_folder);
+    // A folder into the folder of the same name that is there: its items in turn, as place_all.
+    // made gets what the merge put there that was not there before (what an undo takes away).
     bool merge(const std::filesystem::path& source, const std::filesystem::path& target,
-               const std::string& where);
+               const std::string& where, std::vector<PlacedItem>& made);
     bool copy_data(int from, int to, const std::string& where);
     // A free hidden name next to target for a temporary.
     std::filesystem::path temporary(const std::filesystem::path& target);
@@ -640,25 +663,186 @@ bool Engine::finish(std::deque<Building>& folders) {
     return !folders.front().failed;
 }
 
+std::vector<Group> Engine::group(const std::filesystem::path& source,
+                                 const std::vector<std::string>& names,
+                                 const std::vector<std::string>& listing,
+                                 const std::string& where) {
+    std::vector<Group> groups;
+    for (const std::string& name : names) {
+        Group group{.name = name, .info = {}, .sidecars = {}};
+        const std::optional<struct stat> info = status_of(source / name);
+        if (!info) {
+            error(where.empty() ? name : std::format("{}/{}", where, name), last_error());
+            continue;
+        }
+        group.info = *info;
+        if (S_ISREG(info->st_mode)) {
+            group.sidecars = sidecars_of(listing, name);
+        }
+        groups.push_back(std::move(group));
+    }
+    std::erase_if(groups, [&groups](const Group& item) {
+        return std::ranges::any_of(groups, [&item](const Group& other) {
+            return std::ranges::find(other.sidecars, item.name) != other.sidecars.end();
+        });
+    });
+    return groups;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion): a folder's depth; a link is copied, never followed
+std::vector<Outcome> Engine::place_all(const std::filesystem::path& source,
+                                       const std::filesystem::path& target,
+                                       const std::vector<Group>& groups, const std::string& where,
+                                       bool inside, bool same_folder) {
+    // Loose files are copied by the copiers, each with its sidecars, while the next ones are
+    // looked at: the names they will take are claimed here, before they exist on the disk.
+    std::set<std::string> claimed;
+    const auto taken_here = [&](const std::string& name) {
+        return claimed.contains(name) || taken(target / name);
+    };
+    std::vector<Outcome> outcomes(groups.size());  // state_
+    for (std::size_t index = 0; index < groups.size(); ++index) {
+        const Group& group = groups[index];
+        if (cancelled()) {
+            break;
+        }
+        const bool folder = S_ISDIR(group.info.st_mode);
+        const std::string label =
+            where.empty() ? group.name : std::format("{}/{}", where, group.name);
+        std::string name = group.name;
+        const auto sidecar_target = [&group](const std::string& sidecar, const std::string& as) {
+            return sidecar_name(sidecar, group.name, as);
+        };
+        bool conflict = taken_here(name);
+        for (const std::string& sidecar : group.sidecars) {
+            conflict = conflict || taken_here(sidecar_target(sidecar, name));
+        }
+        bool replace = false;
+        bool merging = false;
+        if (conflict) {
+            const std::optional<struct stat> there = status_of(target / name);
+            const bool there_folder = there && S_ISDIR(there->st_mode);
+            Resolution resolution = Resolution::keep_both;  // a copy into its own folder
+            if (inside && folder && there_folder) {
+                resolution = Resolution::replace;  // the merge asked for goes on inside
+            } else if (!same_folder) {
+                resolution = callbacks_.resolve
+                                 ? callbacks_.resolve({.name = name,
+                                                       .destination = target,
+                                                       .directory = folder,
+                                                       .target_directory = there_folder})
+                                 : Resolution::skip;
+            }
+            if (resolution == Resolution::cancel) {
+                cancelled_ = true;
+                break;
+            }
+            if (resolution == Resolution::skip) {
+                continue;
+            }
+            if (resolution == Resolution::keep_both) {
+                for (int number = 2;; ++number) {
+                    name = numbered(group.name, folder, number);
+                    bool free = !taken_here(name);
+                    for (const std::string& sidecar : group.sidecars) {
+                        free = free && !taken_here(sidecar_target(sidecar, name));
+                    }
+                    if (free) {
+                        break;
+                    }
+                }
+            } else {
+                replace = true;
+                merging = folder && there_folder;
+            }
+        }
+        claimed.insert(name);
+        for (const std::string& sidecar : group.sidecars) {
+            claimed.insert(sidecar_target(sidecar, name));
+        }
+        {
+            const std::scoped_lock lock{state_};
+            progress_.current = name;
+            report_locked();
+        }
+        if (merging) {
+            // Here, once the loose files before it are done, so errors come in order.
+            wait_for_copiers();
+            Outcome& outcome = outcomes[index];
+            outcome.merged = true;
+            if (merge(source / group.name, target / name, label, outcome.made)) {
+                outcome.name = name;
+            }
+            continue;
+        }
+        // The photo first, its sidecars only once it arrived.
+        // NOLINTNEXTLINE(misc-no-recursion): place merges, a merge places: a folder's depth
+        auto item = [this, &source, &target, &group, &outcomes, sidecar_target, index, name, label,
+                     where, replace] {
+            const bool there = replace && taken(target / name);
+            if (!place(source / group.name, target / name, label, replace)) {
+                return false;  // the photo did not arrive: its sidecars stay with it
+            }
+            {
+                const std::scoped_lock lock{state_};
+                outcomes[index].name = name;
+                outcomes[index].replaced = there;
+                result_.replaced += there ? 1 : 0;
+            }
+            for (const std::string& sidecar : group.sidecars) {
+                if (!place(source / sidecar, target / sidecar_target(sidecar, name),
+                           where.empty() ? sidecar : std::format("{}/{}", where, sidecar),
+                           replace) &&
+                    cancelled()) {
+                    break;
+                }
+            }
+            return true;
+        };
+        if (copying_ && S_ISREG(group.info.st_mode)) {
+            hand_over({.work = std::move(item), .folder = nullptr});
+        } else {
+            // A folder (its own files go to the copiers), a link, a rename: here, once the
+            // loose files before it are done, so errors come in order.
+            wait_for_copiers();
+            item();
+        }
+    }
+    wait_for_copiers();
+    return outcomes;
+}
+
 // NOLINTNEXTLINE(misc-no-recursion): a folder's depth; a link is copied, never followed
 bool Engine::merge(const std::filesystem::path& source, const std::filesystem::path& target,
-                   const std::string& where) {
-    // Into a folder that is there: each entry in turn, the same names replaced.
-    bool complete = true;
+                   const std::string& where, std::vector<PlacedItem>& made) {
+    std::vector<std::string> names;
     std::error_code listed;
     for (const std::filesystem::directory_entry& entry :
          std::filesystem::directory_iterator{source, listed}) {
-        const std::string name = entry.path().filename().string();
-        if (!place(entry.path(), target / name, std::format("{}/{}", where, name), true)) {
-            complete = false;
-            if (cancelled()) {
-                return false;
-            }
-        }
+        names.push_back(entry.path().filename().string());
     }
     if (listed) {
         error(where, listed);
-        complete = false;
+        return false;
+    }
+    std::ranges::sort(names);
+    const std::vector<Group> groups = group(source, names, names, where);
+    const std::vector<Outcome> outcomes = place_all(source, target, groups, where, true, false);
+    bool complete = groups.size() == names.size() - [&] {
+        std::size_t sidecars = 0;
+        for (const Group& g : groups) {
+            sidecars += g.sidecars.size();
+        }
+        return sidecars;
+    }();
+    for (std::size_t index = 0; index < groups.size(); ++index) {
+        const Outcome& outcome = outcomes[index];
+        complete = complete && outcome.name.has_value();
+        if (outcome.merged) {
+            made.insert(made.end(), outcome.made.begin(), outcome.made.end());
+        } else if (outcome.name && !outcome.replaced) {
+            made.push_back({.from = source / groups[index].name, .to = target / *outcome.name});
+        }
     }
     if (moving_ && complete && rmdir(source.c_str()) != 0) {
         error(where, last_error());
@@ -685,7 +869,8 @@ bool Engine::place(const std::filesystem::path& source, const std::filesystem::p
         return false;
     }
     if (existing && folder) {
-        return merge(source, target, where);
+        std::vector<PlacedItem> made;  // place_all merges itself and keeps these
+        return merge(source, target, where, made);
     }
     if (!copying_) {
         // A move on one file system: a rename, at once.
@@ -718,7 +903,12 @@ TransferResult Engine::run() {
     const TransferRequest& r = request_;
     moving_ = r.kind == TransferKind::move;
     const std::optional<struct stat> from = status_of(r.source);
-    const std::optional<struct stat> to = status_of(r.destination);
+    std::optional<struct stat> to = status_of(r.destination);
+    if (!to && r.make_destination) {
+        std::error_code made;
+        std::filesystem::create_directories(r.destination, made);
+        to = status_of(r.destination);
+    }
     if (!to || !S_ISDIR(to->st_mode)) {
         result_.refused = std::format("{} is not a folder", r.destination.string());
         return finished();
@@ -734,27 +924,7 @@ TransferResult Engine::run() {
     }
     copying_ = !moving_ || r.force_copy || !from || from->st_dev != to->st_dev;
 
-    // The items and their sidecars; a sidecar picked along with its photo goes with it.
-    const std::vector<std::string> listing = names_in(r.source);
-    std::vector<Group> groups;
-    for (const std::string& name : r.names) {
-        Group group{.name = name, .info = {}, .sidecars = {}};
-        const std::optional<struct stat> info = status_of(r.source / name);
-        if (!info) {
-            error(name, last_error());
-            continue;
-        }
-        group.info = *info;
-        if (S_ISREG(info->st_mode)) {
-            group.sidecars = sidecars_of(listing, name);
-        }
-        groups.push_back(std::move(group));
-    }
-    std::erase_if(groups, [&groups](const Group& item) {
-        return std::ranges::any_of(groups, [&item](const Group& other) {
-            return std::ranges::find(other.sidecars, item.name) != other.sidecars.end();
-        });
-    });
+    const std::vector<Group> groups = group(r.source, r.names, names_in(r.source), "");
 
     for (const Group& group : groups) {
         if (!S_ISDIR(group.info.st_mode)) {
@@ -799,104 +969,18 @@ TransferResult Engine::run() {
     }
     report();
 
-    // Loose files are copied by the copiers, each with its sidecars, while the next ones are
-    // looked at: the names they will take are claimed here, before they exist on the disk.
-    std::set<std::string> claimed;
-    const auto taken_here = [&](const std::string& name) {
-        return claimed.contains(name) || taken(r.destination / name);
-    };
-    std::vector<std::optional<std::string>> placed_as(groups.size());  // state_
+    const std::vector<Outcome> outcomes =
+        place_all(r.source, r.destination, groups, "", false, same_folder);
     for (std::size_t index = 0; index < groups.size(); ++index) {
-        const Group& group = groups[index];
-        if (cancelled()) {
-            break;
+        const Outcome& outcome = outcomes[index];
+        if (outcome.name) {
+            result_.placed.push_back(*outcome.name);
         }
-        const bool folder = S_ISDIR(group.info.st_mode);
-        std::string name = group.name;
-        const auto sidecar_target = [&group](const std::string& sidecar, const std::string& as) {
-            return sidecar_name(sidecar, group.name, as);
-        };
-        bool conflict = taken_here(name);
-        for (const std::string& sidecar : group.sidecars) {
-            conflict = conflict || taken_here(sidecar_target(sidecar, name));
-        }
-        bool replace = false;
-        if (conflict) {
-            Resolution resolution = Resolution::keep_both;  // a copy into its own folder
-            if (!same_folder) {
-                const std::optional<struct stat> there = status_of(r.destination / name);
-                resolution =
-                    callbacks_.resolve
-                        ? callbacks_.resolve({.name = name,
-                                              .destination = r.destination,
-                                              .directory = folder,
-                                              .target_directory = there && S_ISDIR(there->st_mode)})
-                        : Resolution::skip;
-            }
-            if (resolution == Resolution::cancel) {
-                cancelled_ = true;
-                break;
-            }
-            if (resolution == Resolution::skip) {
-                continue;
-            }
-            if (resolution == Resolution::keep_both) {
-                for (int number = 2;; ++number) {
-                    name = numbered(group.name, folder, number);
-                    bool free = !taken_here(name);
-                    for (const std::string& sidecar : group.sidecars) {
-                        free = free && !taken_here(sidecar_target(sidecar, name));
-                    }
-                    if (free) {
-                        break;
-                    }
-                }
-            } else {
-                replace = true;
-            }
-        }
-        claimed.insert(name);
-        for (const std::string& sidecar : group.sidecars) {
-            claimed.insert(sidecar_target(sidecar, name));
-        }
-        {
-            const std::scoped_lock lock{state_};
-            progress_.current = name;
-            report_locked();
-        }
-        // The photo first, its sidecars only once it arrived.
-        auto item = [this, &r, &group, &placed_as, sidecar_target, index, name, replace] {
-            if (!place(r.source / group.name, r.destination / name, group.name, replace)) {
-                return false;  // the photo did not arrive: its sidecars stay with it
-            }
-            {
-                const std::scoped_lock lock{state_};
-                placed_as[index] = name;
-            }
-            for (const std::string& sidecar : group.sidecars) {
-                if (!place(r.source / sidecar, r.destination / sidecar_target(sidecar, name),
-                           sidecar, replace) &&
-                    cancelled()) {
-                    break;
-                }
-            }
-            return true;
-        };
-        if (copying_ && S_ISREG(group.info.st_mode)) {
-            hand_over({.work = std::move(item), .folder = nullptr});
-        } else {
-            // A folder (its own files go to the copiers), a link, a rename: here, once the
-            // loose files before it are done, so errors come in order.
-            wait_for_copiers();
-            item();
-        }
-    }
-    wait_for_copiers();
-    for (std::size_t index = 0; index < groups.size(); ++index) {
-        if (placed_as[index]) {
-            result_.placed.push_back(*placed_as[index]);
+        if (outcome.merged) {
+            result_.items.insert(result_.items.end(), outcome.made.begin(), outcome.made.end());
+        } else if (outcome.name && !outcome.replaced) {
             result_.items.push_back(
-                {.from = r.source / groups[index].name, .to = r.destination / *placed_as[index]});
+                {.from = r.source / groups[index].name, .to = r.destination / *outcome.name});
         }
     }
     {

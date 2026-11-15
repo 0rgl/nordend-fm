@@ -4,6 +4,35 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Copy speed (0.8.0): a folder's files copied by several threads
+
+**Done**
+- A copied folder is walked on the transfer's thread (folders and links made at once, under
+  their own names inside the hidden folder) and its files are handed to copiers: threads of the
+  transfer's own, started at the first file, stopped at the end (not the worker pool: thumbnails
+  and previews keep theirs). At most 256 files wait for them, so the walk stays a little ahead.
+  `TransferRequest::threads` (0 = Nordend's choice, 4 for now) and `nordend-transfer --threads N`
+  for measurements.
+- Once every file has arrived, the folders are finished from the deepest out (permissions,
+  dates; on a move the emptied source folders removed), then the outermost is renamed. A file
+  that did not arrive marks its folder and every folder around it incomplete: on a move they
+  stay where they were, with it. Cancelling stops the copiers, waits for them, removes the hidden
+  folder whole. Progress, errors and the callbacks are taken one at a time (a mutex): the
+  callbacks are not thread-safe.
+- Checked: the mixed tree copied with 1, 4 and 16 threads, contents and every folder's mode and
+  dates equal to the source's; a move of the 10 000 small files between two file systems; TSan
+  and ASan on the transfer tests (three runs each) and on a real copy. A new test moves a folder
+  between disks with an unreadable file deep inside, with 1 and 8 threads: the other 42 files
+  arrive, the file stays with its folders, one clear error.
+
+**Open**
+- Measured tonight on the NVMe (it had tired after ~100 GB written that day): threads 2/4/8/16,
+  then the default.
+- Loose files selected at the top level still go one by one (next: a photo and its sidecars as
+  one job, conflict questions still one at a time).
+
+---
+
 ## 2026-11-15 — Copy speed (0.8.0): less work per file, sources never followed
 
 **Done**

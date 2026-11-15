@@ -2,13 +2,19 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
+#include <condition_variable>
 #include <cstdio>
+#include <deque>
 #include <fcntl.h>
 #include <format>
+#include <mutex>
+#include <ranges>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <system_error>
+#include <thread>
 #include <unistd.h>
 #include <utility>
 
@@ -22,6 +28,10 @@ constexpr std::size_t kChunk = std::size_t{8} << 20U;  // bytes per copy_file_ra
 // into a compressed btrfs (benchmarks.md, 0.8.0), the same in tmpfs.
 constexpr std::size_t kBuffer = std::size_t{128} << 10U;
 constexpr std::string_view kTemporary = ".nordend-part-";  // hidden, recognisable
+// Threads copying the files of a folder at once (TransferRequest::threads == 0), and how many
+// files may wait for them: the walk stays a little ahead, never the whole tree in memory.
+constexpr std::size_t kCopiers = 4;
+constexpr std::size_t kWaiting = 256;
 
 std::error_code last_error() { return {errno, std::generic_category()}; }
 
@@ -128,35 +138,111 @@ struct Group {
     std::vector<std::string> sidecars;
 };
 
+// A folder being copied: finished (permissions, dates, the source removed on a move) only once
+// every file in it has been copied, bottom-up.
+struct Building {
+    std::filesystem::path source;
+    std::filesystem::path made;  // its hidden name, or its own inside another being built
+    struct stat info{};
+    std::string where;
+    Building* parent{nullptr};
+    bool failed{false};  // something in it did not arrive (Engine::state_)
+};
+
+// One file for the copiers.
+struct Job {
+    std::filesystem::path source;
+    std::filesystem::path target;
+    struct stat info{};
+    std::string where;
+    Building* folder{nullptr};
+};
+
 class Engine {
 public:
     Engine(const TransferRequest& request, const core::CancelToken& token,
            const TransferCallbacks& callbacks)
-        : request_{request}, token_{token}, callbacks_{callbacks} {}
+        : request_{request},
+          token_{token},
+          callbacks_{callbacks},
+          threads_{request.threads == 0 ? kCopiers : request.threads} {}
+
+    Engine(const Engine&) = delete;
+    Engine& operator=(const Engine&) = delete;
+    Engine(Engine&&) = delete;
+    Engine& operator=(Engine&&) = delete;
+
+    ~Engine() { stop_copiers(); }
 
     TransferResult run();
 
 private:
-    [[nodiscard]] bool cancelled() {
-        if (token_.cancelled()) {
-            result_.cancelled = true;
-        }
-        return result_.cancelled;
+    TransferResult finished() {
+        stop_copiers();
+        result_.cancelled = cancelled_;
+        return std::move(result_);
     }
 
+    // Any thread.
+    [[nodiscard]] bool cancelled() {
+        if (token_.cancelled()) {
+            cancelled_ = true;
+        }
+        return cancelled_;
+    }
+
+    // Progress and errors come from the walk and from the copiers: one at a time, and so are the
+    // callbacks (TransferQueue's throttle is not thread-safe).
     void report() {
+        const std::scoped_lock lock{state_};
+        report_locked();
+    }
+
+    void report_locked() {
         if (callbacks_.progress) {
             callbacks_.progress(progress_);
         }
     }
 
+    void add_bytes(std::uint64_t bytes) {
+        const std::scoped_lock lock{state_};
+        progress_.bytes_done += bytes;
+        result_.bytes_done += bytes;
+        report_locked();
+    }
+
+    void add_file() {
+        const std::scoped_lock lock{state_};
+        ++progress_.files_done;
+        ++result_.files_done;
+        report_locked();
+    }
+
     void error(const std::string& where, const std::error_code& code) {
+        const std::scoped_lock lock{state_};
         result_.errors.push_back(std::format("{}: {}", where, code.message()));
     }
 
     void error(const std::string& where, std::string_view what) {
+        const std::scoped_lock lock{state_};
         result_.errors.push_back(std::format("{}: {}", where, what));
     }
+
+    void fail(Building* folder) {
+        if (folder != nullptr) {
+            const std::scoped_lock lock{state_};
+            folder->failed = true;
+        }
+    }
+
+    // The copiers: started at the first file handed over, stopped by the destructor.
+    void hand_over(Job job);
+    void wait_for_copiers();  // until every file handed over is done
+    void copier();
+    void stop_copiers();
+    // Inside the folder an outermost copy is building, once its files are done: each folder
+    // finished, the deepest first.
+    bool finish(std::deque<Building>& folders);
 
     void count(const std::filesystem::path& path);
     // Moves or copies one item to target; where names it in messages. false when it failed or
@@ -173,6 +259,8 @@ private:
                    bool fresh);
     bool copy_folder(const std::filesystem::path& source, const struct stat& info,
                      const std::filesystem::path& target, const std::string& where, bool fresh);
+    // Walks a folder being built: links and folders made at once, files handed to the copiers.
+    void fill(Building& folder, std::deque<Building>& folders);
     bool merge(const std::filesystem::path& source, const std::filesystem::path& target,
                const std::string& where);
     bool copy_data(int from, int to, const std::string& where);
@@ -182,12 +270,80 @@ private:
     const TransferRequest& request_;
     const core::CancelToken& token_;
     const TransferCallbacks& callbacks_;
+    std::mutex state_;  // result_, progress_, Building::failed
     TransferResult result_;
     TransferProgress progress_;
+    std::atomic<bool> cancelled_{false};
     bool copying_{false};  // data is copied (a copy, or a move between file systems)
     bool moving_{false};
     unsigned temporaries_{0};
+
+    std::size_t threads_;
+    std::mutex jobs_mutex_;
+    std::condition_variable work_;  // a job or the end, for the copiers
+    std::condition_variable room_;  // room in jobs_, or all done, for the walk
+    std::deque<Job> jobs_;
+    std::size_t busy_{0};
+    bool stopping_{false};
+    std::vector<std::thread> copiers_;
 };
+
+void Engine::hand_over(Job job) {
+    std::unique_lock lock{jobs_mutex_};
+    if (copiers_.empty()) {
+        for (std::size_t i = 0; i < threads_; ++i) {
+            copiers_.emplace_back([this] { copier(); });
+        }
+    }
+    room_.wait(lock, [this] { return jobs_.size() < kWaiting; });
+    jobs_.push_back(std::move(job));
+    lock.unlock();
+    work_.notify_one();
+}
+
+void Engine::wait_for_copiers() {
+    std::unique_lock lock{jobs_mutex_};
+    room_.wait(lock, [this] { return jobs_.empty() && busy_ == 0; });
+}
+
+void Engine::copier() {
+    for (;;) {
+        Job job;
+        {
+            std::unique_lock lock{jobs_mutex_};
+            work_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
+            if (jobs_.empty()) {
+                return;
+            }
+            job = std::move(jobs_.front());
+            jobs_.pop_front();
+            ++busy_;
+        }
+        room_.notify_all();
+        const bool copied =
+            !cancelled() && copy_file(job.source, job.info, job.target, job.where, false, true);
+        if (!copied) {
+            fail(job.folder);
+        }
+        {
+            const std::scoped_lock lock{jobs_mutex_};
+            --busy_;
+        }
+        room_.notify_all();
+    }
+}
+
+void Engine::stop_copiers() {
+    {
+        const std::scoped_lock lock{jobs_mutex_};
+        stopping_ = true;
+    }
+    work_.notify_all();
+    for (std::thread& thread : copiers_) {
+        thread.join();
+    }
+    copiers_.clear();
+}
 
 // NOLINTNEXTLINE(misc-no-recursion): a folder's depth; a link is copied, never followed
 void Engine::count(const std::filesystem::path& path) {
@@ -264,9 +420,7 @@ bool Engine::copy_data(int from, int to, const std::string& where) {
         if (copied == 0) {
             return true;
         }
-        progress_.bytes_done += static_cast<std::uint64_t>(copied);
-        result_.bytes_done += static_cast<std::uint64_t>(copied);
-        report();
+        add_bytes(static_cast<std::uint64_t>(copied));
     }
 }
 
@@ -322,15 +476,13 @@ bool Engine::copy_file(const std::filesystem::path& source, const struct stat& i
             return false;
         }
     }
-    ++progress_.files_done;
-    ++result_.files_done;
     if (moving_) {
         sync_directory(target.parent_path());
         if (unlink(source.c_str()) != 0) {
             error(where, last_error());
         }
     }
-    report();
+    add_file();
     return true;
 }
 
@@ -359,58 +511,47 @@ bool Engine::copy_link(const std::filesystem::path& source, const struct stat& i
             return false;
         }
     }
-    ++progress_.files_done;
-    ++result_.files_done;
     if (moving_ && unlink(source.c_str()) != 0) {
         error(where, last_error());
     }
-    report();
+    add_file();
     return true;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion): a folder's depth; a link is copied, never followed
 bool Engine::copy_folder(const std::filesystem::path& source, const struct stat& info,
                          const std::filesystem::path& target, const std::string& where,
                          bool fresh) {
+    if (fresh) {
+        // fill() makes folders inside one being built itself; nothing else asks for one.
+        error(where, "a folder inside a copy: not expected here");
+        return false;
+    }
     // Built under a hidden name and renamed when complete: a cancelled copy leaves no half folder.
-    // Inside a folder being built, the hidden name is already there: its own name at once.
-    const std::filesystem::path part = fresh ? target : temporary(target);
+    // What is inside goes under its own names at once (nobody sees it before the rename), its
+    // files copied by several threads; the folders are finished once every file has arrived.
+    const std::filesystem::path part = temporary(target);
     if (mkdir(part.c_str(), 0700) != 0) {
         error(where, last_error());
         return false;
     }
-    const auto give_up = [&part, fresh] {
-        if (!fresh) {  // else the outermost folder goes, with this one in it
-            std::error_code ignored;
-            std::filesystem::remove_all(part, ignored);
-        }
+    std::deque<Building> folders;  // references stay valid as it grows: the copiers hold some
+    Building& top = folders.emplace_back(
+        Building{.source = source, .made = part, .info = info, .where = where, .parent = nullptr});
+    fill(top, folders);
+    wait_for_copiers();
+    const auto give_up = [&part] {
+        std::error_code ignored;
+        std::filesystem::remove_all(part, ignored);
     };
-    bool complete = true;
-    std::error_code listed;
-    for (const std::filesystem::directory_entry& entry :
-         std::filesystem::directory_iterator{source, listed}) {
-        const std::string name = entry.path().filename().string();
-        if (!place(entry.path(), part / name, std::format("{}/{}", where, name), false, true)) {
-            complete = false;
-            if (result_.cancelled) {
-                give_up();
-                return false;
-            }
-        }
+    if (cancelled()) {
+        give_up();
+        return false;
     }
-    if (listed) {
-        error(where, listed);
-        complete = false;
-    }
-    chmod(part.c_str(), info.st_mode & 07777);
-    const std::array<timespec, 2> times{info.st_atim, info.st_mtim};
-    utimensat(AT_FDCWD, part.c_str(), times.data(), 0);
-    if (!fresh) {
-        if (const std::error_code placed = rename_new(part, target)) {
-            error(where, placed);
-            give_up();
-            return false;
-        }
+    const bool complete = finish(folders);
+    if (const std::error_code placed = rename_new(part, target)) {
+        error(where, placed);
+        give_up();
+        return false;
     }
     if (moving_ && complete) {
         sync_directory(target.parent_path());
@@ -419,6 +560,84 @@ bool Engine::copy_folder(const std::filesystem::path& source, const struct stat&
         }
     }
     return complete;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion): a folder's depth; a link is copied, never followed
+void Engine::fill(Building& folder, std::deque<Building>& folders) {
+    std::error_code listed;
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator{folder.source, listed}) {
+        if (cancelled()) {
+            return;
+        }
+        const std::string name = entry.path().filename().string();
+        const std::filesystem::path target = folder.made / name;
+        std::string where = std::format("{}/{}", folder.where, name);
+        const std::optional<struct stat> info = status_of(entry.path());
+        if (!info) {
+            error(where, last_error());
+            fail(&folder);
+            continue;
+        }
+        if (S_ISREG(info->st_mode)) {
+            hand_over({.source = entry.path(),
+                       .target = target,
+                       .info = *info,
+                       .where = std::move(where),
+                       .folder = &folder});
+        } else if (S_ISDIR(info->st_mode)) {
+            if (mkdir(target.c_str(), 0700) != 0) {
+                error(where, last_error());
+                fail(&folder);
+                continue;
+            }
+            Building& inner = folders.emplace_back(Building{.source = entry.path(),
+                                                            .made = target,
+                                                            .info = *info,
+                                                            .where = std::move(where),
+                                                            .parent = &folder});
+            fill(inner, folders);
+        } else if (S_ISLNK(info->st_mode)) {
+            if (!copy_link(entry.path(), *info, target, where, false, true)) {
+                fail(&folder);
+            }
+        } else {
+            error(where, "a special file (device, socket, pipe): not copied");
+            fail(&folder);
+        }
+    }
+    if (listed) {
+        error(folder.where, listed);
+        fail(&folder);
+    }
+}
+
+bool Engine::finish(std::deque<Building>& folders) {
+    // folders is in walking order, every folder before those inside it: backwards, the deepest
+    // come first, and a folder's date is set after nothing more is made in it.
+    for (Building& building : std::views::reverse(folders)) {
+        bool failed = false;
+        {
+            const std::scoped_lock lock{state_};
+            failed = building.failed;
+            if (failed && building.parent != nullptr) {
+                building.parent->failed = true;  // incomplete inside: so is the folder around it
+            }
+        }
+        chmod(building.made.c_str(), building.info.st_mode & 07777);
+        const std::array<timespec, 2> times{building.info.st_atim, building.info.st_mtim};
+        utimensat(AT_FDCWD, building.made.c_str(), times.data(), 0);
+        if (moving_ && !failed && building.parent != nullptr) {
+            // Its files were flushed and deleted one by one; the outermost goes after the rename.
+            if (rmdir(building.source.c_str()) != 0) {
+                error(building.where, last_error());
+                const std::scoped_lock lock{state_};
+                building.parent->failed = true;
+            }
+        }
+    }
+    const std::scoped_lock lock{state_};
+    return !folders.front().failed;
 }
 
 // NOLINTNEXTLINE(misc-no-recursion): a folder's depth; a link is copied, never followed
@@ -432,7 +651,7 @@ bool Engine::merge(const std::filesystem::path& source, const std::filesystem::p
         const std::string name = entry.path().filename().string();
         if (!place(entry.path(), target / name, std::format("{}/{}", where, name), true)) {
             complete = false;
-            if (result_.cancelled) {
+            if (cancelled()) {
                 return false;
             }
         }
@@ -473,9 +692,7 @@ bool Engine::place(const std::filesystem::path& source, const std::filesystem::p
         const std::error_code moved =
             replace ? rename_over(source, target) : rename_new(source, target);
         if (!moved) {
-            ++progress_.files_done;
-            ++result_.files_done;
-            report();
+            add_file();
             return true;
         }
         if (moved != std::errc::cross_device_link) {
@@ -504,7 +721,7 @@ TransferResult Engine::run() {
     const std::optional<struct stat> to = status_of(r.destination);
     if (!to || !S_ISDIR(to->st_mode)) {
         result_.refused = std::format("{} is not a folder", r.destination.string());
-        return result_;
+        return finished();
     }
     std::error_code ignored;
     const std::filesystem::path source_dir = std::filesystem::weakly_canonical(r.source, ignored);
@@ -513,7 +730,7 @@ TransferResult Engine::run() {
     const bool same_folder = source_dir == target_dir;
     if (moving_ && same_folder) {
         result_.placed = r.names;  // already there
-        return result_;
+        return finished();
     }
     copying_ = !moving_ || r.force_copy || !from || from->st_dev != to->st_dev;
 
@@ -548,7 +765,7 @@ TransferResult Engine::run() {
         if (end == folder.end()) {
             result_.refused =
                 std::format("Cannot {} {} into itself", moving_ ? "move" : "copy", group.name);
-            return result_;
+            return finished();
         }
     }
 
@@ -566,7 +783,7 @@ TransferResult Engine::run() {
     }
     progress_.preparing = false;
     if (cancelled()) {
-        return result_;
+        return finished();
     }
     if (copying_) {
         struct statvfs space{};
@@ -576,7 +793,7 @@ TransferResult Engine::run() {
             if (progress_.bytes_total > free) {
                 result_.refused = std::format("Not enough space: {} needed, {} free",
                                               human_size(progress_.bytes_total), human_size(free));
-                return result_;
+                return finished();
             }
         }
     }
@@ -609,7 +826,7 @@ TransferResult Engine::run() {
                         : Resolution::skip;
             }
             if (resolution == Resolution::cancel) {
-                result_.cancelled = true;
+                cancelled_ = true;
                 break;
             }
             if (resolution == Resolution::skip) {
@@ -624,7 +841,7 @@ TransferResult Engine::run() {
         progress_.current = name;
         report();
         if (!place(r.source / group.name, r.destination / name, group.name, replace)) {
-            if (result_.cancelled) {
+            if (cancelled()) {
                 break;
             }
             continue;  // the photo did not arrive: its sidecars stay with it
@@ -634,14 +851,14 @@ TransferResult Engine::run() {
         for (const std::string& sidecar : group.sidecars) {
             if (!place(r.source / sidecar, r.destination / sidecar_target(sidecar, name), sidecar,
                        replace) &&
-                result_.cancelled) {
+                cancelled()) {
                 break;
             }
         }
     }
     progress_.current.clear();
     report();
-    return result_;
+    return finished();
 }
 
 }  // namespace

@@ -32,6 +32,8 @@ struct TransferRequest {
     // Tests: trash into this top directory's trash, as if the items were on another disk.
     std::filesystem::path trash_top{};  // NOLINT(readability-redundant-member-init): GCC wants one
                                         // for designated initializers that leave it out
+    // Threads copying a folder's files at once; 0: Nordend's choice. Tests and measurements.
+    std::size_t threads{0};
 };
 
 // What to do with an item whose name is taken in the destination.
@@ -93,7 +95,11 @@ struct TransferCallbacks {
 //   copies the data (copy_file_range, else read/write) in pieces into a hidden temporary file
 //   (".nordend-part-XXXXXX") renamed to its name only when complete, so a cancelled or failed
 //   copy leaves nothing half-written under a real name. A new folder is built the same way, as a
-//   whole. Permissions, access and modification times and symbolic links are kept.
+//   whole, the files inside it written under their own names (nobody sees them before the
+//   folder's rename) by a few threads at once; the folders' permissions and dates are set once
+//   every file in them has arrived. Permissions, access and modification times and symbolic
+//   links are kept. A source file is opened without following links and must still be the file
+//   first looked at ("changed while being copied").
 // - Between file systems a source is deleted only after its copy is complete and flushed to disk
 //   (fsync), and a folder only if all of it arrived.
 // - A regular file takes its darktable sidecars along (sidecars_of), named after its new name;

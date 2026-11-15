@@ -5,6 +5,7 @@
 #include <chrono>
 #include <fcntl.h>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -384,6 +385,37 @@ TEST_CASE("transfer: a folder's files go straight in; cancelled deep inside, not
           Names{"Trip", "Trip/a.jpg", "Trip/deep", "Trip/deep/b.jpg", "Trip/deep/big.bin"});
     CHECK(fs::file_size(t.to / "Trip" / "deep" / "big.bin") == 40U << 20U);
     CHECK(stat_of(t.to / "Trip" / "deep").st_mtim.tv_sec == 1'300'000'000);
+}
+
+TEST_CASE("transfer: a folder moved between disks: what did not arrive stays, with its folders") {
+    if (geteuid() == 0) {
+        return;  // root reads anything
+    }
+    for (const std::size_t threads : {std::size_t{1}, std::size_t{8}}) {
+        CAPTURE(threads);
+        Tree t;
+        for (int i = 0; i < 40; ++i) {
+            t.dir.write(std::format("from/Trip/deep/n{:02}.jpg", i), std::format("photo {}", i));
+        }
+        const fs::path locked = t.from / "Trip" / "deep" / "locked.jpg";
+        std::ofstream{locked} << "unreadable";
+        fs::permissions(locked, fs::perms::none);
+        const TransferResult result = nordend::fs::run_transfer({.kind = TransferKind::move,
+                                                                 .source = t.from,
+                                                                 .names = {"Trip"},
+                                                                 .destination = t.to,
+                                                                 .force_copy = true,
+                                                                 .threads = threads},
+                                                                {}, {});
+        fs::permissions(locked, fs::perms::owner_all);
+        REQUIRE(result.errors.size() == 1);
+        CHECK(result.errors.front() == "Trip/deep/locked.jpg: Permission denied");
+        // Everything else arrived and left; the file that did not stays, with its folders.
+        CHECK(listing(t.to / "Trip" / "deep").size() == 41);  // b.jpg and the 40
+        CHECK(listing(t.from / "Trip") == Names{"deep"});
+        CHECK(listing(t.from / "Trip" / "deep") == Names{"locked.jpg"});
+        CHECK(result.files_done == 42);  // a.jpg, b.jpg, the 40
+    }
 }
 
 TEST_CASE("transfer: a folder without write permission gives errors, not a crash") {

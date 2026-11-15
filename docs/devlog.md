@@ -4,6 +4,31 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Nordend 0.7.5
+
+**Done**
+- Release 0.7.5, a minor: the text size (`[font] size`, #15), actions of your own (`[[action]]`,
+  #14), a folder's size in the info pane and the size of several selected.
+
+**Measured** (after rebuilding as 0.7.5): `nordend` 4.43 / 3.68 MiB stripped, `nordend-preview`
+1.15 / 1.03, `nordend-portal` 0.36 / 0.29; `readelf -d` NEEDED 17, 8 and 8; 58 139 + 21 489
+lines, 514 test cases.
+
+---
+
+## 2026-11-15 — The size of several selected (0.7.5)
+
+**Done**
+- Several entries selected with at least one folder: the info pane adds them all up as it does
+  one folder (`InfoPane::measure` takes the roots and a key: the folder and the names selected),
+  one `Measurer` for all, so a file hard-linked from two of them counts once. "Size" replaces
+  "Size of the files"; files only keep their listed sizes, at once, no worker.
+- The pane test covers two folders, then a file added to them, then files only.
+
+**Tested by the author** (Umbriel): two folders, a file added to them, files only, back to one folder.
+
+---
+
 ## 2026-11-15 — A folder's size in the info pane (0.7.5)
 
 **Done**
@@ -27,8 +52,8 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   a count cancelled by moving, the sum, a file stops it), through `ui::Offscreen`.
 
 **Decisions** (proposed and agreed on 2026-11-15)
-- Only for a single selected folder in this step; several selected keep "Size of the files", the
-  folder shown with nothing selected shows its items. No cache: a folder is counted again when the
+- Only for a single selected folder in this step (several selected came the same day, above);
+  the folder shown with nothing selected shows its items. No cache: a folder is counted again when the
   cursor comes back.
 - The files' own sizes (as Nautilus and the rows), not the blocks on disk: btrfs reflinks and
   compression count in full.

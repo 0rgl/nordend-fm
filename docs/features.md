@@ -153,7 +153,9 @@ README's [What's next](../README.md#whats-next).
   grid and the details Ctrl+I hides it, and its edge can be dragged from 240 to 720 px.
 - **A folder's size** in the info pane: once the cursor rests on a folder for a quarter of a
   second, a worker adds up everything inside ("Counting… 1.2 GB" as it grows), then "Size" and
-  "Contains" (files and folders). Moving on cancels it, and nothing is read on the main thread.
+  "Contains" (files and folders). Several entries selected with folders among them: their whole
+  size, added up the same way (a file hard-linked from two of them once). Moving on cancels it,
+  and nothing is read on the main thread.
   Sizes are the files' own (as their rows show; hidden files included); a hard link counts once;
   links inside are never followed. Disks mounted inside and btrfs subvolumes are not entered
   (as `du -x`), nor folders deeper than 64 levels: the size then says "at least". Folders on a
@@ -543,7 +545,9 @@ FileChooser and portals.conf.
 
 ## Next
 
-0.7.4 is out (small fixes: the developer tools answer `--help` and refuse unknown options; an
+0.7.5 is out (the text size in `config.toml`, from 0rgl's issue #15; actions of your own in the
+context menu, `[[action]]`, from 0rgl's issue #14; a folder's size in the info pane, or several
+selected), after 0.7.4 (small fixes: the developer tools answer `--help` and refuse unknown options; an
 ordinary logout is no longer logged as an error), after 0.7.3 (scrollbars that widen under the
 pointer and can be dragged; the shortcuts card scrolls in a low window, from llego's issue #12),
 0.7.2 (nordend-setup: Nordend

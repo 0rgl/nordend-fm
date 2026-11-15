@@ -207,7 +207,8 @@ README's [What's next](../README.md#whats-next).
   - a copy runs as fast as `cp` (3.1 GB of photos in 1.39 s, warm cache, against 1.39 s), by
     the kernel's `copy_file_range`, on a thread of its own, so the window never waits;
   - the status bar shows "Copying 163 files · 2.1 GB of 3.4 GB · 180 MB/s · 8 s left", a
-    progress line and an × to stop; what arrived is selected afterwards;
+    progress line and an × to stop (or Shift+Escape, in Quick Look too); what arrived is
+    selected afterwards;
   - nothing half-copied ever carries a real name: each file is written under a hidden temporary
     name and renamed when complete, and a folder is built whole the same way. Stopping leaves
     nothing behind;

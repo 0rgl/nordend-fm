@@ -46,6 +46,7 @@ enum class Command : std::uint8_t {
     erase,
     undo,
     redo,
+    stop_transfer,
     context_menu,
     back,
     forward,

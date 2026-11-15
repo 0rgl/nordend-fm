@@ -237,6 +237,27 @@ TEST_CASE("paste: Merge for the rest merges folders; the files inside are still 
     CHECK(read_file(f.root / "album" / "two" / "x.jpg") == "new");
 }
 
+TEST_CASE("paste: Shift+Escape stops a transfer on its way, and says when there is none") {
+    Fixture f;
+    f.show(f.root / "album", {});
+    CHECK(f.press(key(XKB_KEY_Escape, {.shift = true})));
+    CHECK(f.browser.status_bar().message() == "Nothing is being copied, moved or deleted");
+
+    // A copy held on a question: the card put away unanswered, the transfer still waits.
+    nordend::views::ConflictDialog& dialog = f.browser.conflict_dialog();
+    f.show(f.root / "photos", {"P2.ORF"});
+    CHECK(f.press(key(XKB_KEY_c, {.ctrl = true})));
+    f.show(f.root / "album", {});
+    CHECK(f.press(key(XKB_KEY_v, {.ctrl = true})));
+    REQUIRE(run_until(f.loop, [&] { return dialog.is_open(); }));
+    dialog.close();
+    CHECK(f.browser.loading());
+    CHECK(f.press(key(XKB_KEY_Escape, {.shift = true})));
+    REQUIRE(f.settle());
+    CHECK(f.browser.status_bar().message() == "Stopped: 0 files copied so far");
+    CHECK(read_file(f.root / "album" / "P2.ORF") == "album's own");
+}
+
 TEST_CASE("paste: every key listed for the question works on it") {
     Fixture f;
     nordend::views::ConflictDialog& dialog = f.browser.conflict_dialog();

@@ -321,10 +321,11 @@ TEST_CASE("palette in the browser: every command is offered where it can be used
     f.press(key(XKB_KEY_c, kCtrl));
     seen.merge(f.ids());
 
-    // Every command of the shortcuts but those the palette has no use for.
-    const std::set<Command> not_in_palette{Command::none,       Command::context_menu,
-                                           Command::select_tab, Command::command_palette,
-                                           Command::undo,       Command::redo};
+    // Every command of the shortcuts but those the palette has no use for (or offers only
+    // while there is something to undo, redo or stop).
+    const std::set<Command> not_in_palette{
+        Command::none, Command::context_menu, Command::select_tab,   Command::command_palette,
+        Command::undo, Command::redo,         Command::stop_transfer};
     const std::vector<std::pair<Command, const char*>> commands{
         {Command::columns_view, "columns_view"},
         {Command::grid_view, "grid_view"},

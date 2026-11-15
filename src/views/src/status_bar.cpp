@@ -19,6 +19,7 @@ constexpr float kButtonGap = 2.0F;
 constexpr float kHelpGap = 10.0F;  // between the views' buttons and "?"
 constexpr float kIconSize = 16.0F;
 constexpr float kProgressHeight = 2.0F;
+constexpr std::string_view kStopKey = "Shift+Esc";  // shown next to a transfer's ×
 constexpr std::array<std::string_view, StatusBar::kViews + 1> kIcons{
     "layout-columns", "layout-grid", "list-details", "help"};
 
@@ -160,7 +161,13 @@ void StatusBar::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme
         icons.draw(renderer, "x", cancel_button_.x + ((kButtonWidth - kIconSize) / 2.0F),
                    cancel_button_.y + ((kButtonHeight - kIconSize) / 2.0F), kIconSize,
                    cancel_hovered_ ? palette.error : palette.on_surface_variant);
-        text_right = cancel_button_.x - kPadding;
+        // Its key, quietly, left of the button.
+        const float key_width =
+            renderer.fonts().layout(kStopKey, kTextSize, renderer.scale()).width / renderer.scale();
+        const float key_x = cancel_button_.x - 6.0F - key_width;
+        renderer.draw_text(kStopKey, key_x, bounds.y + ((kHeight - kTextSize) / 2.0F) - 2.0F,
+                           kTextSize, palette.outline);
+        text_right = key_x - kPadding;
     }
 
     // The message, else a transfer, else the status and the free space; cut in the middle when

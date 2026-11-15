@@ -3963,6 +3963,13 @@ void Browser::run(Command command, Clock::time_point now) {
         case Command::redo:
             redo();
             break;
+        case Command::stop_transfer:
+            if (transfers_.pending() > 0) {
+                cancel_transfer();
+            } else {
+                show_message("Nothing is being copied, moved or deleted", false);
+            }
+            break;
         case Command::context_menu:
             open_menu_from_keyboard();
             break;

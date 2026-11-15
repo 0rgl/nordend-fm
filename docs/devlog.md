@@ -4,6 +4,23 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Copying (0.8.0): Shift+Escape stops a transfer
+
+**Done**
+- Shift+Escape stops the copy, move or delete on its way, as the status bar's × does (in the
+  views and in Quick Look; "Stop the Transfer" in the Ctrl+K palette while one runs). With
+  nothing running it says "Nothing is being copied, moved or deleted". The status bar shows
+  "Shift+Esc" quietly left of the × while a transfer runs (snapshot checked).
+- Not Escape alone: it already gives up a selection, a menu, Quick Look; one pressed for those
+  would stop a long copy, and a stopped move leaves part of the files moved.
+- Test: with nothing running, the message; a copy held on a question (the card put away
+  unanswered) stopped by the key, nothing replaced. The keys test presses it in every view.
+
+**Tested by the author**
+- The mixed tree copied into home and stopped with Shift+Escape: nothing left behind.
+
+---
+
 ## 2026-11-15 — Copying (0.8.0): merging two folders asks about each taken file
 
 **Done**
@@ -4879,7 +4896,7 @@ into `/tmp` (tmpfs), page cache warm, three runs each: Nordend 1.38-1.39 s (abou
 - No drag and drop yet: proposed as a next step on the same engine.
 - The temporary is visible (dimmed, hidden name) in the destination while a file is copied.
 - ~~Merging folders replaces same-named files without asking again inside them.~~ Asked since 2026-11-15 (0.8.0).
-- No key stops a transfer (the × only); copying files between Nordend and other apps is 6.5.
+- ~~No key stops a transfer (the × only)~~ Shift+Escape since 2026-11-15 (0.8.0); copying files between Nordend and other apps is 6.5.
 
 ---
 

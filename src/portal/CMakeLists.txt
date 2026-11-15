@@ -1,6 +1,6 @@
 # Nordend as the desktop's file chooser (ROADMAP 4): the FileChooser backend for
 # xdg-desktop-portal, and nordend-portal, the small service that runs it.
-add_library(nordend_portal src/file_chooser.cpp)
+add_library(nordend_portal src/file_chooser.cpp src/file_manager.cpp)
 add_library(nordend::portal ALIAS nordend_portal)
 target_include_directories(nordend_portal PUBLIC include)
 target_link_libraries(nordend_portal

@@ -2005,6 +2005,48 @@ void Browser::reveal(const std::filesystem::path& root, const std::filesystem::p
     note_location();
 }
 
+void Browser::show_items(const std::vector<std::filesystem::path>& items, bool details) {
+    // The folders, in the order their first item comes, each with its items' names.
+    std::vector<std::pair<std::filesystem::path, std::vector<std::string>>> groups;
+    for (const std::filesystem::path& item : items) {
+        const std::filesystem::path normal = item.lexically_normal();
+        const bool root = !normal.has_relative_path();
+        const std::filesystem::path folder = root ? normal : normal.parent_path();
+        std::error_code error;
+        if (folder.empty() || !std::filesystem::is_directory(folder, error)) {
+            continue;
+        }
+        auto group =
+            std::ranges::find(groups, folder, [](const auto& entry) { return entry.first; });
+        if (group == groups.end()) {
+            group = groups.insert(groups.end(), {folder, {}});
+        }
+        if (!root) {
+            group->second.push_back(normal.filename().string());
+        }
+    }
+    const std::size_t first = active_;
+    for (std::size_t i = 0; i < groups.size(); ++i) {
+        const auto& [folder, names] = groups[i];
+        if (i == 0) {
+            open(folder);
+        } else {
+            open_tab(folder, true);
+        }
+        if (const std::shared_ptr<Folder> shown = current_folder(); shown && !names.empty()) {
+            shown->expect_names(names);
+        }
+    }
+    if (groups.size() > 1) {
+        select_tab(first);
+    }
+    if (details) {
+        set_info_visible(true);
+        info_pane_.set_expanded(true);
+    }
+    redraw_();
+}
+
 void Browser::note_location() {
     if (pane().mode == Mode::columns && pane().columns.revealing()) {
         return;  // noted once the columns have unfolded

@@ -37,6 +37,11 @@ public:
     void request(wl_seat* seat, std::uint32_t serial, wl_surface* surface,
                  std::function<void(std::string token)> done);
 
+    // Asks the compositor to focus surface with a token another program gave us (the
+    // XDG_ACTIVATION_TOKEN Nordend was started with: a launcher, "Show in Folder"). Nothing
+    // without xdg-activation or with an empty token.
+    void activate(const std::string& token, wl_surface* surface);
+
 private:
     struct Pending {
         Activation* owner{nullptr};

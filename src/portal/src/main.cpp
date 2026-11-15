@@ -1,6 +1,8 @@
 // nordend-portal: Nordend as the desktop's file chooser (ROADMAP 4). Started by the session bus
 // when xdg-desktop-portal first asks for org.freedesktop.impl.portal.desktop.nordend; one
 // `nordend --pick` per request; gone after 30 seconds without one.
+// With --file-manager1, org.freedesktop.FileManager1 instead (issue #16): "Show in Folder", one
+// `nordend --reveal` per call, once `nordend --set-file-manager` has named it to the bus.
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -18,6 +20,7 @@
 #include "nordend/core/log.hpp"
 #include "nordend/platform/bus_loop.hpp"
 #include "nordend/portal/file_chooser.hpp"
+#include "nordend/portal/file_manager.hpp"
 
 namespace {
 
@@ -29,17 +32,21 @@ namespace portal = nordend::portal;
 constexpr std::chrono::milliseconds kIdle{30'000};
 
 constexpr const char* kUsage =
-    "usage: nordend-portal [--picker PROGRAM]\n"
+    "usage: nordend-portal [--file-manager1] [--picker PROGRAM]\n"
     "  Nordend's file chooser for xdg-desktop-portal, started by the session bus.\n"
-    "  --picker PROGRAM  run PROGRAM --pick ... instead of nordend\n";
+    "  --file-manager1   serve org.freedesktop.FileManager1 (\"Show in Folder\") instead\n"
+    "  --picker PROGRAM  run PROGRAM instead of nordend\n";
 
 }  // namespace
 
 int main(int argc, char** argv) {
     std::filesystem::path picker;
+    bool file_manager = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
-        if (arg == "--picker" && i + 1 < argc) {
+        if (arg == "--file-manager1") {
+            file_manager = true;
+        } else if (arg == "--picker" && i + 1 < argc) {
             picker = argv[++i];
         } else {
             std::fprintf(stderr, "nordend-portal: unknown option '%s'\n%s", argv[i], kUsage);
@@ -77,14 +84,23 @@ int main(int argc, char** argv) {
         const std::unique_ptr<sdbus::IConnection> connection = sdbus::createSessionBusConnection();
         platform::BusLoop bus{loop, *connection, "portal"};
         bus.set_lost_handler([&loop] { loop.quit(0); });
-        portal::FileChooser chooser{loop, *connection, bus, picker};
-        chooser.set_idle_handler(kIdle, [&loop] {
+        const auto idle = [&loop] {
             log::info("portal: nothing asked for {} s, closing", kIdle.count() / 1000);
             loop.quit(0);
-        });
+        };
+        std::unique_ptr<portal::FileChooser> chooser;
+        std::unique_ptr<portal::FileManager> manager;
+        const std::string_view name = file_manager ? portal::kFileManagerName : portal::kBusName;
+        if (file_manager) {
+            manager = std::make_unique<portal::FileManager>(loop, *connection, bus, picker);
+            manager->set_idle_handler(kIdle, idle);
+        } else {
+            chooser = std::make_unique<portal::FileChooser>(loop, *connection, bus, picker);
+            chooser->set_idle_handler(kIdle, idle);
+        }
         // The objects first, then the name: a caller started us for it and calls at once.
-        connection->requestName(sdbus::ServiceName{std::string{portal::kBusName}});
-        log::info("portal: serving {} with {}", portal::kBusName, picker.string());
+        connection->requestName(sdbus::ServiceName{std::string{name}});
+        log::info("portal: serving {} with {}", name, picker.string());
         bus.pump();
         code = loop.run();
     } catch (const sdbus::Error& error) {

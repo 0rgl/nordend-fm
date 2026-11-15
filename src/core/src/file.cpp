@@ -1,11 +1,14 @@
 #include "nordend/core/file.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
 #include <ios>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <sys/stat.h>
 #include <system_error>
@@ -14,6 +17,19 @@
 
 namespace nordend::core {
 namespace {
+
+int hex_value(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
 
 constexpr std::string_view kHex = "0123456789ABCDEF";
 
@@ -120,6 +136,48 @@ TextFile read_text_file(const std::filesystem::path& path) {
     }
     result.text = std::move(text);
     return result;
+}
+
+std::optional<std::filesystem::path> path_from_uri(std::string_view uri) {
+    constexpr std::string_view scheme = "file://";
+    if (uri.size() < scheme.size() ||
+        !std::ranges::equal(uri.substr(0, scheme.size()), scheme, [](char a, char b) {
+            return (a >= 'A' && a <= 'Z' ? static_cast<char>(a - 'A' + 'a') : a) == b;
+        })) {
+        return std::nullopt;
+    }
+    uri.remove_prefix(scheme.size());
+    const std::size_t slash = uri.find('/');
+    if (slash == std::string_view::npos) {
+        return std::nullopt;
+    }
+    if (const std::string_view host = uri.substr(0, slash); !host.empty() && host != "localhost") {
+        return std::nullopt;  // another machine's file
+    }
+    uri.remove_prefix(slash);
+    uri = uri.substr(0, uri.find_first_of("?#"));
+    std::string path;
+    path.reserve(uri.size());
+    for (std::size_t i = 0; i < uri.size(); ++i) {
+        if (uri[i] == '%' && i + 2 < uri.size()) {
+            const int high = hex_value(uri[i + 1]);
+            const int low = hex_value(uri[i + 2]);
+            if (high >= 0 && low >= 0) {
+                path.push_back(static_cast<char>((high << 4U) | low));
+                i += 2;
+                continue;
+            }
+        }
+        path.push_back(uri[i]);
+    }
+    if (path.find('\0') != std::string::npos) {
+        return std::nullopt;
+    }
+    std::filesystem::path normal = std::filesystem::path{path}.lexically_normal();
+    if (!normal.has_filename() && normal.has_relative_path()) {
+        normal = normal.parent_path();  // "file:///a/b/": the folder b
+    }
+    return normal;
 }
 
 }  // namespace nordend::core

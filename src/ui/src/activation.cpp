@@ -14,6 +14,14 @@ Activation::~Activation() {
     }
 }
 
+void Activation::activate(const std::string& token, wl_surface* surface) {
+    if (display_.activation() == nullptr || token.empty() || surface == nullptr) {
+        return;
+    }
+    xdg_activation_v1_activate(display_.activation(), token.c_str(), surface);
+    log::info("activation: asked for focus with the token we were started with");
+}
+
 void Activation::request(wl_seat* seat, std::uint32_t serial, wl_surface* surface,
                          std::function<void(std::string token)> done) {
     if (display_.activation() == nullptr) {

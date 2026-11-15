@@ -63,6 +63,7 @@ add_executable(nordend-tests
     erase_test.cpp
     erase_view_test.cpp
     measure_test.cpp
+    file_manager_test.cpp
     permissions_test.cpp
     program_test.cpp
     file_finder_test.cpp

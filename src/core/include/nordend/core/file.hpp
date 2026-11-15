@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -24,5 +25,9 @@ struct TextFile {
 // The file:// URI of an absolute path, escaped exactly as GLib's g_filename_to_uri does (other
 // programs compare these strings: thumbnails by their MD5, bookmarks, the clipboard).
 [[nodiscard]] std::string file_uri(const std::filesystem::path& absolute);
+
+// The local path a file URI names ("file:///a%20b", "file://localhost/a"), normalized; nullopt for
+// anything else (another host, another scheme, a relative path, a NUL byte).
+[[nodiscard]] std::optional<std::filesystem::path> path_from_uri(std::string_view uri);
 
 }  // namespace nordend::core

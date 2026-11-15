@@ -4,6 +4,7 @@ add_library(nordend_platform
     src/bus_loop.cpp
     src/desktop_entry.cpp
     src/exec.cpp
+    src/file_manager_config.cpp
     src/launcher.cpp
     src/opener.cpp
     src/portal.cpp

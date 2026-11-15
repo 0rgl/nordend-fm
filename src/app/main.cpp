@@ -39,6 +39,7 @@
 #include "nordend/isolate/helpers.hpp"
 #include "nordend/platform/about.hpp"
 #include "nordend/platform/desktop_entry.hpp"
+#include "nordend/platform/file_manager_config.hpp"
 #include "nordend/platform/opener.hpp"
 #include "nordend/platform/portal.hpp"
 #include "nordend/platform/portal_config.hpp"
@@ -205,7 +206,9 @@ constexpr const char* kUsage =
     "       nordend --pick [--multiple] [--folders] [--title TEXT] [--accept-label TEXT]\n"
     "               [--filter LABEL [--glob PATTERN]... [--mime TYPE]...]... [--current-filter N]\n"
     "               [--parent wayland:HANDLE] [DIR]\n"
+    "       nordend --reveal|--properties [--] PATH...\n"
     "       nordend --set-file-chooser | --unset-file-chooser\n"
+    "       nordend --set-file-manager | --unset-file-manager\n"
     "  DIR             the folder to show (default: your home folder; with --pick, the last one)\n"
     "  --pick          choose a file (Enter, Ctrl+Enter) and print its file:// URI; Escape "
     "cancels\n"
@@ -226,8 +229,12 @@ constexpr const char* kUsage =
     "  --check-config  report problems in the config file and exit (status 1 if any)\n"
     "  --version       print the version and exit\n"
     "  --about         print what Nordend runs on, for a bug report, and exit\n"
+    "  --reveal PATH...      show each PATH selected in its folder (a tab per folder)\n"
+    "  --properties PATH...  the same, with the info pane's details open\n"
     "  --set-file-chooser    make Nordend the desktop's file chooser (your portals.conf) and exit\n"
-    "  --unset-file-chooser  give the file chooser back to the desktop and exit\n";
+    "  --unset-file-chooser  give the file chooser back to the desktop and exit\n"
+    "  --set-file-manager    make \"Show in Folder\" open Nordend (a D-Bus service file) and exit\n"
+    "  --unset-file-manager  give \"Show in Folder\" back to the desktop and exit\n";
 
 // The folder to open: DIR as given (made absolute, ".." resolved), else $HOME, else "/".
 std::filesystem::path start_folder(const std::filesystem::path& given) {
@@ -260,6 +267,43 @@ int change_file_chooser(bool set) {
     std::fputs(change.ok ? change.message.c_str() : ("nordend: " + change.message).c_str(),
                change.ok ? stdout : stderr);
     return change.ok ? 0 : 1;
+}
+
+// --set-file-manager / --unset-file-manager (issue #16): what was done on stdout, a failure on
+// stderr.
+int change_file_manager(bool set) {
+    const platform::Environment environment = platform::Environment::from_environment();
+    platform::ManagerChange change;
+    if (!set) {
+        change = platform::unset_file_manager(environment);
+    } else if (const std::optional<std::filesystem::path> portal = platform::portal_program()) {
+        const std::shared_ptr<const fs::MimeDatabase> mime = fs::MimeDatabase::load();
+        const platform::Applications apps = platform::Applications::load(environment, *mime);
+        const platform::DesktopEntry* const folders = apps.default_for("inode/directory", *mime);
+        change = platform::set_file_manager(
+            environment, *portal, platform::bus_name_owner(platform::kFileManagerBusName),
+            folders != nullptr ? std::string_view{folders->id} : std::string_view{});
+    } else {
+        change = {.ok = false, .message = "nordend-portal is not installed beside nordend\n"};
+    }
+    std::fputs(change.ok ? change.message.c_str() : ("nordend: " + change.message).c_str(),
+               change.ok ? stdout : stderr);
+    return change.ok ? 0 : 1;
+}
+
+// The token Nordend was started with (a launcher's, "Show in Folder"'s): taken out of the
+// environment, so programs Nordend starts never reuse it, and handed to xdg-activation once the
+// window is up. Empty when there was none.
+std::string take_activation_token() {
+    std::string token;
+    for (const char* const name : {"XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID"}) {
+        const char* value = std::getenv(name);  // NOLINT(concurrency-mt-unsafe): startup
+        if (value != nullptr && *value != '\0' && token.empty()) {
+            token = value;
+        }
+        unsetenv(name);  // NOLINT(concurrency-mt-unsafe): startup, one thread
+    }
+    return token;
 }
 
 // --about: what Nordend runs on, one "Label: value" line each, to paste into a bug report.
@@ -439,8 +483,38 @@ int main(int argc, char** argv) {
     bool check_only = false;
     bool test_scene = false;
     PickArgs pick_args;
+    // --reveal / --properties: the items to show selected in their folders (issue #16).
+    bool reveal = false;
+    bool reveal_details = false;
+    std::vector<std::filesystem::path> reveal_items;
+    bool only_paths = false;  // after "--"
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
+        if (only_paths || (reveal && !arg.starts_with("-"))) {
+            if (!reveal) {
+                if (!start_dir.empty()) {
+                    std::fprintf(stderr, "nordend: one folder at a time, without --reveal\n%s",
+                                 kUsage);
+                    return 2;
+                }
+                start_dir = arg;
+            } else {
+                reveal_items.emplace_back(arg);
+            }
+            continue;
+        }
+        if (arg == "--") {
+            only_paths = true;
+            continue;
+        }
+        if (arg == "--reveal" || arg == "--properties") {
+            reveal = true;
+            reveal_details = reveal_details || arg == "--properties";
+            continue;
+        }
+        if (arg == "--set-file-manager" || arg == "--unset-file-manager") {
+            return change_file_manager(arg == "--set-file-manager");
+        }
         if (arg == "--version") {
             std::puts("nordend " NORDEND_VERSION);
             return 0;
@@ -478,6 +552,11 @@ int main(int argc, char** argv) {
     }
     const bool pick = pick_args.asked;
     const views::Browser::Pick& asked = pick_args.pick;
+    if (reveal && (pick || !start_dir.empty() || reveal_items.empty())) {
+        std::fprintf(stderr, "nordend: --reveal and --properties take paths, nothing else\n%s",
+                     kUsage);
+        return 2;
+    }
     if (!pick && (asked.multiple || asked.folders || asked.save || !pick_args.title.empty() ||
                   !asked.accept_label.empty() || !asked.filters.empty() || !asked.choices.empty() ||
                   !pick_args.parent.empty())) {
@@ -491,6 +570,8 @@ int main(int argc, char** argv) {
     if (config_path.empty()) {
         config_path = core::default_config_path();
     }
+    // Before any thread: the environment is changed.
+    std::string startup_token = take_activation_token();
     const core::ConfigResult config_result = core::load_config(config_path);
     if (check_only) {
         return check_config(config_path, config_result);
@@ -873,9 +954,13 @@ int main(int argc, char** argv) {
             }
             columns->apply(remembered.state);
             // Without a folder (Super+E) the tabs come back as they were left; with one
-            // (xdg-open, "Show in folder") a single tab on it (ROADMAP 9.1d).
-            if (!start_dir.empty() ||
-                !columns->restore_tabs(remembered.state.tabs, remembered.state.shown_tab)) {
+            // (xdg-open) a single tab on it (ROADMAP 9.1d); with --reveal ("Show in Folder",
+            // issue #16) a tab for each folder of the items, them selected.
+            if (reveal) {
+                columns->open(start_folder({}));  // where it starts, if no item's folder is there
+                columns->show_items(reveal_items, reveal_details);
+            } else if (!start_dir.empty() ||
+                       !columns->restore_tabs(remembered.state.tabs, remembered.state.shown_tab)) {
                 columns->open(start_folder(start_dir));
             }
             memory_lines = [&columns] { return columns->memory_lines(); };
@@ -1071,6 +1156,13 @@ int main(int argc, char** argv) {
                     startup.mark("first-draw");
                 }
                 ready_drawn = ready_drawn || ready;
+            }
+            if (!startup_token.empty()) {
+                // Once the first frame is committed (after this draw): the window to the front, as
+                // the program that started us asked (a launcher, "Show in Folder").
+                loop.post([&activation, &window, token = std::exchange(startup_token, {})] {
+                    activation.activate(token, window.surface());
+                });
             }
             if (columns) {
                 columns->draw(renderer, content, palette, icons, views::Browser::Clock::now());

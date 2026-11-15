@@ -411,6 +411,28 @@ README's [What's next](../README.md#whats-next).
   otherwise.
 - Tried with zenity, gnome-text-editor, Firefox and kate, on Umbriel, GNOME and Plasma.
 
+## "Show in Folder"
+
+- **Browsers and other applications reach Nordend** (issue #16): "Show in Folder" for a
+  download (Firefox, Chromium and the browsers built on it, Electron apps such as VS Code, Flatpak
+  apps through the desktop portal) calls `org.freedesktop.FileManager1`, which
+  `nordend-portal --file-manager1` serves once you have asked for it:
+  - `nordend --set-file-manager` writes the service file in your own
+    `~/.local/share/dbus-1/services`, which the session bus reads before the system's (where
+    Thunar, Nautilus or Dolphin put theirs): never for everyone, as two system files for one name
+    would be a conflict. It says when another file manager holds the name right now (Nordend
+    answers once it exits, or after the next login) and when folders do not open in Nordend
+    (`nordend-setup configure` sets that). `--unset-file-manager` removes the file, only if it is
+    Nordend's.
+  - The service answers at once (Firefox gives up after a second and opens the folder itself)
+    and starts `nordend --reveal`: each item's folder with the item selected, one tab per folder,
+    a folder shown selected in its parent; "properties" also opens the info pane's details. It
+    leaves after 30 seconds without a call.
+  - The caller's activation token brings the window to the front; Nordend now reads
+    `XDG_ACTIVATION_TOKEN` at start whoever started it (a launcher, a dock), and takes it out of
+    the environment so the programs it starts never reuse it.
+- **`nordend --reveal PATH...`** (and `--properties PATH...`) do the same by hand.
+
 ## Installing and updating
 
 - **nordend-setup**, one POSIX shell script for distributions without a Nordend package:
@@ -558,11 +580,13 @@ second (binary measured 2026-11-14, memory 2026-11-13).
 freedesktop thumbnails, shared-mime-info, MIME applications associations, Desktop Entry, XDG
 base and user directories, GTK bookmarks; Wayland xdg-shell, xdg-decoration, fractional-scale,
 viewporter, cursor-shape, xdg-activation, xdg-foreign and xdg-dialog; xdg-desktop-portal's
-FileChooser and portals.conf.
+FileChooser and portals.conf; org.freedesktop.FileManager1.
 
 ## Next
 
-0.7.5 is out (the text size in `config.toml`, from 0rgl's issue #15; actions of your own in the
+0.7.6 is out (programs and AppImages started with Enter, safely, "Allow Running as Program" and
+a dot on what can run, from Evergaster's issue #17; "Show in Folder" opening Nordend, from 0rgl's
+issue #16), after 0.7.5 (the text size in `config.toml`, from 0rgl's issue #15; actions of your own in the
 context menu, `[[action]]`, from 0rgl's issue #14; a folder's size in the info pane, or several
 selected), after 0.7.4 (small fixes: the developer tools answer `--help` and refuse unknown options; an
 ordinary logout is no longer logged as an error), after 0.7.3 (scrollbars that widen under the

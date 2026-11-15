@@ -526,3 +526,42 @@ TEST_CASE("zoom: the lists grow and shrink together, in every tab; the cursor's 
     CHECK(again.details().list_size() == 0);
     CHECK(static_cast<std::int32_t>(again.grid().icon_size()) == zoomed);
 }
+
+TEST_CASE("show items: each folder in a tab, the items selected; a folder in its parent") {
+    Fixture f;
+    std::ofstream{f.a / "three.txt"} << "3";
+    f.browser.set_mode(Browser::Mode::details);
+    f.browser.show_items(
+        {f.a / "one.txt", f.b / "two.txt", f.a / "three.txt", f.dir.path / "gone" / "x.txt"},
+        false);
+    REQUIRE(f.settle());
+    // Two folders: the first in the tab shown, the second in a new tab after it; "gone" left out.
+    CHECK(f.browser.tab_count() == 2);
+    CHECK(f.browser.active_tab() == 0);
+    const auto selected = [&f] {
+        const std::shared_ptr<nordend::views::Folder> folder = f.browser.details().folder();
+        REQUIRE(folder);
+        return std::pair{folder->path(), folder->selected_names()};
+    };
+    REQUIRE(run_until(f.loop, [&] { return selected().second.size() == 2; }));
+    CHECK(selected().first == f.a);
+    auto names = selected().second;
+    std::ranges::sort(names);
+    CHECK(names == std::vector<std::string>{"one.txt", "three.txt"});
+    CHECK_FALSE(f.browser.info_pane().expanded());
+
+    f.browser.select_tab(1);
+    REQUIRE(f.settle());
+    REQUIRE(run_until(f.loop, [&] { return !selected().second.empty(); }));
+    CHECK(selected().first == f.b);
+    CHECK(selected().second == std::vector<std::string>{"two.txt"});
+
+    // A folder is shown selected in its parent; with details, the info pane opens up.
+    f.browser.show_items({f.a / "sub"}, true);
+    REQUIRE(f.settle());
+    REQUIRE(run_until(f.loop, [&] { return !selected().second.empty(); }));
+    CHECK(selected().first == f.a);
+    CHECK(selected().second == std::vector<std::string>{"sub"});
+    CHECK(f.browser.info_visible());
+    CHECK(f.browser.info_pane().expanded());
+}

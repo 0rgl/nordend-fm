@@ -151,6 +151,13 @@ public:
     // The columns from root down to target (see ColumnView::reveal); switches to the columns.
     void reveal(const std::filesystem::path& root, const std::filesystem::path& target);
 
+    // "Show in Folder" (nordend --reveal, issue #16): each item's folder, the items selected and
+    // the cursor on the first; the first folder in the tab shown, each other one in a tab of its
+    // own after it, in the order of the items. An item that is a folder is shown in its parent
+    // (as the specification says); a folder that is gone is left out. details: the info pane
+    // shown, "More details" open (ShowItemProperties).
+    void show_items(const std::vector<std::filesystem::path>& items, bool details);
+
     void set_mode(Mode mode);
 
     using Step = HistoryStep;

@@ -233,7 +233,7 @@ TEST_CASE("info pane: its width stays within limits and leaves the view room") {
     CHECK(pane.width_in(500.0F) == 0.0F);  // not even the narrowest fits: left out
 }
 
-TEST_CASE("info pane: a folder's size is added up once the cursor rests on it") {
+TEST_CASE("info pane: a folder's size, or a selection's, is added up once the cursor rests") {
     constexpr std::int32_t width = 1000;
     constexpr std::int32_t height = 600;
     std::unique_ptr<nordend::ui::Offscreen> gl;
@@ -283,8 +283,23 @@ TEST_CASE("info pane: a folder's size is added up once the cursor rests on it") 
     CHECK(alpha.complete());
     draw();  // the rows drawn with the sum
 
-    f.press(XKB_KEY_Down);
-    f.press(XKB_KEY_Down);  // a.md: a file, no count
+    // Several selected, folders among them: all of it added up.
+    f.press(XKB_KEY_Down, {.shift = true});  // alpha, gamma
+    draw();
+    REQUIRE(run_until(f.loop, [&] { return pane.folder_size_done(); }));
+    CHECK(pane.folder_size()->folders == 3);
+    CHECK(pane.folder_size()->bytes == 1 + 2000 + 30);
+    f.press(XKB_KEY_Down, {.shift = true});  // and a.md
+    draw();
+    REQUIRE(run_until(f.loop, [&] { return pane.folder_size_done(); }));
+    CHECK(pane.folder_size()->files == 4);
+    CHECK(pane.folder_size()->bytes == 1 + 2000 + 30 + 10);
+    draw();
+
+    f.press(XKB_KEY_Down);  // b.txt alone: a file, no count
+    draw();
+    CHECK_FALSE(pane.folder_size());
+    f.press(XKB_KEY_Down, {.shift = true});  // b.txt, c.txt: files only, their sizes as listed
     draw();
     CHECK_FALSE(pane.folder_size());
 }

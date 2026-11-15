@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
@@ -32,8 +33,9 @@ namespace nordend::views {
 // lens, exposure, the darktable rating) for photos, and on request ("More details") permissions,
 // owner, location and the rest of the exposure. Several entries selected: how many and how big;
 // nothing selected: the folder itself. What the directory entry says shows at once, the rest when
-// read on a worker. A folder's size is added up on a worker too, once the cursor rests on it
-// (kMeasureDelay), showing the sum as it grows; moving on cancels it.
+// read on a worker. A folder's size (or a selection's with folders in it) is added up on a
+// worker too, once the cursor rests (kMeasureDelay), showing the sum as it grows; moving on
+// cancels it.
 //
 // Loop thread only. Draw it while drawing (thumbnail textures are made then).
 class InfoPane {
@@ -113,9 +115,9 @@ private:
     void request(const std::filesystem::path& path, std::int64_t modified_ns, std::string mime,
                  preview::Kind kind);
 
-    // Adds up the folder path's size after kMeasureDelay unless it is the one measured; an empty
-    // path stops measuring.
-    void measure(const std::filesystem::path& path, std::int64_t modified_ns);
+    // Adds up the size of roots (one folder, or the entries selected) after kMeasureDelay unless
+    // key names what is measured already; no roots stops measuring.
+    void measure(std::vector<std::filesystem::path> roots, std::string key);
 
     // The "Size" row of a folder: what is known so far.
     [[nodiscard]] std::string size_text() const;
@@ -128,7 +130,7 @@ private:
     std::string key_;  // what summary_ is (or will be) about
     std::optional<core::CancelToken> job_;
     std::shared_ptr<const preview::Summary> summary_;
-    std::string size_key_;  // the folder size_ is (or will be) about
+    std::string size_key_;  // what size_ is (or will be) about
     core::EventLoop::SourceId size_timer_{0};
     std::optional<core::CancelToken> size_job_;
     std::optional<fs::Tally> size_;  // so far

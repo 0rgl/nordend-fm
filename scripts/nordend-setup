@@ -821,7 +821,11 @@ EOF
     build_dir=$cache/build
     run mkdir -p "$cache" || failed "Making the cache folder"
     run rm -rf "$source_dir" "$build_dir" || failed "Clearing the cache folder"
-    run git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$ref" "$repo_url" "$source_dir" ||
+    # Only the one commit, fetched by its tag or branch: `clone --branch` warns "... is not a
+    # commit!" for an annotated tag, as every release's is.
+    { run git init --quiet "$source_dir" &&
+        run git -C "$source_dir" fetch --quiet --depth 1 "$repo_url" "$ref" &&
+        run git -C "$source_dir" -c advice.detachedHead=false checkout --quiet FETCH_HEAD; } ||
         failed "Downloading the source"
     if [ "$dry_run" = 0 ]; then
         commit=$(git -C "$source_dir" rev-parse HEAD)
@@ -837,12 +841,14 @@ EOF
 
     heading "Install"
     as_needed "$prefix" cmake --install "$build_dir" --strip || failed "Installing"
-    portal=''
+    # Nordend is installed from here on: a failed copy of nordend.portal is told at the end, and
+    # the record is still written (uninstall needs it).
+    portal='' portal_failed=0
     if [ "$mode" = update ]; then
-        # The same choice as before.
+        # The same choice as before; the earlier copy stays listed even if this one fails.
         if [ -n "$old_portal" ]; then
             as_needed "$portal_dir" install -m 644 "$source_dir/data/nordend.portal" "$portal_dir/nordend.portal" ||
-                failed "Copying nordend.portal"
+                portal_failed=1
             portal=$old_portal
         fi
     elif [ ! -d "$portal_dir" ]; then
@@ -850,9 +856,11 @@ EOF
     else
         say "Other applications find Nordend as their file chooser by $portal_dir/nordend.portal: xdg-desktop-portal reads that folder only."
         if ask "Copy nordend.portal there?"; then
-            as_needed "$portal_dir" install -m 644 "$source_dir/data/nordend.portal" "$portal_dir/nordend.portal" ||
-                failed "Copying nordend.portal"
-            portal=$portal_dir/nordend.portal
+            if as_needed "$portal_dir" install -m 644 "$source_dir/data/nordend.portal" "$portal_dir/nordend.portal"; then
+                portal=$portal_dir/nordend.portal
+            else
+                portal_failed=1
+            fi
         fi
     fi
 
@@ -903,6 +911,8 @@ EOF
     installed=$("$prefix/bin/nordend" --version 2>/dev/null | awk '{ print $2 }')
     [ "$installed" = "$version" ] || die "$prefix/bin/nordend does not answer with its version: something went wrong."
     ok "Nordend $version is installed in $(pretty_path "$prefix")"
+    [ "$portal_failed" = 0 ] ||
+        warn "nordend.portal was not copied to $portal_dir (above): other applications do not find Nordend as their file chooser. Run nordend-setup $mode again to copy it."
     first=$(nordends_on_path | head -n 1)
     real_installed=$(readlink -f "$prefix/bin/nordend")
     if [ -z "$first" ]; then

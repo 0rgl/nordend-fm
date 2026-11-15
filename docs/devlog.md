@@ -4,6 +4,20 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — nordend-setup: no warning for a release's tag, a refused portal copy told
+
+**Done**
+- The source is fetched with `git init` + `fetch --depth 1 URL REF` + `checkout FETCH_HEAD`
+  instead of `clone --depth 1 --branch`, which printed "refs/tags/vX ... is not a commit!" for
+  an annotated tag (every release's). Checked with `NORDEND_SETUP_REPO` on v0.7.6 and on `main`:
+  the same commit, no warning.
+- A failed copy of `nordend.portal` (sudo refused) said "Nothing was installed" although
+  `cmake --install` had already put Nordend in the prefix, and wrote no record, so `uninstall`
+  could not remove it. Now Nordend stays installed, the record is written, and the end says the
+  portal was not copied and how to copy it. Checked in a scratch HOME with a `sudo` that refuses.
+
+---
+
 ## 2026-11-15 — Copy speed (0.8.0): eight copiers
 
 **Measured** (benchmarks.md, "Copying", evening; NVMe rested: `cp` of the mixed tree 6.6 s at

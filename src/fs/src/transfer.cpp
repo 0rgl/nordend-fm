@@ -160,15 +160,19 @@ private:
 
     void count(const std::filesystem::path& path);
     // Moves or copies one item to target; where names it in messages. false when it failed or
-    // was cancelled (the source then stays).
+    // was cancelled (the source then stays). fresh: target's folder is one this transfer is
+    // building under a hidden name, so nobody sees target before that folder is renamed, and a
+    // cancelled copy removes it whole: items are written under their own names, no temporary.
     bool place(const std::filesystem::path& source, const std::filesystem::path& target,
-               const std::string& where, bool replace);
+               const std::string& where, bool replace, bool fresh = false);
     bool copy_file(const std::filesystem::path& source, const struct stat& info,
-                   const std::filesystem::path& target, const std::string& where, bool replace);
+                   const std::filesystem::path& target, const std::string& where, bool replace,
+                   bool fresh);
     bool copy_link(const std::filesystem::path& source, const struct stat& info,
-                   const std::filesystem::path& target, const std::string& where, bool replace);
+                   const std::filesystem::path& target, const std::string& where, bool replace,
+                   bool fresh);
     bool copy_folder(const std::filesystem::path& source, const struct stat& info,
-                     const std::filesystem::path& target, const std::string& where);
+                     const std::filesystem::path& target, const std::string& where, bool fresh);
     bool merge(const std::filesystem::path& source, const std::filesystem::path& target,
                const std::string& where);
     bool copy_data(int from, int to, const std::string& where);
@@ -267,14 +271,25 @@ bool Engine::copy_data(int from, int to, const std::string& where) {
 }
 
 bool Engine::copy_file(const std::filesystem::path& source, const struct stat& info,
-                       const std::filesystem::path& target, const std::string& where,
-                       bool replace) {
-    const Fd from{open(source.c_str(), O_RDONLY | O_CLOEXEC)};
+                       const std::filesystem::path& target, const std::string& where, bool replace,
+                       bool fresh) {
+    // Never through a link, never blocked on a pipe: the file must still be the one lstat saw.
+    const Fd from{open(source.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)};
     if (from.get() < 0) {
-        error(where, last_error());
+        if (errno == ELOOP) {
+            error(where, "changed while being copied");  // a link now
+        } else {
+            error(where, last_error());
+        }
         return false;
     }
-    const std::filesystem::path part = temporary(target);
+    struct stat opened{};
+    if (fstat(from.get(), &opened) != 0 || !S_ISREG(opened.st_mode) ||
+        opened.st_dev != info.st_dev || opened.st_ino != info.st_ino) {
+        error(where, "changed while being copied");
+        return false;
+    }
+    const std::filesystem::path part = fresh ? target : temporary(target);
     Fd to{open(part.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600)};
     if (to.get() < 0) {
         error(where, last_error());
@@ -299,11 +314,13 @@ bool Engine::copy_file(const std::filesystem::path& source, const struct stat& i
         give_up();
         return false;
     }
-    if (const std::error_code placed =
-            replace ? rename_over(part, target) : rename_new(part, target)) {
-        error(where, placed);
-        give_up();
-        return false;
+    if (!fresh) {
+        if (const std::error_code placed =
+                replace ? rename_over(part, target) : rename_new(part, target)) {
+            error(where, placed);
+            give_up();
+            return false;
+        }
     }
     ++progress_.files_done;
     ++result_.files_done;
@@ -318,8 +335,8 @@ bool Engine::copy_file(const std::filesystem::path& source, const struct stat& i
 }
 
 bool Engine::copy_link(const std::filesystem::path& source, const struct stat& info,
-                       const std::filesystem::path& target, const std::string& where,
-                       bool replace) {
+                       const std::filesystem::path& target, const std::string& where, bool replace,
+                       bool fresh) {
     std::string link(static_cast<std::size_t>(std::max<off_t>(info.st_size, 0)) + 1, '\0');
     const ssize_t length = readlink(source.c_str(), link.data(), link.size());
     if (length < 0) {
@@ -327,18 +344,20 @@ bool Engine::copy_link(const std::filesystem::path& source, const struct stat& i
         return false;
     }
     link.resize(static_cast<std::size_t>(length));
-    const std::filesystem::path part = temporary(target);
+    const std::filesystem::path part = fresh ? target : temporary(target);
     if (symlink(link.c_str(), part.c_str()) != 0) {
         error(where, last_error());
         return false;
     }
     const std::array<timespec, 2> times{info.st_atim, info.st_mtim};
     utimensat(AT_FDCWD, part.c_str(), times.data(), AT_SYMLINK_NOFOLLOW);
-    if (const std::error_code placed =
-            replace ? rename_over(part, target) : rename_new(part, target)) {
-        error(where, placed);
-        unlink(part.c_str());
-        return false;
+    if (!fresh) {
+        if (const std::error_code placed =
+                replace ? rename_over(part, target) : rename_new(part, target)) {
+            error(where, placed);
+            unlink(part.c_str());
+            return false;
+        }
     }
     ++progress_.files_done;
     ++result_.files_done;
@@ -351,23 +370,27 @@ bool Engine::copy_link(const std::filesystem::path& source, const struct stat& i
 
 // NOLINTNEXTLINE(misc-no-recursion): a folder's depth; a link is copied, never followed
 bool Engine::copy_folder(const std::filesystem::path& source, const struct stat& info,
-                         const std::filesystem::path& target, const std::string& where) {
+                         const std::filesystem::path& target, const std::string& where,
+                         bool fresh) {
     // Built under a hidden name and renamed when complete: a cancelled copy leaves no half folder.
-    const std::filesystem::path part = temporary(target);
+    // Inside a folder being built, the hidden name is already there: its own name at once.
+    const std::filesystem::path part = fresh ? target : temporary(target);
     if (mkdir(part.c_str(), 0700) != 0) {
         error(where, last_error());
         return false;
     }
-    const auto give_up = [&part] {
-        std::error_code ignored;
-        std::filesystem::remove_all(part, ignored);
+    const auto give_up = [&part, fresh] {
+        if (!fresh) {  // else the outermost folder goes, with this one in it
+            std::error_code ignored;
+            std::filesystem::remove_all(part, ignored);
+        }
     };
     bool complete = true;
     std::error_code listed;
     for (const std::filesystem::directory_entry& entry :
          std::filesystem::directory_iterator{source, listed}) {
         const std::string name = entry.path().filename().string();
-        if (!place(entry.path(), part / name, std::format("{}/{}", where, name), false)) {
+        if (!place(entry.path(), part / name, std::format("{}/{}", where, name), false, true)) {
             complete = false;
             if (result_.cancelled) {
                 give_up();
@@ -382,10 +405,12 @@ bool Engine::copy_folder(const std::filesystem::path& source, const struct stat&
     chmod(part.c_str(), info.st_mode & 07777);
     const std::array<timespec, 2> times{info.st_atim, info.st_mtim};
     utimensat(AT_FDCWD, part.c_str(), times.data(), 0);
-    if (const std::error_code placed = rename_new(part, target)) {
-        error(where, placed);
-        give_up();
-        return false;
+    if (!fresh) {
+        if (const std::error_code placed = rename_new(part, target)) {
+            error(where, placed);
+            give_up();
+            return false;
+        }
     }
     if (moving_ && complete) {
         sync_directory(target.parent_path());
@@ -424,7 +449,7 @@ bool Engine::merge(const std::filesystem::path& source, const std::filesystem::p
 
 // NOLINTNEXTLINE(misc-no-recursion): a folder's depth; a link is copied, never followed
 bool Engine::place(const std::filesystem::path& source, const std::filesystem::path& target,
-                   const std::string& where, bool replace) {
+                   const std::string& where, bool replace, bool fresh) {
     if (cancelled()) {
         return false;
     }
@@ -460,13 +485,13 @@ bool Engine::place(const std::filesystem::path& source, const std::filesystem::p
         copying_ = true;  // a mount point below the source: copy from here on
     }
     if (folder) {
-        return copy_folder(source, *info, target, where);
+        return copy_folder(source, *info, target, where, fresh);
     }
     if (S_ISREG(info->st_mode)) {
-        return copy_file(source, *info, target, where, replace);
+        return copy_file(source, *info, target, where, replace, fresh);
     }
     if (S_ISLNK(info->st_mode)) {
-        return copy_link(source, *info, target, where, replace);
+        return copy_link(source, *info, target, where, replace, fresh);
     }
     error(where, "a special file (device, socket, pipe): not copied");
     return false;

@@ -347,6 +347,45 @@ TEST_CASE("transfer: cancelled halfway, nothing half-written is left") {
     CHECK(fs::file_size(t.from / "big.bin") == 40U << 20U);  // the source is whole
 }
 
+TEST_CASE("transfer: a folder's files go straight in; cancelled deep inside, nothing is left") {
+    Tree t;
+    {
+        std::ofstream big{t.from / "Trip" / "deep" / "big.bin"};
+        const std::string block(1 << 20, 'x');
+        for (int i = 0; i < 40; ++i) {
+            big << block;  // 40 MB: five pieces of 8 MB
+        }
+    }
+    const CancelToken token;
+    TransferResult result = t.run(TransferKind::copy, {"Trip"},
+                                  {.progress =
+                                       [&](const TransferProgress& progress) {
+                                           if (progress.bytes_done > (1U << 20U)) {
+                                               token.cancel();  // inside big.bin
+                                           }
+                                       },
+                                   .resolve = nullptr},
+                                  false, token);
+    CHECK(result.cancelled);
+    CHECK(listing(t.to).empty());  // the hidden folder went, with all in it
+
+    // Whole: every name its own, no hidden temporary anywhere, the dates kept.
+    const std::array<timespec, 2> times{timespec{.tv_sec = 1'200'000'000, .tv_nsec = 0},
+                                        timespec{.tv_sec = 1'300'000'000, .tv_nsec = 0}};
+    REQUIRE(utimensat(AT_FDCWD, (t.from / "Trip" / "deep").c_str(), times.data(), 0) == 0);
+    result = t.run(TransferKind::copy, {"Trip"});
+    CHECK(result.errors.empty());
+    Names names;
+    for (const fs::directory_entry& entry : fs::recursive_directory_iterator{t.to}) {
+        names.push_back(fs::relative(entry.path(), t.to).string());
+    }
+    std::ranges::sort(names);
+    CHECK(names ==
+          Names{"Trip", "Trip/a.jpg", "Trip/deep", "Trip/deep/b.jpg", "Trip/deep/big.bin"});
+    CHECK(fs::file_size(t.to / "Trip" / "deep" / "big.bin") == 40U << 20U);
+    CHECK(stat_of(t.to / "Trip" / "deep").st_mtim.tv_sec == 1'300'000'000);
+}
+
 TEST_CASE("transfer: a folder without write permission gives errors, not a crash") {
     if (geteuid() == 0) {
         return;

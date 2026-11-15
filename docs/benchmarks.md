@@ -117,6 +117,24 @@ Details in "Start-up", "Directory loading", "Quick Look" and "Column view scroll
 
 ## Copying (0.8.0)
 
+### 2026-11-15: files inside a copied folder written under their own names
+
+A copied folder is built under a hidden name and renamed once complete, so its files no longer
+go through a temporary of their own: per file one `lstat` and one rename fewer (`strace -c`, the
+10 000 small files: `newfstatat` 30 039 → 20 029 calls, `renameat2` 10 011 → 1); the source is
+opened with `O_NOFOLLOW` and checked with `fstat`, one call more. `hyperfine`, the step before
+against this one in the same sitting, into `/home`, each run ending in `sync`:
+
+| Case | Before | After | |
+|---|---:|---:|---:|
+| small, warm (10 runs) | 1.30 s ± 0.01 | **0.96 s ± 0.01** | 1.36× |
+| small, cold (10 runs) | 4.13 s ± 0.07 | **3.78 s ± 0.06** | 1.09× |
+| mixed, warm (5 runs) | 16.40 s ± 0.07 | 16.26 s ± 0.06 | 1.01× |
+
+These ran after ~100 GB had been written to the NVMe that day and its writes had slowed (`cp`
+of the mixed tree: 6.6 s in the morning, 13.5-15.8 s now; 6.2 GB waiting in btrfs's
+`discardable_bytes`): compare the two columns, not these numbers with the ones below.
+
 ### 2026-11-15: the read/write buffer, 1 MiB → 128 KiB
 
 Between two file systems `copy_file_range` answers EXDEV (ext4 → btrfs here, `strace`), so

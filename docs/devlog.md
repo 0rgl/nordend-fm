@@ -4,6 +4,26 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Copy speed (0.8.0): less work per file, sources never followed
+
+**Done**
+- Inside a folder being copied (built under a hidden name, renamed once complete), files, links
+  and subfolders are created under their own names at once (`O_CREAT|O_EXCL`): no temporary name
+  looked up, no rename. A cancelled copy still leaves nothing (the hidden folder goes whole: a
+  new test cancels inside a nested file and checks it, then a whole copy has no hidden name left
+  and keeps a nested folder's date). A single file, a merge into a folder that is there and a
+  move between disks keep their temporary and `fsync` as before.
+- A source file is opened with `O_NOFOLLOW | O_NONBLOCK` and checked with `fstat` against what
+  `lstat` saw (regular, same device and inode): replaced meanwhile → "changed while being
+  copied". Before, a file swapped for a link between the two calls was followed: checked with an
+  `LD_PRELOAD` shim that swaps the file for a link to `/etc/hostname` just before the open (0.7.6
+  copied the host name in; now refused, the rest of the folder copied).
+
+**Measured** (benchmarks.md): 10 000 small files into `/home`, warm, 1.30 → 0.96 s; cold
+4.13 → 3.78 s; the mixed tree unchanged (large files rule it).
+
+---
+
 ## 2026-11-15 — Copy speed (0.8.0), first measurements and the read/write buffer
 
 **Done**

@@ -117,6 +117,31 @@ Details in "Start-up", "Directory loading", "Quick Look" and "Column view scroll
 
 ## Copying (0.8.0)
 
+### 2026-11-15 (evening): a folder's files on several threads
+
+The copiers (a copied folder's files and loose files handed to threads of the transfer's own),
+at 2, 4, 8 and 16 threads (`nordend-transfer --threads N`) against the step before (one thread,
+`0919fc0`), with cp, fcp and xcp, all in one sitting on a rested NVMe (`cp` of the mixed tree
+6.60-6.74 s at the start, 6.59 s at the end; ~85 GB written in all). Same trees, tools and method
+as below, into `/home`, each run ending in `sync`; mean ± σ:
+
+| Case | Before | 2 | 4 | 8 | 16 | cp | fcp | xcp |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| small, warm (10 runs) | 0.96 s ± 0.03 | 0.69 s | 0.59 s | **0.57 s** ± 0.05 | 0.58 s | 1.05 s | 0.50 s | 0.60 s |
+| small, cold (5 runs) | 4.01 s ± 0.06 | 2.42 s | 1.66 s | 1.26 s | **1.05 s** ± 0.00 | 2.04 s | 1.09 s | 1.63 s |
+| mixed, warm (2 runs; fcp, xcp 1) | 6.49 s ± 0.02 | | 3.75 s | **3.49 s** ± 0.02 | 3.51 s | 6.6 s | 3.40 s | 4.00 s |
+| mixed, cold (1 run) | | | | 16.5 s | 14.7 s | | | |
+
+Nordend's choice is now **8 copiers**: with the page cache warm 8 and 16 are level (16 costs more
+CPU: 8.0 s of system time against 6.1 s on the mixed tree), cold 16 is ahead (1.05 against
+1.26 s for the small files; the mixed tree's cold copy is bound by the data disk's reads, ~290
+MB/s, one run each). On the mixed tree cp, fcp and xcp were timed by the clock (`date +%s%N`,
+one run each; cp: the sitting's first three runs, 6.60-6.74 s). Against 0.7.6's one thread (table below): small files 1.45 → 0.57 s warm,
+3.24 → 1.26 s cold; mixed 6.58 → 3.49 s warm, level with fcp. The 8-thread small-file runs were
+partly bimodal (0.42-0.59 s). How many parallel reads a spinning disk or a USB stick takes well
+is not measured here (*to be verified*); one file (big) does not use the copiers, its numbers
+are the 128 KiB section's.
+
 ### 2026-11-15: files inside a copied folder written under their own names
 
 A copied folder is built under a hidden name and renamed once complete, so its files no longer

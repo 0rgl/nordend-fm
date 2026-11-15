@@ -32,7 +32,8 @@ constexpr std::size_t kBuffer = std::size_t{128} << 10U;
 constexpr std::string_view kTemporary = ".nordend-part-";  // hidden, recognisable
 // Threads copying the files of a folder at once (TransferRequest::threads == 0), and how many
 // files may wait for them: the walk stays a little ahead, never the whole tree in memory.
-constexpr std::size_t kCopiers = 4;
+// 8: as fast as 16 with the page cache warm, close to it cold, less CPU (benchmarks.md, 0.8.0).
+constexpr std::size_t kCopiers = 8;
 constexpr std::size_t kWaiting = 256;
 
 std::error_code last_error() { return {errno, std::generic_category()}; }

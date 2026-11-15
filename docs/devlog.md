@@ -4,6 +4,27 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Copy speed (0.8.0): eight copiers
+
+**Measured** (benchmarks.md, "Copying", evening; NVMe rested: `cp` of the mixed tree 6.6 s at
+both ends of the sitting)
+- Threads 2/4/8/16 against the one-thread step before, with cp/fcp/xcp: small files warm 0.96 →
+  0.57 s at 8 (fcp 0.50), cold 4.01 → 1.26 s at 8, 1.05 s at 16 (fcp 1.09); the mixed tree warm
+  6.49 → 3.49 s at 8 (fcp 3.40, xcp 4.00, cp 6.6). Since 0.7.6: 2.5× on small files, 1.9× on
+  the mixed tree.
+
+**Decisions**
+- `kCopiers` 4 → 8: level with 16 when warm, close to it cold, less CPU; fewer parallel reads
+  for disks not measured (spinning, USB). Adapting the count to the disk: later, if measured.
+
+**Tested by the author**
+- Copying in Nordend with 8 copiers: the 10 000 small files from the data disk into home; five
+  loose photos with their sidecars (a darktable duplicate's `_01.ORF.xmp` too); the same again
+  with Keep Both ("x 2" with their sidecars), then Ctrl+Z (the copies to the trash); the mixed
+  tree cancelled halfway with the panel's X (nothing left behind).
+
+---
+
 ## 2026-11-15 — Copy speed (0.8.0): loose files copied at once too
 
 **Done**
@@ -27,7 +48,7 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   their own names inside the hidden folder) and its files are handed to copiers: threads of the
   transfer's own, started at the first file, stopped at the end (not the worker pool: thumbnails
   and previews keep theirs). At most 256 files wait for them, so the walk stays a little ahead.
-  `TransferRequest::threads` (0 = Nordend's choice, 4 for now) and `nordend-transfer --threads N`
+  `TransferRequest::threads` (0 = Nordend's choice, 8 since the evening's measurements) and `nordend-transfer --threads N`
   for measurements.
 - Once every file has arrived, the folders are finished from the deepest out (permissions,
   dates; on a move the emptied source folders removed), then the outermost is renamed. A file

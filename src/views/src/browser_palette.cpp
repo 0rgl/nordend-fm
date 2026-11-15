@@ -73,7 +73,7 @@ std::vector<PaletteItem> Browser::palette_items() {
     const bool in_trash = folder && folder->is_trash();
     const std::vector<std::string> names = folder ? targets(*folder) : std::vector<std::string>{};
     const fs::Entry* const cursor = folder ? folder->cursor_entry() : nullptr;
-    const bool editable = folder && !in_trash;
+    const bool editable = folder && !in_trash && !folder->is_archive();
 
     // Opening and moving.
     if (cursor != nullptr) {
@@ -330,6 +330,10 @@ void Browser::open_finder() {
     }
     if (folder->is_trash()) {
         show_message("Files are not looked for in the trash", false);
+        return;
+    }
+    if (folder->is_archive()) {
+        show_message("Files are not looked for inside an archive", false);
         return;
     }
     menu_.close();

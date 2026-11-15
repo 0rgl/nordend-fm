@@ -1,7 +1,8 @@
 #!/bin/sh
 # Makes the archive fixtures of tests/archive_test.cpp with real tools (GNU tar 1.35, gzip, 7-Zip
 # 17+, Python's zipfile). Run from anywhere: sh tests/data/archive/make-fixtures.sh
-# Owners are zeroed and times fixed, so the archives depend only on what is written here.
+# Owners are zeroed and times fixed, so the archives depend only on what is written here (the
+# encrypted zips excepted: 7-Zip salts them at random).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
@@ -19,9 +20,11 @@ ln -s a.txt tree/link-to-a
 find tree -exec touch -h -d '2026-11-15 12:00:00 UTC' {} +
 
 common="--owner=0 --group=0 --numeric-owner --sort=name --mtime=2026-11-15T12:00:00Z"
+# pax: no process number or access times in the extended headers, so the archives repeat.
+pax="--pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime"
 (cd tree && tar $common --format=gnu -cf "$here/gnu.tar" .)
-(cd tree && tar $common --format=pax -cf "$here/pax.tar" .)
-(cd tree && tar $common --format=pax -cf - . | gzip -n -9 > "$here/pax.tar.gz")
+(cd tree && tar $common $pax --format=pax -cf "$here/pax.tar" .)
+(cd tree && tar $common $pax --format=pax -cf - . | gzip -n -9 > "$here/pax.tar.gz")
 printf 'just one file\n' > notes.txt
 touch -d '2026-11-15 12:00:00 UTC' notes.txt
 gzip -9 -c notes.txt > "$here/notes.txt.gz"
@@ -31,6 +34,7 @@ rm -f "$here"/*.zip
 (cd tree/docs && 7z a -tzip -mm=BZip2 "$here/bzip2.zip" repeat.txt > /dev/null)
 (cd tree && 7z a -tzip -pnordend -mem=AES256 "$here/aes.zip" a.txt > /dev/null)
 (cd tree && 7z a -tzip -pnordend -mem=ZipCrypto "$here/zipcrypto.zip" a.txt > /dev/null)
+(cd "$here/../image" && 7z a -tzip "$here/pictures.zip" blocks.png shot.jpg > /dev/null)
 python3 -I - "$here/symlink.zip" <<'PY'
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1], "w") as z:

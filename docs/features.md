@@ -369,6 +369,11 @@ README's [What's next](../README.md#whats-next).
   an external disk unmounts every partition on it and powers it off, taking the view home first if
   it shows that disk; "in use" says to close what is open there. The right click mounts, unmounts
   and ejects. The list follows disks coming and going; nothing waits on udisks2.
+- **Archives:** Enter (or a double click) on a zip, tar, tar.gz or .gz opens it like a folder, read
+  by Nordend's own code in the sandboxed engine; folders inside open the same way, and Quick Look
+  shows photos and texts from inside it without writing anything to disk. Nothing inside can be
+  changed; encrypted entries and compressions not read yet are listed and said; names that would
+  lead outside the archive are left out, and the status bar says how many.
 - **Disc images:** Enter (or a double click) on an `.iso` mounts it read-only through udisks2 and
   opens it: Nordend opens the file itself and hands udisks2 the open file, never a path; the
   kernel reads the file system, no parser of Nordend's. It shows among the devices with a disc

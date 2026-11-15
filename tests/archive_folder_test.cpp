@@ -1,0 +1,378 @@
+// Archives seen as folders (ROADMAP 0.9.0): the tree made from an engine's listing, where a path
+// goes into an archive, and DirectoryModel showing a folder inside one (the engine in this
+// process, as tests/main.cpp sets it).
+#include "nordend/fs/archive_folder.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
+#include <xkbcommon/xkbcommon-keysyms.h>
+
+#include <doctest/doctest.h>
+
+#include "nordend/archive/archive.hpp"
+#include "nordend/core/event_loop.hpp"
+#include "nordend/core/worker_pool.hpp"
+#include "nordend/fs/directory_model.hpp"
+#include "nordend/fs/directory_watcher.hpp"
+#include "nordend/fs/mime.hpp"
+#include "nordend/preview/preview.hpp"
+#include "nordend/views/browser.hpp"
+#include "temp_dir.hpp"
+
+using nordend::archive::Entry;
+using nordend::archive::Format;
+using nordend::archive::Listing;
+using nordend::archive::Type;
+using nordend::core::EventLoop;
+using nordend::core::WorkerPool;
+using nordend::fs::ArchiveTree;
+using nordend::fs::DirectoryModel;
+using nordend::test::TempDir;
+using namespace std::chrono_literals;
+namespace fs = std::filesystem;
+
+namespace {
+
+const fs::path kArchives = fs::path{NORDEND_TEST_DATA} / "archive";
+
+Entry item(std::string path, Type type = Type::file, std::uint64_t size = 1) {
+    Entry entry;
+    entry.path = std::move(path);
+    entry.type = type;
+    entry.size = size;
+    return entry;
+}
+
+std::vector<std::string> names_of(const std::vector<nordend::fs::Entry>* entries) {
+    std::vector<std::string> names;
+    if (entries != nullptr) {
+        for (const nordend::fs::Entry& entry : *entries) {
+            names.push_back(entry.name + (entry.is_directory() ? "/" : ""));
+        }
+    }
+    std::ranges::sort(names);
+    return names;
+}
+
+bool run_until(EventLoop& loop, const std::function<bool()>& done) {
+    bool ok = false;
+    const auto poll = loop.add_timer(1ms, 1ms, [&] {
+        if (done()) {
+            ok = true;
+            loop.quit(0);
+        }
+    });
+    const auto watchdog = loop.add_timer(5s, 0ms, [&loop] { loop.quit(1); });
+    loop.run();
+    loop.remove(poll);
+    loop.remove(watchdog);
+    return ok;
+}
+
+struct Fixture {
+    TempDir dir;
+    EventLoop loop;
+    WorkerPool pool{loop, 2};
+    nordend::fs::DirectoryWatcher watcher{loop};
+    DirectoryModel model{loop, pool, watcher, nordend::fs::MimeDatabase::load(), 10ms};
+    bool loaded = false;
+
+    Fixture() {
+        nordend::fs::forget_archive_trees();
+        model.set_change_handler([this](const nordend::fs::ModelChange& change) {
+            loaded = loaded || change.loaded || (change.reset && model.error());
+        });
+        fs::copy_file(kArchives / "basic.zip", dir.path / "basic.zip");
+        dir.write("notes.txt", "not an archive\n");
+    }
+
+    void open(const fs::path& path) {
+        loaded = false;
+        model.open(path);
+        REQUIRE(run_until(loop, [this] { return loaded && !model.loading(); }));
+    }
+
+    [[nodiscard]] std::vector<std::string> names() const {
+        std::vector<std::string> out;
+        for (const nordend::fs::Entry& entry : model.listing().entries()) {
+            out.push_back(entry.name + (entry.is_directory() ? "/" : ""));
+        }
+        std::ranges::sort(out);
+        return out;
+    }
+};
+
+}  // namespace
+
+TEST_CASE("archive folders: inner paths are made safe, or refused") {
+    using nordend::fs::clean_inner_path;
+    CHECK(clean_inner_path("") == std::string{});
+    CHECK(clean_inner_path("./a//b/") == std::string{"a/b"});
+    CHECK(clean_inner_path("/etc/passwd") == std::string{"etc/passwd"});  // as tar does
+    CHECK(clean_inner_path("a/./b") == std::string{"a/b"});
+    CHECK_FALSE(clean_inner_path("../evil").has_value());
+    CHECK_FALSE(clean_inner_path("a/../../evil").has_value());
+    CHECK_FALSE(clean_inner_path("a/..").has_value());
+    CHECK_FALSE(clean_inner_path(std::string_view{"a\0b", 3}).has_value());
+    CHECK_FALSE(clean_inner_path(std::string(256, 'n')).has_value());
+    CHECK(clean_inner_path(std::string(255, 'n')).has_value());
+}
+
+TEST_CASE("archive folders: the tree makes up folders, leaves out what leads outside") {
+    Listing listing;
+    listing.format = Format::tar;
+    listing.entries = {item("./top.txt"),
+                       item("docs/a.txt"),
+                       item("docs/deep/b.txt"),
+                       item("../evil.txt"),
+                       item("/abs/c.txt"),
+                       item("docs/a.txt", Type::file, 99),  // a later one wins, as in tar
+                       item("clash"),
+                       item("clash/inside.txt"),  // a folder where a file is: the folder wins
+                       item("empty/", Type::directory)};
+    const ArchiveTree tree{listing, "", nullptr};
+    CHECK(names_of(tree.folder("")) ==
+          std::vector<std::string>{"abs/", "clash/", "docs/", "empty/", "top.txt"});
+    CHECK(names_of(tree.folder("docs")) == std::vector<std::string>{"a.txt", "deep/"});
+    CHECK(names_of(tree.folder("docs/deep")) == std::vector<std::string>{"b.txt"});
+    CHECK(names_of(tree.folder("abs")) == std::vector<std::string>{"c.txt"});
+    CHECK(names_of(tree.folder("clash")) == std::vector<std::string>{"inside.txt"});
+    REQUIRE(tree.folder("empty") != nullptr);
+    CHECK(tree.folder("empty")->empty());
+    CHECK(tree.folder("nowhere") == nullptr);
+    CHECK(tree.left_out() == 2);  // ../evil.txt, and the file "clash"
+    REQUIRE(tree.entry("docs/a.txt") != nullptr);
+    CHECK(tree.entry("docs/a.txt")->size == 99);
+    CHECK(tree.entry("docs") == nullptr);  // only named by what is in it
+    CHECK(tree.entry("clash") == nullptr);
+
+    Listing gzip;
+    gzip.format = Format::gzip;
+    gzip.entries = {item("")};
+    const ArchiveTree single{gzip, "notes.txt", nullptr};
+    CHECK(names_of(single.folder("")) == std::vector<std::string>{"notes.txt"});
+}
+
+TEST_CASE("archive folders: where a path goes into an archive") {
+    TempDir dir;
+    fs::copy_file(kArchives / "basic.zip", dir.path / "basic.zip");
+    fs::create_directories(dir.path / "folder");
+    const auto inside = nordend::fs::find_archive(dir.path / "basic.zip" / "docs" / "deep");
+    REQUIRE(inside.has_value());
+    CHECK(inside.value_or(nordend::fs::ArchiveLocation{}).archive == dir.path / "basic.zip");
+    CHECK(inside.value_or(nordend::fs::ArchiveLocation{}).inner == "docs/deep");
+    const auto top = nordend::fs::find_archive(dir.path / "basic.zip");
+    REQUIRE(top.has_value());
+    CHECK(top.value_or(nordend::fs::ArchiveLocation{}).inner.empty());
+    CHECK_FALSE(nordend::fs::find_archive(dir.path / "folder").has_value());
+    CHECK_FALSE(nordend::fs::find_archive(dir.path / "missing" / "x").has_value());
+    CHECK_FALSE(nordend::fs::find_archive(dir.path / "basic.zip" / ".." / "x").has_value());
+}
+
+TEST_CASE("archive folders: the model shows a folder inside an archive, read from its tree") {
+    Fixture f;
+    f.open(f.dir.path / "basic.zip");
+    CHECK_FALSE(f.model.error());
+    CHECK(f.model.is_archive());
+    CHECK(f.model.archive_format() == Format::zip);
+    CHECK(f.names() == std::vector<std::string>{"a.txt", "città.txt", "docs/"});
+    const nordend::archive::Entry* a = f.model.archive_entry("a.txt");
+    REQUIRE(a != nullptr);
+    CHECK(a->size == 13);
+    // Types from the names only: nothing inside the archive is on disk to be looked at.
+    const std::shared_ptr<const nordend::fs::MimeDatabase> mime = nordend::fs::MimeDatabase::load();
+    const auto& entries = f.model.listing().entries();
+    const auto text = std::ranges::find(entries, "a.txt", &nordend::fs::Entry::name);
+    REQUIRE(text != entries.end());
+    CHECK(mime->name(text->mime) == "text/plain");
+
+    f.open(f.dir.path / "basic.zip" / "docs");
+    CHECK(f.model.is_archive());
+    CHECK(f.model.archive_location().inner == "docs");
+    CHECK(f.names() ==
+          std::vector<std::string>{"b.txt", std::string(120, 'n') + ".txt", "repeat.txt"});
+    REQUIRE(f.model.archive_entry("b.txt") != nullptr);
+
+    // Back to a real folder: an archive no more.
+    f.open(f.dir.path);
+    CHECK_FALSE(f.model.is_archive());
+}
+
+TEST_CASE("archive folders: what is not an archive, or not in it, says so") {
+    Fixture f;
+    f.open(f.dir.path / "notes.txt");
+    CHECK(f.model.error());
+    CHECK_FALSE(f.model.is_archive());
+    CHECK(f.model.problem() == "not an archive Nordend reads");
+    CHECK(f.model.listing().entries().empty());
+
+    f.open(f.dir.path / "basic.zip" / "nowhere");
+    CHECK(f.model.error());
+    CHECK(f.model.problem() == "no such folder in the archive");
+}
+
+TEST_CASE("archive folders: Enter goes into an archive, where nothing is changed") {
+    TempDir dir;
+    fs::copy_file(kArchives / "basic.zip", dir.path / "basic.zip");
+    nordend::fs::forget_archive_trees();
+    EventLoop loop;
+    WorkerPool pool{loop, 2};
+    nordend::fs::DirectoryWatcher watcher{loop};
+    nordend::views::Browser browser{loop,    pool,
+                                    watcher, nordend::fs::MimeDatabase::load(),
+                                    [] {},   [](nordend::ui::CursorShape /*shape*/) {}};
+    browser.set_home_trash(dir.path / "Trash");
+    std::vector<std::string> opened;
+    browser.set_open_handler(
+        [&opened](const fs::path& /*directory*/, const std::vector<nordend::fs::Entry>& files) {
+            for (const nordend::fs::Entry& file : files) {
+                opened.push_back(file.name);
+            }
+        });
+    const auto settle = [&] { return run_until(loop, [&] { return !browser.loading(); }); };
+    const auto press = [&](xkb_keysym_t keysym, nordend::ui::Modifiers modifiers = {}) {
+        nordend::ui::KeyEvent event;
+        event.keysym = keysym;
+        event.modifiers = modifiers;
+        browser.key(event, nordend::views::Browser::Clock::now());
+        REQUIRE(settle());
+    };
+    const auto shown = [&] { return browser.columns().focused_folder()->path(); };
+
+    browser.go_to(dir.path, "basic.zip");
+    REQUIRE(settle());
+    press(XKB_KEY_Return);
+    CHECK(opened.empty());
+    CHECK(shown() == dir.path / "basic.zip");
+    REQUIRE(browser.columns().focused_folder()->is_archive());
+
+    // Changing anything is refused, with a word why; the archive is untouched.
+    const auto size_before = fs::file_size(dir.path / "basic.zip");
+    const auto time_before = fs::last_write_time(dir.path / "basic.zip");
+    press(XKB_KEY_F2);
+    CHECK(browser.status_bar().message() == "Nothing inside an archive can be changed");
+    press(XKB_KEY_Delete);
+    CHECK(browser.status_bar().message() == "Nothing inside an archive can be changed");
+    press(XKB_KEY_n, {.ctrl = true, .shift = true});
+    CHECK(browser.status_bar().message() == "Nothing inside an archive can be changed");
+    press(XKB_KEY_c, {.ctrl = true});
+    CHECK(browser.status_bar().message() == "Copying out of an archive is not ready yet");
+    CHECK(fs::file_size(dir.path / "basic.zip") == size_before);
+    CHECK(fs::last_write_time(dir.path / "basic.zip") == time_before);
+
+    // A file inside is not handed to another program (it is not on disk).
+    const auto cursor = [&] {
+        const nordend::fs::Entry* entry = browser.columns().focused_folder()->cursor_entry();
+        return entry != nullptr ? entry->name : std::string{};
+    };
+    for (int i = 0; i < 5 && cursor() != "a.txt"; ++i) {
+        press(XKB_KEY_Down);
+    }
+    REQUIRE(cursor() == "a.txt");
+    press(XKB_KEY_Return);
+    CHECK(opened.empty());
+    CHECK(browser.status_bar().message() ==
+          "Opening a file inside an archive is not ready yet: Space shows it");
+
+    // Space shows it, read by the engine into memory: its text, as on disk.
+    press(XKB_KEY_space);
+    REQUIRE(browser.quick_look().is_open());
+    REQUIRE(run_until(loop, [&] { return !browser.quick_look().loading(); }));
+    const nordend::preview::Content* content = browser.quick_look().content();
+    REQUIRE(content != nullptr);
+    const auto* text = std::get_if<nordend::preview::Text>(content);
+    REQUIRE(text != nullptr);
+    REQUIRE(text->lines.size() == 1);
+    CHECK(text->lines[0] == "hello from a");
+}
+
+TEST_CASE("archive folders: Quick Look shows a picture from inside an archive") {
+    TempDir dir;
+    fs::copy_file(kArchives / "pictures.zip", dir.path / "pictures.zip");
+    nordend::fs::forget_archive_trees();
+    EventLoop loop;
+    WorkerPool pool{loop, 2};
+    nordend::fs::DirectoryWatcher watcher{loop};
+    nordend::views::Browser browser{loop,    pool,
+                                    watcher, nordend::fs::MimeDatabase::load(),
+                                    [] {},   [](nordend::ui::CursorShape /*shape*/) {}};
+    browser.set_home_trash(dir.path / "Trash");
+    const auto settle = [&] { return run_until(loop, [&] { return !browser.loading(); }); };
+    browser.go_to(dir.path / "pictures.zip", "blocks.png");
+    REQUIRE(settle());
+    nordend::ui::KeyEvent space;
+    space.keysym = XKB_KEY_space;
+    browser.key(space, nordend::views::Browser::Clock::now());
+    REQUIRE(browser.quick_look().is_open());
+    REQUIRE(run_until(loop, [&] { return !browser.quick_look().loading(); }));
+    const nordend::preview::Content* content = browser.quick_look().content();
+    REQUIRE(content != nullptr);
+    const auto* picture = std::get_if<nordend::picture::Loaded>(content);
+    REQUIRE(picture != nullptr);
+    CHECK(picture->failure == nordend::picture::Failure::none);
+    CHECK(picture->full_width == 48);
+    CHECK(picture->full_height == 32);
+}
+
+namespace {
+
+// A ustar header and data, enough for the model's tests.
+std::string tar_member(std::string_view name, std::string_view data, bool broken = false) {
+    std::string block(512, '\0');
+    std::ranges::copy(name, block.begin());
+    const auto octal = [&block](std::size_t at, std::size_t width, std::uint64_t value) {
+        std::string text(width - 1, '0');
+        for (std::size_t i = width - 1; i-- > 0 && value > 0; value >>= 3U) {
+            text[i] = static_cast<char>('0' + (value & 7U));
+        }
+        std::ranges::copy(text, block.begin() + static_cast<std::ptrdiff_t>(at));
+    };
+    octal(100, 8, 0644);
+    octal(124, 12, data.size());
+    octal(136, 12, 1794744000);
+    block[156] = '0';
+    std::ranges::copy(std::string_view{"ustar\0"
+                                       "00",
+                                       8},
+                      block.begin() + 257);
+    std::ranges::fill(block.begin() + 148, block.begin() + 156, ' ');
+    unsigned sum = broken ? 1U : 0U;
+    for (const char c : block) {
+        sum += static_cast<unsigned char>(c);
+    }
+    octal(148, 7, sum);
+    std::string out = block + std::string{data};
+    out.append((512 - (data.size() % 512)) % 512, '\0');
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("archive folders: an archive shown in part says why") {
+    Fixture f;
+    f.dir.write("evil.tar", tar_member("good.txt", "fine") + tar_member("../evil.txt", "no") +
+                                tar_member("../../worse.txt", "no") + std::string(1024, '\0'));
+    f.open(f.dir.path / "evil.tar");
+    CHECK_FALSE(f.model.error());
+    CHECK(f.names() == std::vector<std::string>{"good.txt"});
+    CHECK(f.model.problem() == "2 entries with unsafe names left out");
+
+    f.dir.write("broken.tar",
+                tar_member("first.txt", "one") + tar_member("second.txt", "two", true));
+    f.open(f.dir.path / "broken.tar");
+    CHECK_FALSE(f.model.error());
+    CHECK(f.names() == std::vector<std::string>{"first.txt"});
+    CHECK(f.model.problem() == "damaged: a header is broken");
+}

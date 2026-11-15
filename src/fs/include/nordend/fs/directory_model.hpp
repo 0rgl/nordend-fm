@@ -14,6 +14,7 @@
 
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
+#include "nordend/fs/archive_folder.hpp"
 #include "nordend/fs/directory.hpp"
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
@@ -40,6 +41,9 @@ struct ModelChange {
 // gathered for settle, then the changed names are stat'ed together on a worker and applied in
 // one notification: a burst (copying a thousand files) is a few updates, not a thousand, and the
 // loop thread does no I/O. Renames inside the directory are reported as renames.
+//
+// A folder inside an archive ("photos.zip/docs", ROADMAP 0.9.0) is read from the archive's tree
+// (archive_tree, on a worker): read-only, not watched.
 //
 // The trash folder (trash_path()) is listed the same way from every trash (list_trash): entries
 // by original name, each one's real place and .trashinfo in trashed(); the trashes' info/
@@ -95,6 +99,24 @@ public:
     // Why the directory cannot be shown (cannot be read, was deleted or moved); empty when fine.
     [[nodiscard]] const std::error_code& error() const noexcept { return error_; }
 
+    // What to tell a person about it: an archive's own words when it is the archive's fault,
+    // else error()'s; empty when fine. An archive damaged after some entries shows them and says
+    // why here, error() empty.
+    [[nodiscard]] std::string problem() const;
+
+    // A folder inside an archive: the archive's tree, and the folder's place in it.
+    [[nodiscard]] bool is_archive() const noexcept { return archive_tree_ != nullptr; }
+
+    [[nodiscard]] const ArchiveLocation& archive_location() const noexcept { return archive_at_; }
+
+    // The archive's entry for the entry called name in this folder; nullptr for a folder the
+    // archive only names, outside archives, or an unknown name.
+    [[nodiscard]] const archive::Entry* archive_entry(const std::string& name) const;
+
+    [[nodiscard]] archive::Format archive_format() const noexcept {
+        return archive_tree_ ? archive_tree_->format() : archive::Format::unknown;
+    }
+
 private:
     void moved(Listing::Moved moved);  // tells the change handler what a filter moved
     void start_load();
@@ -102,6 +124,8 @@ private:
     // The trash folder: read every trash on a worker, then apply the differences.
     struct TrashListing;
     void load_trash();
+    void load_archive();
+    void fail_with(std::error_code error, std::string problem);
     void apply_trash(TrashListing listing);
     void on_events(const std::vector<DirectoryEvent>& events);
     void schedule_refresh();
@@ -140,6 +164,10 @@ private:
     std::unordered_map<std::string, TrashedItem> trashed_;  // by name, as listed
     std::unordered_map<std::string, DirectoryWatcher::WatchId> trash_watches_;  // by info/ dir
     bool trash_again_{false};  // changed while being read: read once more
+
+    std::shared_ptr<const ArchiveTree> archive_tree_;
+    ArchiveLocation archive_at_;
+    std::string problem_;  // the archive's words for what is wrong
 };
 
 }  // namespace nordend::fs

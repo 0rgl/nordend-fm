@@ -38,7 +38,7 @@ std::string status_of(const Folder& folder) {
     const fs::DirectoryModel& model = folder.model();
     const std::size_t count = folder.entries().size();
     if (model.error()) {
-        return model.error().message();
+        return model.problem();
     }
     if (folder.selected_count() > 1) {
         return std::format("{} of {} selected", folder.selected_count(), count);
@@ -49,6 +49,10 @@ std::string status_of(const Folder& folder) {
     std::string status = std::format("{} {}", count, count == 1 ? "item" : "items");
     if (const std::size_t hidden = folder.hidden_count(); hidden > 0) {
         status += std::format(", {} {}", hidden, folder.filtered() ? "filtered out" : "hidden");
+    }
+    // An archive shown in part (damaged after some entries, or some left out): why.
+    if (const std::string problem = model.problem(); !problem.empty()) {
+        status += "  ·  " + problem;
     }
     return status;
 }
@@ -183,7 +187,7 @@ void StatusBar::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme
             text += std::format("  ·  {} free of {}", format_size(free_->free),
                                 format_size(free_->total));
         }
-        color = folder.model().error() ? palette.error : palette.on_surface_variant;
+        color = folder.model().problem().empty() ? palette.on_surface_variant : palette.error;
     }
     const float room = std::max(1.0F, text_right - (bounds.x + kPadding));
     renderer.draw_text(text, bounds.x + kPadding, bounds.y + ((kHeight - kTextSize) / 2.0F) - 2.0F,

@@ -1,5 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT
+#include <cstdint>
 #include <cstdlib>
+#include <fcntl.h>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -11,7 +13,9 @@
 
 #include <doctest/doctest.h>
 
+#include "nordend/archive/archive.hpp"
 #include "nordend/engines/engines.hpp"
+#include "nordend/formats/archive/archive.hpp"
 #include "nordend/formats/image/load.hpp"
 #include "nordend/formats/image/photo.hpp"
 #include "nordend/formats/text/read.hpp"
@@ -58,6 +62,33 @@ int main(int argc, char** argv) {
     nordend::text::set_loader([](const nordend::text::LoadRequest& request) {
         return nordend::formats::text::load(request);
     });
+    nordend::archive::set_lister(
+        [](const std::filesystem::path& path, const nordend::archive::Limits& limits) {
+            const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+            if (fd < 0) {
+                return nordend::archive::Listing{.format = nordend::archive::Format::unknown,
+                                                 .failure = nordend::archive::Failure::unreadable,
+                                                 .detail = "it could not be opened",
+                                                 .entries = {}};
+            }
+            nordend::archive::Listing listing = nordend::formats::archive::list(fd, limits);
+            ::close(fd);
+            return listing;
+        });
+    nordend::archive::set_entry_reader(
+        [](const std::filesystem::path& path, nordend::archive::Format format,
+           const nordend::archive::Entry& entry, int out, std::uint64_t max_bytes) {
+            const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+            if (fd < 0) {
+                return nordend::archive::Read{.failure = nordend::archive::Failure::unreadable,
+                                              .detail = "it could not be opened",
+                                              .bytes = 0};
+            }
+            nordend::archive::Read read =
+                nordend::formats::archive::read_entry(fd, format, entry, out, max_bytes);
+            ::close(fd);
+            return read;
+        });
     doctest::Context context;
     context.applyCommandLine(argc, argv);
     const int result = context.run();

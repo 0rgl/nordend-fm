@@ -133,4 +133,6 @@ Info read_info(const std::filesystem::path& path, const core::CancelToken& cance
     return info;
 }
 
+std::string permissions_text(std::uint32_t mode) { return permissions(static_cast<mode_t>(mode)); }
+
 }  // namespace nordend::preview

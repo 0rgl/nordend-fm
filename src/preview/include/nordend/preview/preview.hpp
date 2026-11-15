@@ -77,6 +77,9 @@ public:
 // counting when cancelled).
 [[nodiscard]] Info read_info(const std::filesystem::path& path, const core::CancelToken& cancel);
 
+// As ls -l shows mode: "-rw-r--r--", "drwxr-xr-x" (its type bits decide the first letter).
+[[nodiscard]] std::string permissions_text(std::uint32_t mode);
+
 // What the info pane shows about an entry, beyond the directory entry itself.
 struct Summary {
     Info info;

@@ -3,6 +3,7 @@ add_executable(nordend-tests
     about_test.cpp
     actions_test.cpp
     app_icon_test.cpp
+    archive_folder_test.cpp
     archive_test.cpp
     breadcrumb_test.cpp
     clipboard_test.cpp

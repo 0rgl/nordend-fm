@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "draw_helpers.hpp"
+#include "nordend/archive/archive.hpp"
 #include "nordend/fs/icon.hpp"
 #include "nordend/views/format.hpp"
 
@@ -211,6 +212,15 @@ void InfoPane::request(const std::filesystem::path& path, std::int64_t modified_
         });
 }
 
+void InfoPane::forget_summary() {
+    key_.clear();
+    summary_.reset();
+    if (job_) {
+        job_->cancel();
+        job_.reset();
+    }
+}
+
 void InfoPane::measure(std::vector<std::filesystem::path> roots, std::string key) {
     if (key == size_key_) {
         return;
@@ -344,13 +354,20 @@ void InfoPane::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
         typed.mime = folder.mime_of(*single);
         kind = preview::provider_for(mime, typed.mime).kind();
     }
-    if (single != nullptr && single->is_directory()) {
+    // Inside an archive (0.9.0) nothing is on disk: no size walked, no summary read; what the
+    // archive says is below.
+    const bool in_archive = folder.is_archive();
+    if (single != nullptr && single->is_directory() && !in_archive) {
         measure({path}, std::format("{}\n{}", path.string(), single->modified_ns));
     } else {
         measure({}, {});
     }
-    request(path, single == nullptr ? 0 : single->modified_ns,
-            single == nullptr ? std::string{} : std::string{mime.name(typed.mime)}, kind);
+    if (in_archive) {
+        forget_summary();
+    } else {
+        request(path, single == nullptr ? 0 : single->modified_ns,
+                single == nullptr ? std::string{} : std::string{mime.name(typed.mime)}, kind);
+    }
     const preview::Summary* const summary = summary_.get();
     const preview::Info* const info = summary == nullptr ? nullptr : &summary->info;
     const picture::PhotoInfo* const photo =
@@ -367,7 +384,7 @@ void InfoPane::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
         // moves when the thumbnail arrives.
         const float box = std::min(preview_width, bounds.height * kMaxPreview);
         const ui::Texture* thumbnail = nullptr;
-        if (thumbnails_ != nullptr) {
+        if (thumbnails_ != nullptr && !in_archive) {
             thumbnail = thumbnails_->get(
                 path, single->modified_ns,
                 thumbs::size_for(static_cast<std::uint32_t>(std::lround(box * renderer.scale()))));
@@ -446,6 +463,10 @@ void InfoPane::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
         }
     } else {
         out.row("Size", format_size(single->size));
+        if (const archive::Entry* const packed = folder.model().archive_entry(single->name);
+            packed != nullptr && packed->packed != packed->size) {
+            out.row("Compressed", format_size(packed->packed));
+        }
         // The dot on the icon, in words (issue #17): for a file of a type that runs.
         if (!folder.is_trash() && folder.type_runs(*single)) {
             out.row("Runs as program", folder.runs_as_program(*single) ? "Yes" : "No");

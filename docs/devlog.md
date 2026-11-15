@@ -4,6 +4,50 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-15 — Archives (0.9.0), step 3: browsing an archive, Quick Look inside it
+
+**Done**
+- Enter (or a double click) on a zip, tar, tar.gz or .gz opens it as a folder:
+  `…/photos.zip/docs` in the path bar, Backspace and the crumbs lead out. `Browser::opens_as_folder`
+  asks the engines' registry (a family with `shows = "archive"`); in the file chooser Enter still
+  chooses the archive itself.
+- `fs/archive_folder`: `find_archive` (the longest leading part of a path that is a regular file;
+  on a worker), `clean_inner_path` (`./` and empty parts dropped, a leading `/` dropped as tar does,
+  `..`, NUL and names over 255 bytes refused), `ArchiveTree` (folders made up from the names under
+  them, a later entry wins as in tar, a folder wins over a file of the same name; what is refused
+  is counted), and a cache of the last four trees, kept while the file is unchanged (device, inode,
+  size, mtime).
+- `DirectoryModel`: a watch that fails with ENOTDIR loads the archive's folder on a worker instead;
+  `is_archive()`, `archive_entry(name)`, `problem()` (the archive's own words: "not an archive
+  Nordend reads", "no such folder in the archive", "damaged: …", "2 entries with unsafe names left
+  out"; the views show it instead of the error's message, the status bar after the count). Entries
+  get their types from their names only, never by reading.
+- Read-only inside: rename, new folder, cut, paste, trash, delete, drag, drop, the context menu,
+  running programs, a terminal, saving and choosing in the file chooser all say so; Ctrl+C says
+  copying out is not ready yet; Enter on a file says Space shows it.
+- Quick Look: the entry is read by the engine into a memfd (256 MiB at most) and the usual provider
+  opens it as `/proc/self/fd/N`; folders and other types get the information card from what the
+  archive says (permissions, link target; "it is encrypted"). Nothing is written to disk: no
+  thumbnails inside archives (the cache names files by path), no folder sizes walked, no summary
+  read; the info pane adds the compressed size.
+- Tests (8): clean paths, the tree (made-up folders, `..` left out, clashes, a later entry), where a
+  path enters an archive, the model in an archive and out again, the problems said, a hostile and a
+  damaged tar shown in part, the Browser entering read-only with Enter, Quick Look's text and
+  picture from inside zips (`tests/data/archive/pictures.zip`, from the image fixtures). The
+  fixture script now makes the pax archives the same every time.
+- Snapshots checked: `basic.zip` entered (crumbs, types, info pane), a PNG in Quick Look from
+  inside `pictures.zip`; no thumbnail written.
+
+**Tested by the author** (2026-11-15): basic.zip (folders, Quick Look of a text, Backspace out),
+pictures.zip (photos in Quick Look), aes.zip ("it is encrypted"), the read-only keys and the
+context menu, pax.tar.gz, a tar.gz of docs/, notes.txt.gz: all as expected.
+
+**Open**
+- An archive changed while shown is not read again until it is opened again (not watched).
+- Opening an entry with another program, copying out and dragging out come with extracting.
+
+---
+
 ## 2026-11-15 — Archives (0.9.0), step 2: the engine reads zip, tar, tar.gz and .gz
 
 **Done**

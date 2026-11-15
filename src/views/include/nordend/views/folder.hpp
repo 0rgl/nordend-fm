@@ -85,6 +85,9 @@ public:
     // The trash folder (fs::trash_path()): nothing is made, pasted or renamed in it.
     [[nodiscard]] bool is_trash() const noexcept { return model_.is_trash(); }
 
+    // A folder inside an archive (0.9.0): read-only.
+    [[nodiscard]] bool is_archive() const noexcept { return model_.is_archive(); }
+
     [[nodiscard]] const std::vector<fs::Entry>& entries() const noexcept {
         return model_.listing().entries();
     }

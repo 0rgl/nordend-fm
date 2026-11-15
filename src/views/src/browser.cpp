@@ -17,6 +17,7 @@
 #include "draw_helpers.hpp"
 #include "nordend/core/file.hpp"
 #include "nordend/core/memory.hpp"
+#include "nordend/engines/engines.hpp"
 #include "nordend/fs/erase.hpp"
 #include "nordend/fs/icon.hpp"
 #include "nordend/fs/operations.hpp"
@@ -1332,7 +1333,7 @@ void Browser::redo() {
 
 Browser::RunningTargets Browser::running_targets(const Folder& folder) const {
     RunningTargets found;
-    if (pick_ || folder.is_trash()) {
+    if (pick_ || folder.is_trash() || folder.is_archive()) {
         return found;
     }
     const std::vector<std::string> names = targets(folder);
@@ -1935,6 +1936,10 @@ void Browser::open_menu(float x, float y, bool keyboard) {
     ++menu_generation_;
     menu_loaders_.clear();
     std::vector<MenuItem> items;
+    if (folder->is_archive()) {
+        show_message(std::string{kArchiveReadOnly}, false);  // its menu comes with extracting
+        return;
+    }
     if (!targets(*folder).empty()) {
         items = entry_menu(folder);
     } else if (!folder->is_trash()) {
@@ -3127,8 +3132,9 @@ std::optional<ViewHit> Browser::view_hit(float x, float y) const {
 void Browser::start_drag(Press press) {
     Folder& folder = *press.hit.folder;
     folder.forget_press();
-    if (folder.is_trash() || !press.hit.entry || *press.hit.entry >= folder.entries().size()) {
-        return;  // the trash only gives back: Restore
+    if (folder.is_trash() || folder.is_archive() || !press.hit.entry ||
+        *press.hit.entry >= folder.entries().size()) {
+        return;  // the trash only gives back (Restore); an archive's entries are extracted
     }
     const fs::Entry& entry = folder.entries()[*press.hit.entry];
     std::vector<std::string> names = folder.is_selected(entry.name)
@@ -3208,7 +3214,7 @@ std::optional<Browser::DropTarget> Browser::drop_target_at(float x, float y) con
         return DropTarget{.folder = *crumb, .mark = {}, .place = {}, .crumb = crumb};
     }
     const std::optional<ViewHit> hit = view_hit(x, y);
-    if (!hit || hit->folder->is_trash()) {
+    if (!hit || hit->folder->is_trash() || hit->folder->is_archive()) {
         return std::nullopt;
     }
     if (hit->entry && *hit->entry < hit->folder->entries().size()) {
@@ -3639,6 +3645,13 @@ void Browser::mount_place(const fs::Place& place, bool open) {
         });
 }
 
+bool Browser::opens_as_folder(const fs::Entry& file) const {
+    const fs::MimeId type =
+        file.mime != fs::kUnknownMime ? file.mime : mime_->by_name(file.name).mime;
+    const engines::Family* family = engines::installed()->find(*mime_, type);
+    return family != nullptr && family->shows == engines::Shows::archive;
+}
+
 bool is_disc_image(std::string_view mime) {
     return mime == "application/vnd.efi.iso" || mime == "application/x-cd-image" ||
            mime == "application/x-iso9660-image";
@@ -3925,6 +3938,26 @@ void Browser::run(Command command, Clock::time_point now) {
                 break;
         }
     }
+    if (const std::shared_ptr<Folder> shown = current_folder(); shown && shown->is_archive()) {
+        switch (command) {
+            case Command::rename:
+            case Command::new_folder:
+            case Command::cut:
+            case Command::paste:
+            case Command::trash:
+            case Command::erase:
+                show_message(std::string{kArchiveReadOnly}, false);
+                return;
+            case Command::copy:
+                show_message("Copying out of an archive is not ready yet", false);
+                return;
+            case Command::open_terminal:
+                show_message("A terminal cannot open inside an archive", false);
+                return;
+            default:
+                break;
+        }
+    }
     switch (command) {
         case Command::none:
             break;
@@ -4051,6 +4084,19 @@ bool Browser::open_selection() {
     if (folder->is_trash()) {
         show_message("Restore it first to open it", false);
         return true;
+    }
+    if (folder->is_archive() && !pick_) {
+        show_message("Opening a file inside an archive is not ready yet: Space shows it", false);
+        return true;
+    }
+    // An archive the base engine reads opens as a folder (0.9.0); chosen as a file when picking.
+    if (!pick_ && (!folder->is_selected(cursor->name) || folder->selected_count() == 1)) {
+        fs::Entry typed = *cursor;
+        typed.mime = folder->mime_of(*cursor);
+        if (opens_as_folder(typed)) {
+            open(folder->path() / cursor->name);
+            return true;
+        }
     }
     if (!open_ && !pick_) {
         return false;
@@ -4338,6 +4384,10 @@ void Browser::save_pick() {
         show_message("Nothing can be saved in the trash", false);
         return;
     }
+    if (folder->is_archive()) {
+        show_message("Nothing can be saved inside an archive", false);
+        return;
+    }
     const std::filesystem::path target = folder->path() / name;
     std::error_code error;
     const std::filesystem::file_status status = std::filesystem::status(target, error);
@@ -4406,6 +4456,10 @@ void Browser::choose(std::vector<std::filesystem::path> paths) {
         show_message(pick_->folders ? "Choose one folder" : "Choose one file", false);
         return;
     }
+    if (const std::shared_ptr<Folder> shown = current_folder(); shown && shown->is_archive()) {
+        show_message("What is inside an archive cannot be chosen", false);
+        return;  // the application would get paths that are not on disk
+    }
     Picked picked;
     picked.paths = std::move(paths);
     picked.filter = pick_filter();
@@ -4424,6 +4478,10 @@ void Browser::open_terminal() {
     }
     if (folder->is_trash()) {
         show_message("Restore it first to open it", false);
+        return;
+    }
+    if (folder->is_archive()) {
+        show_message("A terminal cannot open inside an archive", false);
         return;
     }
     const fs::Entry* const cursor = folder->cursor_entry();

@@ -5,18 +5,89 @@
 #include <cmath>
 #include <cstdlib>
 #include <format>
+#include <optional>
+#include <string>
 #include <string_view>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <unordered_set>
 #include <variant>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 #include "draw_helpers.hpp"
+#include "nordend/archive/archive.hpp"
 #include "nordend/core/log.hpp"
 #include "nordend/fs/icon.hpp"
 #include "nordend/views/format.hpp"
 
 namespace nordend::views {
 namespace {
+
+// An entry inside an archive (0.9.0), as Quick Look reads it: the archive, and the entry
+// (nullopt for a folder the archive only names).
+struct ArchiveSource {
+    std::filesystem::path archive;
+    archive::Format format{archive::Format::unknown};
+    std::optional<archive::Entry> entry;
+    bool directory{false};
+};
+
+// The most of an archive's entry Quick Look reads into memory.
+constexpr std::uint64_t kMaxArchiveEntryBytes = std::uint64_t{256} * 1024 * 1024;
+
+// An archive's entry as a provider shows it: read by the engine into a memfd, which the provider
+// opens as /proc/self/fd/N; folders and types without a picture or text get the information
+// card from what the archive says. Nothing is written to disk.
+preview::Content load_from_archive(const preview::Provider& provider, preview::Request request,
+                                   const ArchiveSource& source, const core::CancelToken& cancel) {
+    const bool readable = source.entry && (source.entry->type == archive::Type::file) &&
+                          source.entry->unreadable == archive::Unreadable::none;
+    if (provider.kind() == preview::Kind::info || !readable) {
+        preview::Info info;
+        std::uint32_t mode = source.entry ? source.entry->mode : 0755U;
+        if (source.directory) {
+            mode |= S_IFDIR;
+        } else if (source.entry && source.entry->type == archive::Type::symlink) {
+            mode |= S_IFLNK;
+            info.link_target = source.entry->link;
+        } else {
+            mode |= S_IFREG;
+        }
+        info.permissions = preview::permissions_text(mode);
+        if (source.entry && source.entry->unreadable == archive::Unreadable::encrypted) {
+            info.error = "it is encrypted";
+        } else if (source.entry && source.entry->unreadable == archive::Unreadable::method) {
+            info.error = "its compression is not read yet";
+        }
+        return info;
+    }
+    const int fd = ::memfd_create("nordend-quick-look", MFD_CLOEXEC);
+    if (fd < 0) {
+        return preview::Info{.permissions = {},
+                             .owner = {},
+                             .group = {},
+                             .link_target = {},
+                             .items = std::nullopt,
+                             .hidden_items = 0,
+                             .created_ns = std::nullopt,
+                             .error = "out of memory"};
+    }
+    const archive::Read read = archive::read_archive_entry(
+        source.archive, source.format, *source.entry, fd, kMaxArchiveEntryBytes);
+    if (read.failure != archive::Failure::none) {
+        ::close(fd);
+        preview::Info info;
+        info.error = read.failure == archive::Failure::too_large
+                         ? "too large to show from inside the archive"
+                         : read.detail;
+        return info;
+    }
+    request.path = "/proc/self/fd/" + std::to_string(fd);
+    preview::Content content = provider.load(request, cancel);
+    ::close(fd);
+    return content;
+}
 
 // Milliseconds from then to now.
 double since(QuickLook::Clock::time_point then) {
@@ -136,6 +207,17 @@ QuickLook::Slot& QuickLook::ensure(const fs::Entry& entry, bool current) {
     Slot& slot = slots_[key];
     slot.path = folder_->path_of(entry);
     slot.kind = provider.kind();
+    std::optional<ArchiveSource> source;
+    if (folder_->is_archive()) {
+        const fs::DirectoryModel& model = folder_->model();
+        source = ArchiveSource{.archive = model.archive_location().archive,
+                               .format = model.archive_format(),
+                               .entry = std::nullopt,
+                               .directory = entry.is_directory()};
+        if (const archive::Entry* found = model.archive_entry(entry.name)) {
+            source->entry = *found;
+        }
+    }
     if (!slot.content && !slot.content_job) {
         slot.requested = Clock::now();
         slot.in_advance = !current;
@@ -148,13 +230,15 @@ QuickLook::Slot& QuickLook::ensure(const fs::Entry& entry, bool current) {
 
         slot.content_job = pool_.submit(
             current ? core::Priority::visible : core::Priority::nearby,
-            [&provider,
+            [&provider, source = std::move(source),
              request = preview::Request{.path = slot.path,
                                         .mime = std::string{mime_->name(folder_->mime_of(entry))},
                                         .width = target_width_,
                                         .height = target_height_}](const core::CancelToken& token) {
                 const Clock::time_point started = Clock::now();
-                auto content = std::make_shared<preview::Content>(provider.load(request, token));
+                auto content = std::make_shared<preview::Content>(
+                    source ? load_from_archive(provider, request, *source, token)
+                           : provider.load(request, token));
                 return Made{
                     .content = std::move(content), .started = started, .made = Clock::now()};
             },
@@ -177,8 +261,8 @@ QuickLook::Slot& QuickLook::ensure(const fs::Entry& entry, bool current) {
     }
     // The first stage of an image, while the sharp one is made: the thumbnail, usually cached
     // already.
-    if (current && slot.kind == preview::Kind::image && thumbnails_ && !slot.content &&
-        !slot.thumbnail_job && !slot.thumbnail_pixels && !slot.thumbnail_texture) {
+    if (current && slot.kind == preview::Kind::image && thumbnails_ && !folder_->is_archive() &&
+        !slot.content && !slot.thumbnail_job && !slot.thumbnail_pixels && !slot.thumbnail_texture) {
         slot.thumbnail_job = pool_.submit(
             core::Priority::visible,
             [cache = thumbnails_, path = slot.path](const core::CancelToken& /*token*/) {

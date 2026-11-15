@@ -343,7 +343,9 @@ void GridView::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
             const ui::Texture* thumbnail = nullptr;
             const engines::Family* family =
                 entry.is_directory() ? nullptr : engines->find(*mime_, typed.mime);
-            if (thumbnails_ != nullptr && family != nullptr && family->thumbnails) {
+            // Not inside an archive: its entries are not files the cache can name.
+            if (thumbnails_ != nullptr && family != nullptr && family->thumbnails &&
+                !folder_->is_archive()) {
                 thumbnail =
                     thumbnails_->get(folder_->path_of(entry), entry.modified_ns, thumbnail_size);
             }
@@ -393,8 +395,7 @@ void GridView::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
 
     const fs::DirectoryModel& model = folder_->model();
     if (model.error()) {
-        draw_centered(renderer, model.error().message(), area_, area_.y + 24.0F, 14.0F,
-                      palette.error);
+        draw_centered(renderer, model.problem(), area_, area_.y + 24.0F, 14.0F, palette.error);
     } else if (entries.empty() && !model.loading()) {
         draw_centered(renderer, "Empty folder", area_, area_.y + 24.0F, 14.0F,
                       palette.on_surface_variant);

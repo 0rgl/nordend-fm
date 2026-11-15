@@ -1,0 +1,79 @@
+#pragma once
+
+// Archives seen as folders (ROADMAP 0.9.0): "/home/me/photos.zip/docs" is the folder docs inside
+// photos.zip. The entries come from the engine that reads archives (archive::list_archive);
+// here they only become a tree of folders. Names that would lead outside the archive ("..") are
+// left out, and counted.
+
+#include <cstddef>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+#include "nordend/archive/archive.hpp"
+#include "nordend/fs/entry.hpp"
+#include "nordend/fs/mime.hpp"
+
+namespace nordend::fs {
+
+// A path inside an archive: the archive file and the folder in it ("" for its top).
+struct ArchiveLocation {
+    std::filesystem::path archive;
+    std::string inner;  // "docs/2026", no leading or trailing '/'
+
+    bool operator==(const ArchiveLocation&) const = default;
+};
+
+// Where path goes into an archive: its longest leading part that is a regular file, and the rest
+// (blocking: stats each part; workers only). nullopt when no part of it is a regular file.
+[[nodiscard]] std::optional<ArchiveLocation> find_archive(const std::filesystem::path& path);
+
+// An inner path made safe: "./a//b/" -> "a/b", leading '/' dropped (as tar does); nullopt when a
+// part is "..", holds a NUL or is longer than a name may be.
+[[nodiscard]] std::optional<std::string> clean_inner_path(std::string_view path);
+
+class ArchiveTree {
+public:
+    // The tree of listing's entries; own_name names a .gz's one entry when its header does not
+    // (the archive's name without ".gz"). mime, when set, gives the entries their types by name.
+    ArchiveTree(archive::Listing listing, std::string_view own_name, const MimeDatabase* mime);
+
+    [[nodiscard]] archive::Format format() const noexcept { return format_; }
+
+    [[nodiscard]] archive::Failure failure() const noexcept { return failure_; }
+
+    [[nodiscard]] const std::string& detail() const noexcept { return detail_; }
+
+    // Entries left out: names leading outside the archive, or a file where a folder is.
+    [[nodiscard]] std::size_t left_out() const noexcept { return left_out_; }
+
+    // The entries of the folder at inner ("" for the top); nullptr when there is no such folder.
+    [[nodiscard]] const std::vector<Entry>* folder(std::string_view inner) const;
+
+    // The archive's entry at inner path ("docs/a.txt"); nullptr for a folder made up from the
+    // names under it, or no such entry.
+    [[nodiscard]] const archive::Entry* entry(std::string_view path) const;
+
+private:
+    archive::Format format_;
+    archive::Failure failure_;
+    std::string detail_;
+    std::size_t left_out_{0};
+    std::vector<archive::Entry> entries_;
+    std::unordered_map<std::string, std::size_t> by_path_;  // clean path -> entries_ index
+    std::unordered_map<std::string, std::vector<Entry>> folders_;
+};
+
+// The tree of the archive file, listed by the engine; the last few are kept while their files are
+// unchanged (blocking: workers only). Never null: a failure is in the tree's failure().
+[[nodiscard]] std::shared_ptr<const ArchiveTree> archive_tree(const std::filesystem::path& archive,
+                                                              const MimeDatabase* mime);
+
+// Forgets the kept trees (tests).
+void forget_archive_trees();
+
+}  // namespace nordend::fs

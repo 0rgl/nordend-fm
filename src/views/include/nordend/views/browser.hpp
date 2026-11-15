@@ -462,6 +462,12 @@ public:
     // A disc image (.iso): mounted read-only, then opened, with a message.
     void mount_image(const std::filesystem::path& image);
 
+    // An archive the base engine reads (zip, tar, tar.gz, .gz): Enter opens it as a folder.
+    [[nodiscard]] bool opens_as_folder(const fs::Entry& file) const;
+
+    // Said when something would change an archive's insides.
+    static constexpr std::string_view kArchiveReadOnly = "Nothing inside an archive can be changed";
+
     // Where a drop would go now, as the views mark it.
     [[nodiscard]] const DropMark& drop_mark() const noexcept { return drop_mark_; }
 

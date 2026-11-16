@@ -18,6 +18,7 @@
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/file.hpp"
 #include "nordend/core/worker_pool.hpp"
+#include "nordend/fs/archive_folder.hpp"
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
 #include "nordend/fs/places.hpp"
@@ -594,6 +595,33 @@ TEST_CASE("drop: onto a step of the breadcrumb and a place of the sidebar; the t
     f.drag(f.root, "P2.ORF");
     f.drop_at(place(nordend::fs::trash_path()));
     CHECK(listing(f.trash / "files") == Names{"P2.ORF"});
+}
+
+TEST_CASE("drop: nothing goes onto the breadcrumb's steps inside an archive") {
+    Fixture f;
+    if (!f.gl) {
+        return;
+    }
+    nordend::fs::forget_archive_trees();
+    fs::copy_file(fs::path{NORDEND_TEST_DATA} / "archive" / "basic.zip", f.root / "basic.zip");
+    f.show(f.root / "basic.zip" / "docs", Browser::Mode::details);
+    REQUIRE(f.browser.breadcrumb().archive() == f.root / "basic.zip");
+    const std::vector<std::string> shown = f.browser.breadcrumb().shown();
+    REQUIRE(shown.size() >= 2);
+    CHECK(shown[shown.size() - 2] == "basic.zip");
+    CHECK(shown.back() == "docs");
+    // root takes files; the archive's step and docs, inside it, do not.
+    bool root = false;
+    for (float x = 0.0F; x < kWidth; x += 2.0F) {
+        const std::optional<fs::path> path = f.browser.breadcrumb().path_at(x, 20.0F);
+        root = root || path == f.root;
+        CHECK_FALSE((path && path->string().starts_with((f.root / "basic.zip").string())));
+    }
+    CHECK(root);
+
+    // Out of it: no archive, no mark.
+    f.show(f.root, Browser::Mode::details);
+    CHECK(f.browser.breadcrumb().archive().empty());
 }
 
 TEST_CASE("sidebar bookmarks: Ctrl+D and the menus add folders once; removed again") {

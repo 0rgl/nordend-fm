@@ -8,6 +8,7 @@
 namespace nordend::preview {
 
 Summary summarize(const std::filesystem::path& path, std::string_view mime, Kind kind,
+                  const std::shared_ptr<const fs::MimeDatabase>& types,
                   const core::CancelToken& cancel) {
     Summary summary;
     summary.info = read_info(path, cancel);
@@ -23,6 +24,8 @@ Summary summarize(const std::filesystem::path& path, std::string_view mime, Kind
         if (loaded.failure == text::Failure::none) {
             summary.text = std::move(loaded.text);
         }
+    } else if (kind == Kind::archive) {
+        summary.archive = read_archive(path, types, 0);
     }
     return summary;
 }

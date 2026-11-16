@@ -29,6 +29,7 @@
 #include "nordend/fs/mime.hpp"
 #include "nordend/preview/preview.hpp"
 #include "nordend/views/browser.hpp"
+#include "nordend/views/status_bar.hpp"
 #include "temp_dir.hpp"
 
 using nordend::archive::Entry;
@@ -165,6 +166,88 @@ TEST_CASE("archive folders: the tree makes up folders, leaves out what leads out
     CHECK(names_of(single.folder("")) == std::vector<std::string>{"notes.txt"});
 }
 
+TEST_CASE("archive folders: the tree counts what it shows") {
+    Listing listing;
+    listing.format = Format::zip;
+    Entry locked = item("docs/secret.txt", Type::file, 10);
+    locked.unreadable = nordend::archive::Unreadable::encrypted;
+    Entry squeezed = item("docs/deep/x.bin", Type::file, 100);
+    squeezed.unreadable = nordend::archive::Unreadable::method;
+    Entry link = item("to-top", Type::symlink, 0);
+    link.link = "top.txt";
+    listing.entries = {item("top.txt", Type::file, 5),
+                       item("same.txt", Type::hardlink, 0),
+                       locked,
+                       squeezed,
+                       link,
+                       item("fifo", Type::other, 0),
+                       item("../evil.txt", Type::file, 1000),  // left out: not counted
+                       item("empty/", Type::directory, 0)};
+    const ArchiveTree tree{listing, "", nullptr};
+    CHECK(tree.totals() == nordend::fs::ArchiveTotals{.files = 4,
+                                                      .folders = 3,  // docs, docs/deep, empty
+                                                      .links = 1,
+                                                      .others = 1,
+                                                      .bytes = 115,
+                                                      .encrypted = 1,
+                                                      .unsupported = 1});
+}
+
+TEST_CASE("archive folders: a tree kept untyped is not given where types are asked") {
+    TempDir dir;
+    fs::copy_file(kArchives / "basic.zip", dir.path / "basic.zip");
+    nordend::fs::forget_archive_trees();
+    const std::shared_ptr<const nordend::fs::MimeDatabase> mime = nordend::fs::MimeDatabase::load();
+    const auto untyped = nordend::fs::archive_tree(dir.path / "basic.zip", nullptr);
+    const auto typed = nordend::fs::archive_tree(dir.path / "basic.zip", mime.get());
+    CHECK(untyped != typed);
+    CHECK(nordend::fs::archive_tree(dir.path / "basic.zip", mime.get()) == typed);
+    CHECK(nordend::fs::archive_tree(dir.path / "basic.zip", nullptr) == untyped);
+    const std::vector<nordend::fs::Entry>* top = typed->folder("");
+    REQUIRE(top != nullptr);
+    const auto text = std::ranges::find(*top, "a.txt", &nordend::fs::Entry::name);
+    REQUIRE(text != top->end());
+    CHECK(mime->name(text->mime) == "text/plain");
+}
+
+TEST_CASE("archive folders: what an archive holds, for Quick Look and the info pane") {
+    TempDir dir;
+    fs::copy_file(kArchives / "basic.zip", dir.path / "basic.zip");
+    nordend::fs::forget_archive_trees();
+    const std::shared_ptr<const nordend::fs::MimeDatabase> mime = nordend::fs::MimeDatabase::load();
+    const nordend::preview::Archive held =
+        nordend::preview::read_archive(dir.path / "basic.zip", mime, 2);
+    CHECK(held.format == Format::zip);
+    CHECK(held.failure == nordend::archive::Failure::none);
+    CHECK(held.totals.files == 5);
+    CHECK(held.totals.folders == 1);
+    CHECK(held.totals.bytes == 13 + 12 + 8 + 12 + 5120);
+    CHECK(held.top_count == 3);
+    // Folders first, then by name; only as many as asked.
+    REQUIRE(held.top.size() == 2);
+    CHECK(held.top[0].name == "docs");
+    CHECK(held.top[1].name == "a.txt");
+    CHECK(mime->name(held.top[1].mime) == "text/plain");
+
+    // The info pane's summary: the counts, no entries.
+    const nordend::core::CancelToken token;
+    const nordend::preview::Summary summary = nordend::preview::summarize(
+        dir.path / "basic.zip", "application/zip", nordend::preview::Kind::archive, mime, token);
+    REQUIRE(summary.archive.has_value());
+    CHECK(summary.archive.value_or(nordend::preview::Archive{}).totals.files == 5);
+    CHECK(summary.archive.value_or(nordend::preview::Archive{}).top.empty());
+
+    // Encrypted entries are counted, never opened.
+    fs::copy_file(kArchives / "aes.zip", dir.path / "aes.zip");
+    CHECK(nordend::preview::read_archive(dir.path / "aes.zip", mime, 0).totals.encrypted == 1);
+    // Not an archive: said.
+    dir.write("fake.zip", "not a zip at all");
+    const nordend::preview::Archive fake =
+        nordend::preview::read_archive(dir.path / "fake.zip", mime, 12);
+    CHECK(fake.failure == nordend::archive::Failure::not_archive);
+    CHECK(fake.top.empty());
+}
+
 TEST_CASE("archive folders: where a path goes into an archive") {
     TempDir dir;
     fs::copy_file(kArchives / "basic.zip", dir.path / "basic.zip");
@@ -296,6 +379,41 @@ TEST_CASE("archive folders: Enter goes into an archive, where nothing is changed
     REQUIRE(text != nullptr);
     REQUIRE(text->lines.size() == 1);
     CHECK(text->lines[0] == "hello from a");
+}
+
+TEST_CASE("archive folders: Quick Look shows what an archive holds, from outside") {
+    TempDir dir;
+    fs::copy_file(kArchives / "basic.zip", dir.path / "basic.zip");
+    nordend::fs::forget_archive_trees();
+    EventLoop loop;
+    WorkerPool pool{loop, 2};
+    nordend::fs::DirectoryWatcher watcher{loop};
+    nordend::views::Browser browser{loop,    pool,
+                                    watcher, nordend::fs::MimeDatabase::load(),
+                                    [] {},   [](nordend::ui::CursorShape /*shape*/) {}};
+    browser.set_home_trash(dir.path / "Trash");
+    browser.go_to(dir.path, "basic.zip");
+    REQUIRE(run_until(loop, [&] { return !browser.loading(); }));
+    nordend::ui::KeyEvent space;
+    space.keysym = XKB_KEY_space;
+    browser.key(space, nordend::views::Browser::Clock::now());
+    REQUIRE(browser.quick_look().is_open());
+    REQUIRE(run_until(loop, [&] { return !browser.quick_look().loading(); }));
+    const nordend::preview::Content* content = browser.quick_look().content();
+    REQUIRE(content != nullptr);
+    const auto* held = std::get_if<nordend::preview::Archive>(content);
+    REQUIRE(held != nullptr);
+    CHECK(held->totals.files == 5);
+    CHECK(held->top_count == 3);
+    REQUIRE(held->top.size() == 3);
+    CHECK(held->top[0].name == "docs");
+
+    // Inside it, the status bar says which archive, and that nothing changes there.
+    browser.go_to(dir.path / "basic.zip", "a.txt");
+    REQUIRE(run_until(loop, [&] { return !browser.loading(); }));
+    REQUIRE(browser.columns().focused_folder()->is_archive());
+    CHECK(nordend::views::status_of(*browser.columns().focused_folder()) ==
+          "zip archive  ·  read-only  ·  3 items");
 }
 
 TEST_CASE("archive folders: Quick Look shows a picture from inside an archive") {

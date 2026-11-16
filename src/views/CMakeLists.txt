@@ -9,6 +9,7 @@ endif()
 
 add_library(nordend_views
     src/actions.cpp
+    src/archive_text.cpp
     src/breadcrumb.cpp
     src/browser.cpp
     src/browser_palette.cpp

@@ -160,6 +160,10 @@ private:
     void draw_card(ui::Renderer& renderer, const ui::Rect& area, const theme::Palette& palette,
                    ui::IconSet& icons, const fs::Entry& entry, const preview::Info* info,
                    float fade);
+    // An archive seen from outside: what it holds, and its first entries.
+    void draw_archive(ui::Renderer& renderer, const ui::Rect& area, const theme::Palette& palette,
+                      ui::IconSet& icons, const fs::Entry& entry, const preview::Archive& archive,
+                      float fade);
 
     core::WorkerPool& pool_;
     std::shared_ptr<const fs::MimeDatabase> mime_;

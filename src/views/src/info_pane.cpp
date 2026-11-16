@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "archive_text.hpp"
 #include "draw_helpers.hpp"
 #include "nordend/archive/archive.hpp"
 #include "nordend/fs/icon.hpp"
@@ -185,7 +186,8 @@ bool InfoPane::click(float x, float y) {
 }
 
 void InfoPane::request(const std::filesystem::path& path, std::int64_t modified_ns,
-                       std::string mime, preview::Kind kind) {
+                       std::string mime, preview::Kind kind,
+                       std::shared_ptr<const fs::MimeDatabase> types) {
     std::string key = std::format("{}\n{}\n{}", path.string(), modified_ns, static_cast<int>(kind));
     if (key == key_) {
         return;
@@ -198,9 +200,10 @@ void InfoPane::request(const std::filesystem::path& path, std::int64_t modified_
     }
     job_ = pool_.submit(
         core::Priority::visible,
-        [path, mime = std::move(mime), kind](const core::CancelToken& token) {
+        [path, mime = std::move(mime), kind,
+         types = std::move(types)](const core::CancelToken& token) {
             return std::make_shared<const preview::Summary>(
-                preview::summarize(path, mime, kind, token));
+                preview::summarize(path, mime, kind, types, token));
         },
         [this, alive = alive_, key = key_](std::shared_ptr<const preview::Summary> summary) {
             if (!*alive || key != key_) {
@@ -366,12 +369,15 @@ void InfoPane::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
         forget_summary();
     } else {
         request(path, single == nullptr ? 0 : single->modified_ns,
-                single == nullptr ? std::string{} : std::string{mime.name(typed.mime)}, kind);
+                single == nullptr ? std::string{} : std::string{mime.name(typed.mime)}, kind,
+                folder.shared_mime());
     }
     const preview::Summary* const summary = summary_.get();
     const preview::Info* const info = summary == nullptr ? nullptr : &summary->info;
     const picture::PhotoInfo* const photo =
         summary == nullptr || !summary->photo ? nullptr : &*summary->photo;
+    const preview::Archive* const held =
+        summary == nullptr || !summary->archive ? nullptr : &*summary->archive;
 
     // The preview takes the pane's whole width (a wider pane, a larger photo); the rows keep to
     // the column.
@@ -467,6 +473,14 @@ void InfoPane::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
             packed != nullptr && packed->packed != packed->size) {
             out.row("Compressed", format_size(packed->packed));
         }
+        // An archive: what it holds, once listed.
+        if (held != nullptr) {
+            const ArchiveRows rows = archive_rows(*held);
+            out.row("Contains", rows.contains);
+            out.row("Unpacked", rows.unpacked);
+            out.row("Encrypted", rows.encrypted);
+            out.row("Not readable yet", rows.unsupported);
+        }
         // The dot on the icon, in words (issue #17): for a file of a type that runs.
         if (!folder.is_trash() && folder.type_runs(*single)) {
             out.row("Runs as program", folder.runs_as_program(*single) ? "Yes" : "No");
@@ -533,6 +547,11 @@ void InfoPane::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
         if (!info->error.empty()) {
             out.skip(6.0F);
             out.centered(info->error, kSmallSize, palette.error, 20.0F);
+        } else if (const std::string problem =
+                       held == nullptr ? std::string{} : archive_problem(*held);
+                   !problem.empty()) {
+            out.skip(6.0F);
+            out.centered(problem, kSmallSize, palette.error, 20.0F);
         }
     }
     finish();

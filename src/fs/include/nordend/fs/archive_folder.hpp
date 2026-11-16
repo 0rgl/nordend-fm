@@ -6,6 +6,7 @@
 // left out, and counted.
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -36,6 +37,20 @@ struct ArchiveLocation {
 // part is "..", holds a NUL or is longer than a name may be.
 [[nodiscard]] std::optional<std::string> clean_inner_path(std::string_view path);
 
+// What an archive holds, counted over the entries its tree shows (folders made up from names
+// included, entries left out not).
+struct ArchiveTotals {
+    std::uint64_t files{0};    // regular files, hard links included
+    std::uint64_t folders{0};  // below the top
+    std::uint64_t links{0};    // symbolic links
+    std::uint64_t others{0};   // devices, fifos...: listed, never extracted
+    std::uint64_t bytes{0};    // the files' bytes once read
+    std::uint64_t encrypted{0};
+    std::uint64_t unsupported{0};  // compressed in a way Nordend does not read yet
+
+    bool operator==(const ArchiveTotals&) const = default;
+};
+
 class ArchiveTree {
 public:
     // The tree of listing's entries; own_name names a .gz's one entry when its header does not
@@ -51,6 +66,8 @@ public:
     // Entries left out: names leading outside the archive, or a file where a folder is.
     [[nodiscard]] std::size_t left_out() const noexcept { return left_out_; }
 
+    [[nodiscard]] const ArchiveTotals& totals() const noexcept { return totals_; }
+
     // The entries of the folder at inner ("" for the top); nullptr when there is no such folder.
     [[nodiscard]] const std::vector<Entry>* folder(std::string_view inner) const;
 
@@ -63,13 +80,15 @@ private:
     archive::Failure failure_;
     std::string detail_;
     std::size_t left_out_{0};
+    ArchiveTotals totals_;
     std::vector<archive::Entry> entries_;
     std::unordered_map<std::string, std::size_t> by_path_;  // clean path -> entries_ index
     std::unordered_map<std::string, std::vector<Entry>> folders_;
 };
 
 // The tree of the archive file, listed by the engine; the last few are kept while their files are
-// unchanged (blocking: workers only). Never null: a failure is in the tree's failure().
+// unchanged, each for the mime database it was typed with (blocking: workers only). Never null: a
+// failure is in the tree's failure().
 [[nodiscard]] std::shared_ptr<const ArchiveTree> archive_tree(const std::filesystem::path& archive,
                                                               const MimeDatabase* mime);
 

@@ -17,6 +17,13 @@ constexpr float kChevronGap = 2.0F;  // either side of a chevron
 constexpr float kBoxHeight = 26.0F;
 constexpr float kTextSize = 14.0F;
 constexpr std::string_view kEllipsis = "…";
+constexpr float kIconGap = 6.0F;  // between an archive's icon and its name
+constexpr std::string_view kArchiveIcon = "file-zip";
+constexpr std::string_view kReadOnly = "read-only";
+constexpr float kMarkSize = 11.0F;
+constexpr float kMarkPadding = 7.0F;  // either side of "read-only", inside its pill
+constexpr float kMarkHeight = 18.0F;
+constexpr float kMarkGap = 8.0F;  // between the last step and the pill
 
 }  // namespace
 
@@ -59,6 +66,11 @@ void Breadcrumb::draw(ui::Renderer& renderer, const ui::Rect& bounds, const them
         crumbs_ = std::move(crumbs);
         hovered_.reset();
     }
+    archive_ = folder.is_archive() ? folder.model().archive_location().archive.lexically_normal()
+                                   : std::filesystem::path{};
+    const auto is_archive = [&](const Crumb& crumb) {
+        return !archive_.empty() && !crumb.label.empty() && crumb.path == archive_;
+    };
 
     const float top = bounds.y + ((kTitleHeight - kBoxHeight) / 2.0F);
 
@@ -66,10 +78,14 @@ void Breadcrumb::draw(ui::Renderer& renderer, const ui::Rect& bounds, const them
     // room for (the last one always, cut in the middle when even it is too long).
     const auto width_of = [&](const Crumb& crumb) {
         return (crumb.label.empty() ? kIconSize : text_width(renderer, crumb.label, kTextSize)) +
-               (2.0F * kInset);
+               (is_archive(crumb) ? kIconSize + kIconGap : 0.0F) + (2.0F * kInset);
     };
     const float separator = kChevronSize + (2.0F * kChevronGap);
-    const float room = std::max(0.0F, bounds.width - (2.0F * kPadding));
+    // Inside an archive, "read-only" takes its room at the end first.
+    const float mark = archive_.empty() ? 0.0F
+                                        : kMarkGap + text_width(renderer, kReadOnly, kMarkSize) +
+                                              (2.0F * kMarkPadding);
+    const float room = std::max(0.0F, bounds.width - (2.0F * kPadding) - mark);
     std::vector<float> widths;
     widths.reserve(crumbs_.size());
     float total = 0.0F;
@@ -133,12 +149,30 @@ void Breadcrumb::draw(ui::Renderer& renderer, const ui::Rect& bounds, const them
         if (crumb.label.empty()) {
             icons.draw(renderer, crumb.icon, x + kInset, top + ((kBoxHeight - kIconSize) / 2.0F),
                        kIconSize, last ? palette.primary : color);
+        } else if (is_archive(crumb)) {
+            icons.draw(renderer, kArchiveIcon, x + kInset, top + ((kBoxHeight - kIconSize) / 2.0F),
+                       kIconSize, color);
+            const float shift = kIconSize + kIconGap;
+            renderer.draw_text(crumb.label, x + kInset + shift, bounds.y + 12.0F, kTextSize, color,
+                               std::max(1.0F, width - (2.0F * kInset) - shift),
+                               ui::Ellipsis::middle);
         } else {
             renderer.draw_text(crumb.label, x + kInset, bounds.y + 12.0F, kTextSize, color,
                                width - (2.0F * kInset), ui::Ellipsis::middle);
         }
         shown_.push_back({.crumb = i, .rect = box});
         x += width;
+    }
+    if (!archive_.empty()) {
+        const float text = text_width(renderer, kReadOnly, kMarkSize);
+        const ui::Rect pill{x + kMarkGap, top + ((kBoxHeight - kMarkHeight) / 2.0F),
+                            text + (2.0F * kMarkPadding), kMarkHeight};
+        renderer.draw_box(pill, {.fill = palette.surface_container,
+                                 .radius = ui::Corners::all(kMarkHeight / 2.0F),
+                                 .border_width = 1.0F,
+                                 .border = palette.outline_variant});
+        renderer.draw_text(kReadOnly, pill.x + kMarkPadding, pill.y + 2.0F, kMarkSize,
+                           palette.on_surface_variant);
     }
 
     renderer.fill_rect(
@@ -148,7 +182,18 @@ void Breadcrumb::draw(ui::Renderer& renderer, const ui::Rect& bounds, const them
 
 std::optional<std::filesystem::path> Breadcrumb::path_at(float x, float y) const {
     const std::optional<std::size_t> crumb = crumb_at(x, y);
-    return crumb ? std::optional{crumbs_[*crumb].path} : std::nullopt;
+    if (!crumb || in_archive(crumbs_[*crumb])) {
+        return std::nullopt;  // nothing goes into an archive
+    }
+    return crumbs_[*crumb].path;
+}
+
+bool Breadcrumb::in_archive(const Crumb& crumb) const {
+    if (archive_.empty()) {
+        return false;
+    }
+    const std::filesystem::path inside = crumb.path.lexically_relative(archive_);
+    return !inside.empty() && *inside.begin() != "..";
 }
 
 void Breadcrumb::set_drop_target(std::optional<std::filesystem::path> path) {

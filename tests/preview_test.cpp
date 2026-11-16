@@ -70,7 +70,7 @@ TEST_CASE("preview: the provider for a type") {
     const nordend::core::CancelToken token;
     const auto content_of = [&](const char* type, const fs::path& path) {
         return preview::provider_for(*mime, mime->find(type))
-            .load({.path = path, .mime = type, .width = 0, .height = 0}, token);
+            .load({.path = path, .mime = type, .width = 0, .height = 0, .types = mime}, token);
     };
     const fs::path json = write(dir.path / "a.json", "{\n\t\"a\": 1\n}\n");
     const preview::Content text = content_of("application/json", json);
@@ -83,14 +83,17 @@ TEST_CASE("preview: the provider for a type") {
     const preview::Content missing = content_of("text/plain", dir.path / "missing.txt");
     REQUIRE(std::holds_alternative<preview::Info>(missing));
     CHECK_FALSE(std::get<preview::Info>(missing).error.empty());
-    CHECK(std::holds_alternative<preview::Info>(content_of("application/zip", json)));
+    // An archive gets its page; one that is not says so there.
+    const preview::Content zip = content_of("application/zip", json);
+    REQUIRE(std::holds_alternative<preview::Archive>(zip));
+    CHECK(std::get<preview::Archive>(zip).failure != nordend::archive::Failure::none);
     CHECK(std::holds_alternative<preview::Info>(content_of("inode/directory", dir.path)));
     CHECK(std::holds_alternative<nordend::picture::Loaded>(
         content_of("image/png", fs::path{NORDEND_TEST_DATA} / "image" / "blocks.png")));
     // A type not known yet gets the card until it is.
     CHECK(std::holds_alternative<preview::Info>(
         preview::provider_for(*mime, nordend::fs::kUnknownMime)
-            .load({.path = json, .mime = {}, .width = 0, .height = 0}, token)));
+            .load({.path = json, .mime = {}, .width = 0, .height = 0, .types = mime}, token)));
 }
 
 TEST_CASE("preview: the info pane's summary of a photo, a text file and a folder") {
@@ -98,7 +101,7 @@ TEST_CASE("preview: the info pane's summary of a photo, a text file and a folder
     const nordend::core::CancelToken token;
     const preview::Summary photo =
         preview::summarize(fs::path{NORDEND_TEST_DATA} / "image" / "shot.jpg", "image/jpeg",
-                           preview::Kind::image, token);
+                           preview::Kind::image, nullptr, token);
     REQUIRE(photo.photo.has_value());
     CHECK(photo.photo.value_or(nordend::picture::PhotoInfo{}).camera == "OM-1");
     CHECK_FALSE(photo.text);
@@ -109,20 +112,20 @@ TEST_CASE("preview: the info pane's summary of a photo, a text file and a folder
         many += "line\n";
     }
     const preview::Summary text = preview::summarize(write(dir.path / "a.txt", many), "text/plain",
-                                                     preview::Kind::text, token);
+                                                     preview::Kind::text, nullptr, token);
     const preview::Text lines = text.text.value_or(preview::Text{});
     CHECK(lines.lines.size() == preview::kSummaryLines);
     CHECK(lines.truncated);
     // A text file that cannot be read has no lines; nor has a binary one.
-    CHECK_FALSE(
-        preview::summarize(dir.path / "missing.txt", "text/plain", preview::Kind::text, token)
-            .text);
+    CHECK_FALSE(preview::summarize(dir.path / "missing.txt", "text/plain", preview::Kind::text,
+                                   nullptr, token)
+                    .text);
     CHECK_FALSE(preview::summarize(write(dir.path / "b.txt", std::string{"a\0b", 3}), "text/plain",
-                                   preview::Kind::text, token)
+                                   preview::Kind::text, nullptr, token)
                     .text);
     CHECK_FALSE(text.photo);
 
     const preview::Summary folder =
-        preview::summarize(dir.path, "inode/directory", preview::Kind::info, token);
+        preview::summarize(dir.path, "inode/directory", preview::Kind::info, nullptr, token);
     CHECK(folder.info.items == std::optional<std::uint64_t>{2});  // a.txt, b.txt
 }

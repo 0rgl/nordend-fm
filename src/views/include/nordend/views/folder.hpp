@@ -192,6 +192,10 @@ public:
 
     [[nodiscard]] const fs::MimeDatabase& mime() const noexcept { return *mime_; }
 
+    [[nodiscard]] const std::shared_ptr<const fs::MimeDatabase>& shared_mime() const noexcept {
+        return mime_;
+    }
+
     // The entry is a regular file of a type that runs: a program, an AppImage, a script
     // (application/x-executable and its kin, application/x-sharedlib), or a type not known yet.
     [[nodiscard]] bool type_runs(const fs::Entry& entry) const;

@@ -32,7 +32,8 @@ struct Crumb {
 
 // The bar above the view: the folder's path as clickable steps, cut from the left with "…" when
 // it does not fit (the first step and the last ones stay). A click on a step asks to go there,
-// with the cursor on the step after it, the folder we came from.
+// with the cursor on the step after it, the folder we came from. Inside an archive (0.9.0) its
+// step has an archive's icon, and a quiet "read-only" follows the last step.
 //
 // Loop thread only.
 class Breadcrumb {
@@ -54,7 +55,8 @@ public:
 
     void pointer(const ui::PointerEvent& event);
 
-    // The folder of the step at a window point, as last drawn (nullopt: none, or the "…").
+    // The folder of the step at a window point that files can be dropped into, as last drawn
+    // (nullopt: none, the "…", or a step inside an archive).
     [[nodiscard]] std::optional<std::filesystem::path> path_at(float x, float y) const;
 
     // A drag over the window would drop into the step at this path (nullopt: none), drawn
@@ -65,6 +67,10 @@ public:
     // where steps were left out (tests).
     [[nodiscard]] std::vector<std::string> shown() const;
 
+    // The archive whose step was drawn with its icon, and "read-only" after the last step
+    // (empty: not inside an archive) (tests).
+    [[nodiscard]] const std::filesystem::path& archive() const noexcept { return archive_; }
+
 private:
     struct Shown {
         std::optional<std::size_t> crumb;  // nullopt: the "…"
@@ -72,11 +78,14 @@ private:
     };
 
     [[nodiscard]] std::optional<std::size_t> crumb_at(float x, float y) const;
+    // The step is the archive's, or inside it.
+    [[nodiscard]] bool in_archive(const Crumb& crumb) const;
 
     std::function<void()> redraw_;
     Go go_;
     std::filesystem::path home_;
-    std::vector<Crumb> crumbs_;  // as last drawn
+    std::vector<Crumb> crumbs_;      // as last drawn
+    std::filesystem::path archive_;  // the folder shown is inside it (empty: not in one)
     std::vector<Shown> shown_;
     ui::Rect bounds_{};
     std::optional<std::size_t> hovered_;  // a crumb

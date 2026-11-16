@@ -111,11 +111,11 @@ public:
     [[nodiscard]] bool folder_size_done() const noexcept { return size_done_; }
 
 private:
-    // Reads path's summary unless it is the one shown or on its way.
     // No summary (inside an archive: nothing to read from disk).
     void forget_summary();
+    // Reads path's summary unless it is the one shown or on its way (types: an archive's).
     void request(const std::filesystem::path& path, std::int64_t modified_ns, std::string mime,
-                 preview::Kind kind);
+                 preview::Kind kind, std::shared_ptr<const fs::MimeDatabase> types);
 
     // Adds up the size of roots (one folder, or the entries selected) after kMeasureDelay unless
     // key names what is measured already; no roots stops measuring.

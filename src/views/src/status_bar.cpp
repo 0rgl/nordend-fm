@@ -6,6 +6,7 @@
 #include <sys/statvfs.h>
 #include <utility>
 
+#include "nordend/archive/archive.hpp"
 #include "nordend/views/format.hpp"
 
 namespace nordend::views {
@@ -40,13 +41,19 @@ std::string status_of(const Folder& folder) {
     if (model.error()) {
         return model.problem();
     }
+    // Inside an archive: which kind, and that nothing changes there.
+    std::string status;
+    if (model.is_archive()) {
+        status = std::format("{} archive  ·  read-only  ·  ",
+                             archive::format_name(model.archive_format()));
+    }
     if (folder.selected_count() > 1) {
-        return std::format("{} of {} selected", folder.selected_count(), count);
+        return status + std::format("{} of {} selected", folder.selected_count(), count);
     }
     if (model.loading()) {
-        return std::format("{} items, loading…", count);
+        return status + std::format("{} items, loading…", count);
     }
-    std::string status = std::format("{} {}", count, count == 1 ? "item" : "items");
+    status += std::format("{} {}", count, count == 1 ? "item" : "items");
     if (const std::size_t hidden = folder.hidden_count(); hidden > 0) {
         status += std::format(", {} {}", hidden, folder.filtered() ? "filtered out" : "hidden");
     }
@@ -76,6 +83,14 @@ StatusBar::~StatusBar() {
 void StatusBar::update(const Folder& folder) {
     if (job_ || (known_ && path_ == folder.path() && revision_ == folder.model().revision())) {
         return;  // on its way, or known: a draw after the result checks again
+    }
+    if (folder.is_archive()) {
+        // No free space inside an archive: it means nothing there.
+        path_ = folder.path();
+        revision_ = folder.model().revision();
+        known_ = true;
+        free_.reset();
+        return;
     }
     path_ = folder.path();
     revision_ = folder.model().revision();

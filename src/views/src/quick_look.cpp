@@ -12,9 +12,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <unordered_set>
+#include <utility>
 #include <variant>
+#include <vector>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
+#include "archive_text.hpp"
 #include "draw_helpers.hpp"
 #include "nordend/archive/archive.hpp"
 #include "nordend/core/log.hpp"
@@ -43,7 +46,9 @@ preview::Content load_from_archive(const preview::Provider& provider, preview::R
                                    const ArchiveSource& source, const core::CancelToken& cancel) {
     const bool readable = source.entry && (source.entry->type == archive::Type::file) &&
                           source.entry->unreadable == archive::Unreadable::none;
-    if (provider.kind() == preview::Kind::info || !readable) {
+    // An archive inside an archive is not opened: the card, as for a file of no known kind.
+    if (provider.kind() == preview::Kind::info || provider.kind() == preview::Kind::archive ||
+        !readable) {
         preview::Info info;
         std::uint32_t mode = source.entry ? source.entry->mode : 0755U;
         if (source.directory) {
@@ -100,6 +105,10 @@ constexpr float kRadius = 6.0F;
 constexpr float kCardWidth = 340.0F;
 constexpr float kCardIcon = 96.0F;
 constexpr float kRowHeight = 24.0F;
+constexpr float kArchiveCardWidth = 420.0F;
+constexpr float kArchiveIcon = 64.0F;
+constexpr float kEntryHeight = 24.0F;  // an archive's entry, under its summary
+constexpr float kEntryIcon = 16.0F;
 constexpr auto kFade = std::chrono::milliseconds{140};
 
 // The text page.
@@ -123,6 +132,24 @@ ui::Rect shifted_down(ui::Rect rect) {
 float fade_at(QuickLook::Clock::time_point opened, QuickLook::Clock::time_point now) {
     const auto elapsed = std::chrono::duration<float>(now - opened).count();
     return std::clamp(elapsed / std::chrono::duration<float>(kFade).count(), 0.0F, 1.0F);
+}
+
+// A label at the card's left, its value at its right (long values, a link target, cut in the
+// middle, keeping their end).
+void draw_row(ui::Renderer& renderer, const ui::Rect& card, float y, std::string_view label,
+              const std::string& value, ui::Typeface typeface, const theme::Palette& palette,
+              float fade) {
+    const float label_width = renderer.draw_text(label, card.x + 20.0F, y, 13.0F,
+                                                 palette.on_surface_variant.with_alpha(fade));
+    const float room = card.width - 40.0F - label_width - 16.0F;
+    const float full =
+        renderer.fonts()
+            .layout(value, 13.0F, renderer.scale(), 0.0F, ui::Ellipsis::end, typeface)
+            .width /
+        renderer.scale();
+    const float width = std::min(full, room);
+    renderer.draw_text(value, card.right() - 20.0F - width, y, 13.0F,
+                       palette.on_surface.with_alpha(fade), room, ui::Ellipsis::middle, typeface);
 }
 
 // A caption in a pill under area.
@@ -234,7 +261,8 @@ QuickLook::Slot& QuickLook::ensure(const fs::Entry& entry, bool current) {
              request = preview::Request{.path = slot.path,
                                         .mime = std::string{mime_->name(folder_->mime_of(entry))},
                                         .width = target_width_,
-                                        .height = target_height_}](const core::CancelToken& token) {
+                                        .height = target_height_,
+                                        .types = mime_}](const core::CancelToken& token) {
                 const Clock::time_point started = Clock::now();
                 auto content = std::make_shared<preview::Content>(
                     source ? load_from_archive(provider, request, *source, token)
@@ -592,8 +620,13 @@ void QuickLook::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme
         draw_text(renderer, area, palette, *entry, *text, fade, now);
         return;
     }
-    if (slot.kind == preview::Kind::text && shown == nullptr) {
-        return;  // a moment: the card would flash before the text
+    if (const auto* held = shown == nullptr ? nullptr : std::get_if<preview::Archive>(shown)) {
+        draw_archive(renderer, area, palette, icons, *entry, *held, fade);
+        return;
+    }
+    if ((slot.kind == preview::Kind::text || slot.kind == preview::Kind::archive) &&
+        shown == nullptr) {
+        return;  // a moment: the card would flash before the text or the archive's page
     }
     const auto* const info = shown == nullptr ? nullptr : std::get_if<preview::Info>(shown);
     draw_card(renderer, area, palette, icons, *entry, info, fade);
@@ -884,23 +917,104 @@ void QuickLook::draw_card(ui::Renderer& renderer, const ui::Rect& area,
     draw_centered(renderer, type, card, y, 12.0F, palette.on_surface_variant.with_alpha(fade));
     y += 20.0F + 4.0F;
     for (const Row& row : rows) {
-        const float label_width = renderer.draw_text(row.label, card.x + 20.0F, y, 13.0F,
-                                                     palette.on_surface_variant.with_alpha(fade));
-        // Long values (a link target) are cut in the middle, keeping their end.
-        const float room = kCardWidth - 40.0F - label_width - 16.0F;
-        const float full =
-            renderer.fonts()
-                .layout(row.value, 13.0F, renderer.scale(), 0.0F, ui::Ellipsis::end, row.typeface)
-                .width /
-            renderer.scale();
-        const float width = std::min(full, room);
-        renderer.draw_text(row.value, card.right() - 20.0F - width, y, 13.0F,
-                           palette.on_surface.with_alpha(fade), room, ui::Ellipsis::middle,
-                           row.typeface);
+        draw_row(renderer, card, y, row.label, row.value, row.typeface, palette, fade);
         y += kRowHeight;
     }
     if (error) {
         draw_centered(renderer, info->error, card, y, 13.0F, palette.error.with_alpha(fade));
+    }
+}
+
+void QuickLook::draw_archive(ui::Renderer& renderer, const ui::Rect& area,
+                             const theme::Palette& palette, ui::IconSet& icons,
+                             const fs::Entry& entry, const preview::Archive& archive, float fade) {
+    fs::Entry typed = entry;
+    typed.mime = folder_->mime_of(entry);
+    const std::string_view type =
+        typed.mime == fs::kUnknownMime ? std::string_view{"…"} : mime_->name(typed.mime);
+
+    // The summary: the file's own size, then what it holds.
+    const ArchiveRows held = archive_rows(archive);
+    std::vector<std::pair<std::string_view, std::string>> rows;
+    const auto add = [&](std::string_view label, std::string value) {
+        if (!value.empty()) {
+            rows.emplace_back(label, std::move(value));
+        }
+    };
+    add("Size", format_size(entry.size));
+    add("Contains", held.contains);
+    add("Unpacked", held.unpacked);
+    add("Encrypted", held.encrypted);
+    add("Not readable yet", held.unsupported);
+    add("Modified", format_time(entry.modified_ns));
+    const std::string problem = archive_problem(archive);
+
+    // Its first entries, as many as there is room for, then how many more.
+    const float width = std::min(kArchiveCardWidth, area.width);
+    const float head = 28.0F + kArchiveIcon + 16.0F + 24.0F + 20.0F + 4.0F +
+                       (static_cast<float>(rows.size()) * kRowHeight) +
+                       (problem.empty() ? 0.0F : kRowHeight) + 20.0F;
+    const float list_top = archive.top.empty() ? 0.0F : 4.0F + 1.0F + 12.0F;
+    const float more = kRowHeight;
+    const float room = std::max(0.0F, area.height - head - list_top - more);
+    const std::size_t shown =
+        std::min(archive.top.size(), static_cast<std::size_t>(room / kEntryHeight));
+    const std::uint64_t left = archive.top_count - shown;
+    const float height = head + (archive.top.empty() ? 0.0F : list_top) +
+                         (static_cast<float>(shown) * kEntryHeight) +
+                         (left > 0 && archive.top_count > 0 ? more : 0.0F);
+    const ui::Rect card{area.x + ((area.width - width) / 2.0F),
+                        area.y + std::max(0.0F, (area.height - height) / 2.0F), width, height};
+    renderer.draw_shadow(shifted_down(card), ui::Corners::all(14.0F), 18.0F,
+                         palette.shadow.with_alpha(0.6F * fade));
+    renderer.draw_box(card, {.fill = palette.surface_container_high.with_alpha(fade),
+                             .radius = ui::Corners::all(14.0F)});
+
+    float y = card.y + 28.0F;
+    icons.draw(renderer, fs::icon_name(*mime_, typed), card.x + ((width - kArchiveIcon) / 2.0F), y,
+               kArchiveIcon, palette.on_surface_variant.with_alpha(fade));
+    y += kArchiveIcon + 16.0F;
+    draw_centered(renderer, entry.name, card, y, 15.0F, palette.on_surface.with_alpha(fade));
+    y += 24.0F;
+    draw_centered(renderer, type, card, y, 12.0F, palette.on_surface_variant.with_alpha(fade));
+    y += 20.0F + 4.0F;
+    for (const auto& [label, value] : rows) {
+        draw_row(renderer, card, y, label, value, ui::Typeface::proportional, palette, fade);
+        y += kRowHeight;
+    }
+    if (!problem.empty()) {
+        draw_centered(renderer, problem, card, y, 13.0F, palette.error.with_alpha(fade));
+        y += kRowHeight;
+    }
+    if (archive.top.empty()) {
+        return;
+    }
+    y += 4.0F;
+    renderer.fill_rect({card.x + 20.0F, y, width - 40.0F, 1.0F / renderer.scale()},
+                       palette.outline_variant.with_alpha(fade));
+    y += 1.0F + 12.0F;
+    const float name_left = card.x + 20.0F + kEntryIcon + 10.0F;
+    for (std::size_t i = 0; i < shown; ++i) {
+        const fs::Entry& item = archive.top[i];
+        icons.draw(
+            renderer, fs::icon_name(*mime_, item), card.x + 20.0F,
+            y + ((kEntryHeight - kEntryIcon) / 2.0F) - 3.0F, kEntryIcon,
+            (item.is_directory() ? palette.primary : palette.on_surface_variant).with_alpha(fade));
+        float name_room = card.right() - 20.0F - name_left;
+        if (!item.is_directory() && !item.is_link) {
+            const std::string size = format_size(item.size);
+            const float size_width = text_width(renderer, size, 12.0F);
+            renderer.draw_text(size, card.right() - 20.0F - size_width, y + 1.0F, 12.0F,
+                               palette.on_surface_variant.with_alpha(fade));
+            name_room -= size_width + 16.0F;
+        }
+        renderer.draw_text(item.name, name_left, y, 13.0F, palette.on_surface.with_alpha(fade),
+                           std::max(1.0F, name_room), ui::Ellipsis::middle);
+        y += kEntryHeight;
+    }
+    if (left > 0) {
+        draw_centered(renderer, std::format("and {} more", left), card, y + 2.0F, 12.0F,
+                      palette.on_surface_variant.with_alpha(fade));
     }
 }
 

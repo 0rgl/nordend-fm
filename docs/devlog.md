@@ -4,6 +4,46 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-16 — Archives (0.9.0), step 3b: archives you can recognise
+
+**Done**
+- Path bar: inside an archive its step carries the `file-zip` icon (already in the Tabler subset:
+  no new glyph) before its name, and a "read-only" pill in the palette's quiet colours follows the
+  last step; its room is taken before the steps are fitted. The steps at and inside the archive no
+  longer take a drop (`Breadcrumb::path_at`): before, a file dragged onto one went to the transfer
+  and failed there.
+- Status bar inside an archive: "zip archive · read-only · 3 items" (the selection and loading
+  texts get the same start); no free space, nothing asked of `statvfs`.
+- `ArchiveTree::totals()` (`fs::ArchiveTotals`): files (hard links included), folders (made-up ones
+  included), symbolic links, others, bytes once read, encrypted, compressed in a way not read yet;
+  counted over what the tree shows, so entries left out are not counted.
+- `preview::Archive`, a fourth kind of Quick Look content (`Kind::archive`), made by the new
+  `ArchiveProvider` for the families with `shows = "archive"`: format, failure and its words,
+  totals, entries left out, and the first 12 entries at the top (folders first, natural order).
+  `preview::read_archive` uses the same kept tree as browsing.
+- The kept trees now remember the mime database they were typed with: a tree listed untyped (no
+  database) is never handed to a caller that wants icons, and the other way round.
+- Quick Look of an archive from outside: a card with its icon, name and type, then Size (the file),
+  Contains, Unpacked, Encrypted, Not readable yet, Modified; what is wrong in red (the same words
+  as inside: "damaged: …", "2 entries with unsafe names left out"); under a line its first entries
+  with icons and sizes, as many as the window has room for, then "and N more". An archive inside an
+  archive gets the information card (it is not read into memory to be listed).
+- Info pane of an archive file: Contains, Unpacked, Encrypted, Not readable yet under its Size,
+  the problem under the details (`views/src/archive_text` words both the same way).
+- Tests (5 new, 1 changed): the totals over a made-up listing (left out not counted), kept trees
+  per mime database, `read_archive` and the info pane's summary on `basic.zip` (order, types,
+  counts), `aes.zip` counted as encrypted, a fake zip said; Quick Look's archive page and the
+  status bar inside from the Browser; the breadcrumb's steps inside an archive refuse drops (drawn
+  offscreen). The preview test's `.zip` now expects the archive page.
+- Snapshots checked: Quick Look of a zip of two folders, `aes.zip`, the info pane, inside the zip
+  (archive icon, "read-only", status bar).
+
+**Tested by the author** (2026-11-16): Quick Look of basic.zip, aes.zip, bzip2.zip and a fake
+zip, the info pane, the path bar and status bar inside, a drop onto the archive's step refused:
+all as expected.
+
+---
+
 ## 2026-11-15 — Archives (0.9.0), step 3: browsing an archive, Quick Look inside it
 
 **Done**

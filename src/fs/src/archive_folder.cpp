@@ -190,6 +190,30 @@ ArchiveTree::ArchiveTree(archive::Listing listing, std::string_view own_name,
             }
         }
     }
+    // What it holds, as shown.
+    for (const auto& [folder, list] : folders_) {
+        for (const Entry& entry : list) {
+            if (entry.is_directory()) {
+                ++totals_.folders;
+                continue;
+            }
+            if (entry.is_link) {
+                ++totals_.links;
+            } else if (entry.kind == EntryKind::file) {
+                ++totals_.files;
+                totals_.bytes += entry.size;
+            } else {
+                ++totals_.others;
+            }
+            const auto it = by_path_.find(folder.empty() ? entry.name : folder + "/" + entry.name);
+            if (it == by_path_.end()) {
+                continue;
+            }
+            const archive::Unreadable unreadable = entries_[it->second].unreadable;
+            totals_.encrypted += unreadable == archive::Unreadable::encrypted ? 1 : 0;
+            totals_.unsupported += unreadable == archive::Unreadable::method ? 1 : 0;
+        }
+    }
 }
 
 const std::vector<Entry>* ArchiveTree::folder(std::string_view inner) const {
@@ -210,6 +234,7 @@ struct Kept {
     ino_t inode{0};
     off_t size{0};
     std::int64_t mtime_ns{0};
+    const MimeDatabase* mime{nullptr};  // its entries typed with this (none: untyped)
     std::shared_ptr<const ArchiveTree> tree;
 };
 
@@ -233,7 +258,7 @@ std::shared_ptr<const ArchiveTree> archive_tree(const std::filesystem::path& arc
         (static_cast<std::int64_t>(info.st_mtim.tv_sec) * 1'000'000'000) + info.st_mtim.tv_nsec;
     const auto same = [&](const Kept& each) {
         return each.archive == archive && each.device == info.st_dev && each.inode == info.st_ino &&
-               each.size == info.st_size && each.mtime_ns == mtime_ns;
+               each.size == info.st_size && each.mtime_ns == mtime_ns && each.mime == mime;
     };
     {
         const std::scoped_lock lock{kept_mutex};
@@ -249,12 +274,14 @@ std::shared_ptr<const ArchiveTree> archive_tree(const std::filesystem::path& arc
     auto tree = std::make_shared<const ArchiveTree>(archive::list_archive(archive), own_name, mime);
     if (tree->failure() == archive::Failure::none) {
         const std::scoped_lock lock{kept_mutex};
-        std::erase_if(kept, [&](const Kept& each) { return each.archive == archive; });
+        std::erase_if(
+            kept, [&](const Kept& each) { return each.archive == archive && each.mime == mime; });
         kept.push_back({.archive = archive,
                         .device = info.st_dev,
                         .inode = info.st_ino,
                         .size = info.st_size,
                         .mtime_ns = mtime_ns,
+                        .mime = mime,
                         .tree = tree});
         if (kept.size() > kKeptTrees) {
             kept.erase(kept.begin());

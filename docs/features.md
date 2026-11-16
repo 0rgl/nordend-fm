@@ -373,7 +373,11 @@ README's [What's next](../README.md#whats-next).
   by Nordend's own code in the sandboxed engine; folders inside open the same way, and Quick Look
   shows photos and texts from inside it without writing anything to disk. Nothing inside can be
   changed; encrypted entries and compressions not read yet are listed and said; names that would
-  lead outside the archive are left out, and the status bar says how many.
+  lead outside the archive are left out, and the status bar says how many. Inside one, the path
+  bar shows the archive's step with an archive icon and a quiet "read-only" after the last step,
+  and the status bar says "zip archive · read-only · 3 items". From outside, Quick Look shows what
+  an archive holds (files and folders, size unpacked, encrypted entries) and its first entries,
+  folders first; the info pane shows the same counts, short.
 - **Disc images:** Enter (or a double click) on an `.iso` mounts it read-only through udisks2 and
   opens it: Nordend opens the file itself and hands udisks2 the open file, never a path; the
   kernel reads the file system, no parser of Nordend's. It shows among the devices with a disc

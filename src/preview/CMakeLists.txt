@@ -1,4 +1,5 @@
 add_library(nordend_preview
+    src/archive.cpp
     src/info.cpp
     src/providers.cpp
     src/summary.cpp)

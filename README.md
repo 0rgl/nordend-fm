@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.8.1"><img src="https://img.shields.io/badge/release-v0.8.1-2a6a9e" alt="release v0.8.1"></a>
+  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.0"><img src="https://img.shields.io/badge/release-v0.9.0-2a6a9e" alt="release v0.9.0"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Wayland-native-FFBC00?logo=wayland&logoColor=black" alt="Wayland native">
-  <img src="https://img.shields.io/badge/tests-541%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="541 tests, ASan, TSan">
+  <img src="https://img.shields.io/badge/tests-584%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="584 tests, ASan, TSan">
   <a href="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-3DA639" alt="MIT license">
 </p>
@@ -24,12 +24,13 @@
 </p>
 
 > [!NOTE]
-> **Latest update · Nordend 0.8.1**
+> **Latest update · Nordend 0.9.0**
 >
-> A fix: with a text size other than 13 (`[font] size`) or a fractional scale, a name with room
-> to spare (`Downloads` in the path bar) **is drawn whole again** instead of being cut in the
-> middle; from 0rgl's pull request. 0.8.0 brought copying about twice as fast
-> ([Numbers](#numbers)). [Install it](#install).
+> **Archives**: zip, tar and tar.gz open like folders, read by Nordend's own code in its caged
+> helper; Quick Look shows what they hold and the files inside. Extract them with Ctrl+C and
+> Ctrl+V or "Extract Here", safely (nothing can land outside, nothing is overwritten), and make
+> .zip or .tar.gz from the menu. Disc images (`.iso`) mount with Enter. Asked for by veinhusk;
+> an RPM spec for Fedora from 0rgl. [Install it](#install).
 
 ## Contents
 
@@ -53,7 +54,7 @@ animations come from its own renderer.
   the Open and Save dialog of other applications; every action has a key and a click.
 - **Fast.** The first frame in about 75 ms; a raw photo in Quick Look at once, sharp in about
   100 ms. Every figure is measured, with the tool to measure it again ([Numbers](#numbers)).
-- **Light.** A 3.8 MB binary, about 25 MB of memory, no CPU at all while nothing moves.
+- **Light.** A 4.1 MB binary, about 25 MB of memory, no CPU at all while nothing moves.
 - **Safe.** Files that come from outside are read in a small helper process caged by Nordend
   (seccomp and landlock: no files, no network, no programs): a broken or hostile file costs at
   most its preview. Nothing is overwritten without asking, nothing half-copied under a real name.
@@ -98,6 +99,11 @@ animations come from its own renderer.
 - Drag and drop within Nordend and with other apps; rubber-band selection; the system clipboard
 - Actions of your own in the context menu (`[[action]]` in `config.toml`, like Thunar's custom
   actions): a name, a command, and which files they fit
+- Archives: zip, tar, tar.gz and .gz open like folders (read by Nordend's own code in the caged
+  helper), with Quick Look on what they hold and the files inside; extract with
+  <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>Ctrl</kbd>+<kbd>V</kbd> or "Extract Here" (nothing can land
+  outside the folder chosen, nothing is overwritten, archive bombs are asked about); make .zip or
+  .tar.gz from the menu; disc images (`.iso`) mount with <kbd>Enter</kbd>
 - Programs and AppImages start with <kbd>Enter</kbd>; "Allow Running as Program" from the menu,
   asked first when they may not run yet, never a script, and a small dot marks what can run
 
@@ -135,7 +141,7 @@ openSUSE Tumbleweed. Ubuntu 24.04 and Linux Mint 22 cannot build Nordend (their 
 Download it, read it, run it:
 
 ```sh
-curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.8.1/scripts/nordend-setup
+curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.9.0/scripts/nordend-setup
 less nordend-setup
 sh nordend-setup           # asks what to do; or: sh nordend-setup install
 ```
@@ -166,7 +172,7 @@ cp -r /tmp/nordend-fm/packaging/void/nordend srcpkgs/
 sudo xbps-install -R hostdir/binpkgs nordend
 ```
 
-The package is the latest release, **0.8.1**. What `main` gains after it comes with the next
+The package is the latest release, **0.9.0**. What `main` gains after it comes with the next
 release; to have it at once, build from source.
 
 </details>
@@ -238,7 +244,7 @@ command and it shows where things stand and asks what to do, or name the command
 A new release, for example:
 
 ```sh
-nordend-setup check     # ✓ Nordend 0.8.1 is out: nordend-setup update
+nordend-setup check     # ✓ Nordend 0.9.0 is out: nordend-setup update
 nordend-setup update    # builds and installs it; your settings stay
 ```
 
@@ -322,9 +328,9 @@ report), and `--set-file-chooser` / `--unset-file-chooser`.
 
 | | |
 |---|---|
-| Binary | **4.55 MB** (3.78 MB stripped), x86-64; the decoders and text readers in `nordend-preview`, 1.15 MB (1.03 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
+| Binary | **5.00 MB** (4.14 MB stripped), x86-64; the decoders and the text and archive readers in `nordend-preview`, 1.24 MB (1.11 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
 | Libraries | 17 direct (the helper and the service: 8 each); no GTK, no Qt, no GLib |
-| Code | about 59 800 lines of C++20, 22 600 of tests (541 test cases, under ASan and TSan too) |
+| Code | about 65 400 lines of C++20, 24 600 of tests (584 test cases, under ASan and TSan too) |
 | Memory | **25 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
 | Idle | **0 CPU**: nothing is drawn while nothing moves |
 
@@ -366,9 +372,9 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 | Version | What it brought |
 |---|---|
+| [0.9.0](https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.0), 2026-11-16 | Archives: zip, tar and tar.gz browsed like folders by Nordend's own caged reader, Quick Look on them and inside them, extracted safely (Ctrl+C/Ctrl+V, "Extract Here", Enter on a file) and made from the menu; `.iso` images mounted through udisks2; from veinhusk's issue. An RPM spec for Fedora, from 0rgl |
 | [0.8.1](https://github.com/pankaspe/nordend-fm/releases/tag/v0.8.1), 2026-11-15 | A name with room to spare is drawn whole at any text size and scale (it was cut in the middle, `Dow…oads`), from 0rgl's pull request |
 | [0.8.0](https://github.com/pankaspe/nordend-fm/releases/tag/v0.8.0), 2026-11-15 | Copying about twice as fast: a folder's files on eight threads, close to fcp and ahead of `cp`; merging folders asks about each taken file, and Ctrl+Z after it takes away only what was copied; Shift+Escape stops a transfer |
-| [0.7.6](https://github.com/pankaspe/nordend-fm/releases/tag/v0.7.6), 2026-11-15 | Programs and AppImages start with Enter ("Allow and Run" first when they may not run yet, never a script), "Allow Running as Program" in the menu, a dot on what can run, from Evergaster's issue; "Show in Folder" opens Nordend (`nordend --set-file-manager`), from 0rgl's issue |
 
 ## What's next
 
@@ -377,8 +383,8 @@ home on Noctalia, with no GTK or Qt; very light, safe and fast. Everything else 
 top, added only when it keeps those three. Coming, roughly in this order:
 
 - **Network shares** in the sidebar (Samba, SFTP, FTP, WebDAV, through gvfs when it runs)
-- **Previews, one family at a time**: other common formats one by one (SVG, AVIF, fonts,
-  archive contents, audio tags)
+- **Previews, one family at a time**: other common formats one by one (SVG, AVIF, fonts, audio
+  tags); more archive formats (7z, xz, zstd)
 - Colour labels and star ratings of your own, not tied to any raw editor
 - A Quick Look for photographers: 100 % zoom, EXIF, histogram, comparison
 - A dual pane, a queue of operations and batch renaming

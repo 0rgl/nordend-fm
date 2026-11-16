@@ -616,7 +616,7 @@ FileChooser and portals.conf; org.freedesktop.FileManager1.
 
 ## Next
 
-0.8.1 is out (a name with room drawn whole at any text size, from 0rgl's pull request), after 0.8.0 (copying about twice as fast: a folder's files on eight threads, close to fcp and
+0.9.0 is out (archives: zip, tar and tar.gz browsed like folders by Nordend's own caged reader, looked at with Quick Look, extracted safely and made from the menu; `.iso` images mounted; from veinhusk's issue #13; an RPM spec from 0rgl), after 0.8.1 (a name with room drawn whole at any text size, from 0rgl's pull request), after 0.8.0 (copying about twice as fast: a folder's files on eight threads, close to fcp and
 ahead of `cp`; merging folders asks about each taken file, and Ctrl+Z after a merge takes away
 only what was copied; Shift+Escape stops a transfer), after 0.7.6 (programs and AppImages started with Enter, safely, "Allow Running as Program" and
 a dot on what can run, from Evergaster's issue #17; "Show in Folder" opening Nordend, from 0rgl's

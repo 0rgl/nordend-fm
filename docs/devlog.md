@@ -4,6 +4,32 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-16 — Nordend 0.9.0
+
+**Done**
+- Release commit: CMake 0.9.0, `setup_version` 0.9.0, the RPM spec's `Version` 0.9.0 and a
+  `%changelog` line (from this release on, bumped in the release commit), README (badge, note,
+  Features: archives, Install, Numbers, Versions, What's next), CHANGELOG, features.md Next.
+- 0rgl's pull request #22 merged (rebase): `packaging/rpm/nordend.spec`, `nordend.rpmlintrc`,
+  `.github/workflows/rpm.yml` (Fedora 44 and 45, on every push and weekly).
+- Its first run on main failed on Fedora 44 in a test of 0.7.6, not in the archives: "file
+  manager: on the bus…" started the made-up `nordend` twice at once, and each wrote its lines one
+  by one into the same file, mixed; and it checked the file once the last token was there, not
+  every one. Now each start appends its record in one write, the test waits for three records
+  and compares them in any order: 60 runs of 60 under the long fuzz run's load (29 of 30 with the
+  first half of the fix only).
+
+- The long fuzz run before the release: the seven targets for an hour each (`-fork=2`, nice
+  19): archive 29.6 M executions, ljpeg 28.4 M, dng 17.7 M, tiff 17.1 M, picture 0.90 M, text
+  0.67 M, camera 0.55 M; no crash, timeout or out-of-memory.
+
+**Measured** (after rebuilding as 0.9.0): nordend 5.00 MiB (4.14 stripped; 0.8.1: 4.55 / 3.78),
+nordend-preview 1.24 / 1.11, nordend-portal 0.44 / 0.35; `readelf -d | grep -c NEEDED` 17, 8, 8
+(zlib was linked already); about 65 400 lines of C++ and 24 600 of tests, 584 test cases; memory
+the rss log's Anonymous, 25.8 MB (2026-11-16 09:40).
+
+---
+
 ## 2026-11-16 — Archives (0.9.0), step 5: making archives
 
 **Done**

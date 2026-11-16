@@ -11,7 +11,7 @@
 %bcond check 1
 
 Name:           nordend
-Version:        0.8.1
+Version:        0.9.0
 Release:        1%{?dist}
 Summary:        Native Wayland file manager
 
@@ -123,5 +123,8 @@ test -x %{_vpath_builddir}/tests/nordend-tests
 %{_datadir}/dbus-1/services/org.freedesktop.impl.portal.desktop.nordend.service
 
 %changelog
+* Mon Nov 16 2026 pankaspe <7622507+pankaspe@users.noreply.github.com> - 0.9.0-1
+- Archives: zip, tar and tar.gz browsed, extracted and made; .iso images mounted
+
 * Sun Nov 15 2026 0rgl <30941756+0rgl@users.noreply.github.com> - 0.8.1-1
 - First RPM packaging of Nordend

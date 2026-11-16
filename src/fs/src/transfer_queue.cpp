@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "nordend/fs/archive_folder.hpp"
+#include "nordend/fs/compress.hpp"
 #include "nordend/fs/erase.hpp"
 #include "nordend/fs/extract.hpp"
 #include "nordend/fs/trash.hpp"
@@ -151,6 +152,9 @@ void TransferQueue::work() {
                 break;
             case TransferKind::move:
                 result = run_transfer(*request, token, callbacks);
+                break;
+            case TransferKind::compress:
+                result = run_compress(*request, token, callbacks);
                 break;
         }
         loop_.post([this, alive = alive_, request, result = std::move(result)] {

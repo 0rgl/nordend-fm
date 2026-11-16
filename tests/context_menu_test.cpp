@@ -248,24 +248,26 @@ TEST_CASE("context menu: the items for one entry, several, empty space; paste on
     f.select({"a.txt"});
     CHECK(f.press(key(XKB_KEY_Menu)));
     REQUIRE(f.menu().is_open());
-    CHECK(ids(f.menu().items()) ==
-          Names{"open", "open_with", "copy", "cut", "-paste", "rename", "trash", "erase", "sort"});
-    CHECK(f.menu().items()[2].keys == "Ctrl+C");  // from the shortcuts table
-    CHECK(f.menu().items()[6].keys == "Delete");
+    CHECK(ids(f.menu().items()) == Names{"open", "open_with", "compress_zip", "compress_tar",
+                                         "copy", "cut", "-paste", "rename", "trash", "erase",
+                                         "sort"});
+    CHECK(f.menu().items()[4].keys == "Ctrl+C");  // from the shortcuts table
+    CHECK(f.menu().items()[8].keys == "Delete");
     CHECK(f.press(key(XKB_KEY_Escape)));
     CHECK_FALSE(f.menu().is_open());
 
     // Several: no Rename. A folder: Open With and a terminal too.
     f.select({"a.txt", "b.txt"});
     f.browser.open_menu(100, 100, false);
-    CHECK(ids(f.menu().items()) ==
-          Names{"open", "open_with", "copy", "cut", "-paste", "-rename", "trash", "erase", "sort"});
+    CHECK(ids(f.menu().items()) == Names{"open", "open_with", "compress_zip", "compress_tar",
+                                         "copy", "cut", "-paste", "-rename", "trash", "erase",
+                                         "sort"});
     f.menu().close();
     f.select({"sub"});
     CHECK(f.press(key(XKB_KEY_F10, {.shift = true})));
     CHECK(ids(f.menu().items()) == Names{"open", "open_with", "open_tab", "open_terminal",
-                                         "add_bookmark", "copy", "cut", "-paste", "rename", "trash",
-                                         "erase", "sort"});
+                                         "add_bookmark", "compress_zip", "compress_tar", "copy",
+                                         "cut", "-paste", "rename", "trash", "erase", "sort"});
 
     // Copy from the menu; then Paste can be chosen, here and on empty space.
     f.choose("copy");
@@ -312,11 +314,12 @@ TEST_CASE("context menu: config.toml's actions where they fit, grouped, run on t
             where.push_back(directory);
         });
 
-    // Two text files: their action and the group, after a line, before Copy.
+    // Two text files: their action and the group, after a line, before Compress and Copy.
     f.select({"a.txt", "b.txt"});
     f.browser.open_menu(100, 100, false);
-    CHECK(ids(f.menu().items()) == Names{"open", "open_with", "action:0", "actions:Archive", "copy",
-                                         "cut", "-paste", "-rename", "trash", "erase", "sort"});
+    CHECK(ids(f.menu().items()) == Names{"open", "open_with", "action:0", "actions:Archive",
+                                         "compress_zip", "compress_tar", "copy", "cut", "-paste",
+                                         "-rename", "trash", "erase", "sort"});
     CHECK(f.menu().items()[2].separator);
     CHECK(f.menu().items()[2].label == "Edit Text");
     const MenuItem& group = f.menu().items()[3];
@@ -352,8 +355,9 @@ TEST_CASE("context menu: config.toml's actions where they fit, grouped, run on t
     f.browser.set_actions({}, nullptr);
     f.select({"a.txt"});
     f.browser.open_menu(100, 100, false);
-    CHECK(ids(f.menu().items()) ==
-          Names{"open", "open_with", "copy", "cut", "-paste", "rename", "trash", "erase", "sort"});
+    CHECK(ids(f.menu().items()) == Names{"open", "open_with", "compress_zip", "compress_tar",
+                                         "copy", "cut", "-paste", "rename", "trash", "erase",
+                                         "sort"});
 }
 
 TEST_CASE("context menu: Sort By sorts every view, and the folders they open later") {

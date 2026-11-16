@@ -386,6 +386,10 @@ README's [What's next](../README.md#whats-next).
   dropped, links that lead outside left out, encrypted entries said; more than the free space is
   refused, and an archive that unpacks to more than 100 times its size (over 1 GiB) is asked
   about. Shift+Esc stops it, leaving nothing behind.
+  Making archives: "Compress to .zip" or "Compress to .tar.gz" in the menu puts the selection
+  into one archive next to it, named after it and ready to rename; links are kept as links,
+  permissions and times kept, ZIP64 when large; it is written under a hidden name and appears
+  only when complete. Shift+Esc stops it, Ctrl+Z sends it to the trash.
 - **Disc images:** Enter (or a double click) on an `.iso` mounts it read-only through udisks2 and
   opens it: Nordend opens the file itself and hands udisks2 the open file, never a path; the
   kernel reads the file system, no parser of Nordend's. It shows among the devices with a disc

@@ -20,6 +20,7 @@ enum class TransferKind : std::uint8_t {
     restore,      // run_restore (trash.hpp): names are paths in a trash's files/
     erase,        // run_erase (erase.hpp): deleted for good; destination unused
     empty_trash,  // run_erase: names are trashes, everything in them goes
+    compress,     // run_compress (compress.hpp): one archive of the names, in destination
 };
 
 struct TransferRequest {
@@ -43,6 +44,9 @@ struct TransferRequest {
     // A copy out of an archive, for the words people read ("Extracting"); the queue finds out by
     // itself which copies are.
     bool from_archive{false};
+    // compress: the archive's name, and its kind (a zip, else a tar.gz).
+    std::string archive_name{};  // NOLINT(readability-redundant-member-init): as trash_top
+    bool tar_gz{false};
 };
 
 // What to do with an item whose name is taken in the destination.

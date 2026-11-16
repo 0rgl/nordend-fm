@@ -115,7 +115,7 @@ at 2560x1440, 75 Hz (a frame is 13.3 ms).
 
 Details in "Start-up", "Directory loading", "Quick Look" and "Column view scrolling" below.
 
-## Extracting (0.9.0)
+## Archives (0.9.0)
 
 ### 2026-11-16: extracting against tar and unzip
 
@@ -139,6 +139,21 @@ runs each, destination `/home` (NVMe, btrfs), archives made from `/usr/include` 
   writes in the engine one after the other. Per file, about 0.1 ms more than tar (a round trip to
   the engine, openat2, fchmod, futimens): include.tar.gz.
 - `strace -c -f` on firefox.tar.gz: 5835 writes, 3506 preads, 92 openat2, 62 sendmsg/recvmsg.
+
+### 2026-11-16: compressing against tar and 7-Zip
+
+`nordend-transfer --zip NAME` / `--tar-gz NAME` (`run_compress`, zlib level 6, one thread) against
+`tar czf` (gzip -6) and `7z a -tzip -mx=6 -mmt=1` (one thread; `zip` is not installed); warm cache,
+three runs each (the three agreed within 1 % but the first Nordend zip of include, 1.23 s, a cold
+first file), sources `/usr/include` and `/usr/lib/firefox`, archives written to `/home`.
+
+| Source | Nordend zip | Nordend tar.gz | tar czf | 7-Zip zip |
+|---|---|---|---|---|
+| /usr/include (3691 files, 49 MB) | 0.96 s, 11.7 MB | 1.15 s, 9.07 MB | 0.98 s, 9.05 MB | 4.44 s, 14.3 MB |
+| /usr/lib/firefox (30 files, 318 MB) | 11.5 s, 112.6 MB | 11.5 s, 112.6 MB | 11.0 s, 112.7 MB | 25.0 s, 109.3 MB |
+
+- Bound by deflate on one core: Nordend's tar.gz is within 5 % of tar czf, the same size. Many
+  files at once compressed on several threads (a zip's entries are independent) is left for later.
 
 ## Copying (0.8.0)
 

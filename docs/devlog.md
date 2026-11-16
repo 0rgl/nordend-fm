@@ -4,6 +4,56 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-16 — Archives (0.9.0), step 5: making archives
+
+**Done**
+- "Compress to .zip" and "Compress to .tar.gz" in the menu of the selection (or the cursor's
+  entry), not in the trash or inside an archive: one archive next to the items, named after the
+  one item (a file without its extension) or "Archive", "x 2.zip" / "x 2.tar.gz" when taken
+  (`archive_name_for`, the number before the whole ending). Renamed at once when it arrives, as a
+  new folder is. Ctrl+Z sends it to the trash.
+- `fs/compress` (`run_compress`, TransferKind::compress): runs in the transfer queue (progress
+  "Compressing 5 files into “tree.zip” · …", Shift+Esc). Nordend writes it itself, zlib level 6:
+  the files are the user's own, read as a copy reads them, nothing to parse, no engine.
+  - Written into a hidden `.nordend-part-XXXXXXXX` in the destination, renamed with
+    `RENAME_NOREPLACE` only when complete; stopped or failed, it goes.
+  - Folders walked without following links (a stack, not recursion), in name order; symbolic
+    links stored as links; devices, fifos, sockets left out and said; hard links stored as files.
+  - Each file opened `O_NOFOLLOW | O_NONBLOCK`, checked with `fstat` against the walk (same
+    device and inode, a regular file) and read to exactly the size seen: else the archive is not
+    made ("changed while being compressed").
+  - zip: deflate, data descriptors (sizes after the data: one pass), UTF-8 flag when the name is,
+    Unix mode in the external attributes (made by Unix 6.3), the modification time in UTC
+    (extended timestamp 0x5455) besides the DOS one; ZIP64 for files from 4 GiB minus 64 KiB, an
+    offset or directory past 4 GiB, or 65535 entries and more.
+  - tar.gz: ustar headers, pax records (`path`, `linkpath`, `size`, `mtime`) when they do not fit;
+    uid/gid numbers kept, no user or group names; gzip by zlib.
+- `nordend-transfer --zip NAME` / `--tar-gz NAME` (measurements).
+- Tests (6 new, 1 changed: the context menu's items): the names proposed; a zip and a tar.gz of a tree (Unicode, a 120-character name, an
+  empty folder, a link, 0755, a time) read back by the engine, extracted again by Nordend, checked
+  by `unzip -tq` and extracted by GNU tar when installed; names taken ("tree 2.zip", "tree
+  2.tar.gz", nothing replaced); a fifo left out and said; stopped: no archive, no temporary file;
+  a name with '/' refused; 66000 entries make a ZIP64 directory read back whole (and `unzip -tq`);
+  from the Browser, renamed at once.
+- Snapshot checked: the menu with both items.
+
+**Tested by the author** (2026-11-16): a folder with an accented name, a picture, an empty folder
+and a link compressed to .zip and .tar.gz, "Trip 2.zip", Quick Look and browsing of the zip,
+Ctrl+Z, `unzip -tq` and `tar tzf`: all as expected.
+
+**Measured** (benchmarks.md "Archives"): /usr/include 0.96 s (zip) and 1.15 s (tar.gz) against
+tar czf 0.98 s; firefox 318 MB 11.5 s either way against tar czf 11.0 s and 7-Zip (one thread)
+25.0 s; sizes as tar's.
+
+**Decisions**
+- Deflate level 6, everything deflated (no "store if it does not shrink": one pass).
+- No password, no choice of name or level before making it (rename after; config later if asked).
+
+**Open**
+- One thread: a zip's entries could be deflated on several at once.
+
+---
+
 ## 2026-11-16 — Archives (0.9.0), step 4: extracting
 
 **Done**
@@ -75,7 +125,7 @@ inside and Ctrl+V outside with Ctrl+Z, a drag out of pax.tar.gz, Enter opening a
 said encrypted, the 2 GiB tar.gz asked about, cancelled, extracted and stopped with Shift+Esc,
 nothing hidden left behind: all as expected.
 
-**Measured** (benchmarks.md "Extracting"): firefox.tar.gz 318 MB in 1.38 s (tar 1.05 s, gzip -dc
+**Measured** (benchmarks.md "Archives"): firefox.tar.gz 318 MB in 1.38 s (tar 1.05 s, gzip -dc
 alone 1.00 s); firefox.zip 1.38 s (unzip 2.07 s); include.tar.gz 3691 files 0.39 s (tar 0.20 s).
 
 **Decisions**

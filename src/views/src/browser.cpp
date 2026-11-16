@@ -20,6 +20,7 @@
 #include "nordend/core/memory.hpp"
 #include "nordend/engines/engines.hpp"
 #include "nordend/fs/archive_folder.hpp"
+#include "nordend/fs/compress.hpp"
 #include "nordend/fs/erase.hpp"
 #include "nordend/fs/extract.hpp"
 #include "nordend/fs/icon.hpp"
@@ -1107,6 +1108,18 @@ void Browser::transfer_progress(const fs::TransferRequest& request,
                                       emptying ? "Emptying the trash:" : "Deleting",
                                       progress.files_done, progress.files_total);
         }
+    } else if (request.kind == fs::TransferKind::compress) {
+        status.fraction = progress.bytes_total > 0
+                              ? static_cast<float>(static_cast<double>(progress.bytes_done) /
+                                                   static_cast<double>(progress.bytes_total))
+                              : -1.0F;
+        status.text =
+            progress.preparing
+                ? std::format("Getting ready to compress {} {}…", items,
+                              items == 1 ? "item" : "items")
+                : std::format("Compressing {} {} into “{}” · {} of {}", progress.files_total,
+                              progress.files_total == 1 ? "file" : "files", request.archive_name,
+                              format_size(progress.bytes_done), format_size(progress.bytes_total));
     } else if (progress.preparing) {
         status.text = std::format("Getting ready to {} {} {}…", doing(request.from_archive, !copy),
                                   items, items == 1 ? "item" : "items");
@@ -1195,6 +1208,10 @@ void Browser::report_done(const fs::TransferRequest& request, const fs::Transfer
         erase_done(request, result);
         return;
     }
+    if (request.kind == fs::TransferKind::compress) {
+        compress_done(request, result);
+        return;
+    }
     const bool copy = request.kind == fs::TransferKind::copy;
     const bool extract = request.from_archive;
     const std::string_view done = done_word(extract, !copy);
@@ -1222,6 +1239,70 @@ void Browser::report_done(const fs::TransferRequest& request, const fs::Transfer
         folder && folder->path() == request.destination && !result.placed.empty()) {
         folder->expect_names(result.placed);
     }
+}
+
+void Browser::compress_done(const fs::TransferRequest& request, const fs::TransferResult& result) {
+    if (!result.refused.empty()) {
+        show_message(result.refused, true);
+        return;
+    }
+    if (result.cancelled) {
+        show_message("Stopped: no archive made", false);
+        return;
+    }
+    if (result.placed.empty()) {
+        return;
+    }
+    const std::string& name = result.placed.front();
+    const std::size_t files = result.files_done;
+    if (!result.errors.empty()) {
+        show_message(std::format("Made “{}”; {} left out: {}", name, result.errors.size(),
+                                 result.errors.front()),
+                     true);
+    } else {
+        show_message(
+            std::format("Compressed {} {} into “{}”", files, files == 1 ? "file" : "files", name),
+            false);
+    }
+    // Named at once, as a new folder is: when it is in the folder shown.
+    if (const std::shared_ptr<Folder> folder = current_folder();
+        folder && folder->path() == request.destination) {
+        folder->expect_name(name);
+        if (!editor_.active()) {
+            editor_.start(folder, name, false);
+        }
+    }
+}
+
+void Browser::compress(bool tar_gz) {
+    const std::shared_ptr<Folder> folder = current_folder();
+    if (!folder || folder->is_trash() || folder->is_archive()) {
+        return;
+    }
+    std::vector<std::string> names = targets(*folder);
+    if (names.empty()) {
+        return;
+    }
+    bool first_is_folder = false;
+    for (const fs::Entry& entry : folder->entries()) {
+        if (entry.name == names.front()) {
+            first_is_folder = entry.is_directory();
+        }
+    }
+    std::string name = fs::archive_name_for(names, first_is_folder, tar_gz);
+    submit({.kind = fs::TransferKind::compress,
+            .source = folder->path(),
+            .names = std::move(names),
+            .destination = folder->path(),
+            .force_copy = false,
+            .archive_name = std::move(name),
+            .tar_gz = tar_gz},
+           open_batch(Purpose::user, FileOperation::Kind::copy));
+    if (!status_bar_.transfer()) {
+        status_bar_.set_transfer(
+            TransferStatus{.text = "Getting ready to compress…", .fraction = -1.0F});
+    }
+    redraw_();
 }
 
 void Browser::trash_done(const fs::TransferResult& result) {
@@ -1837,6 +1918,8 @@ std::vector<MenuItem> Browser::entry_menu(const std::shared_ptr<Folder>& folder)
         add("running", stop ? "Stop Running as Program" : "Allow Running as Program", "",
             [this, stop] { set_running(!stop); });
     }
+    add("compress_zip", "Compress to .zip", "", [this] { compress(false); }, true);
+    add("compress_tar", "Compress to .tar.gz", "", [this] { compress(true); });
     add("copy", "Copy", keys_for(Command::copy), [this] { take_selection(false); }, true);
     add("cut", "Cut", keys_for(Command::cut), [this] { take_selection(true); });
     add(

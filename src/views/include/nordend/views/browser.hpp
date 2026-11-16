@@ -472,6 +472,10 @@ public:
     // named after it unless the archive holds one item only.
     void extract_here(const std::filesystem::path& archive);
 
+    // "Compress to .zip" / ".tar.gz": the selection (or the cursor's entry) into one archive next
+    // to it, renamed at once when it arrives.
+    void compress(bool tar_gz);
+
     // Where a drop would go now, as the views mark it.
     [[nodiscard]] const DropMark& drop_mark() const noexcept { return drop_mark_; }
 
@@ -695,6 +699,7 @@ private:
     // Goes through the history by direction (-1 back, 1 forward).
     void travel(int direction);
     void trash_done(const fs::TransferResult& result);
+    void compress_done(const fs::TransferRequest& request, const fs::TransferResult& result);
     void restore_done(const fs::TransferResult& result);
     // Pastes files read from the system clipboard (at generation) into destination.
     void paste_files(const std::filesystem::path& destination, const ClipboardFiles& files,

@@ -11,6 +11,8 @@
 // $XDG_DATA_HOME or $HOME. --erase deletes NAMEs for good as Shift+Delete does (ROADMAP 6.4d),
 // sidecars along: compare with time rm -rf. A SOURCE_DIR inside an archive ("x.tar.gz" or
 // "x.zip/docs") extracts, by the engine in its cage as Ctrl+V does (0.9.0): compare with tar x.
+// --zip NAME / --tar-gz NAME compress NAMEs into DESTINATION_DIR/NAME as "Compress" does (0.9.0):
+// compare with zip -r and tar czf.
 #include "nordend/fs/transfer.hpp"
 
 #include <charconv>
@@ -29,6 +31,7 @@
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/engines/engines.hpp"
 #include "nordend/fs/archive_folder.hpp"
+#include "nordend/fs/compress.hpp"
 #include "nordend/fs/erase.hpp"
 #include "nordend/fs/extract.hpp"
 #include "nordend/fs/trash.hpp"
@@ -60,6 +63,10 @@ int main(int argc, char** argv) {
             request.kind = fs::TransferKind::trash;
         } else if (option == "--erase") {
             request.kind = fs::TransferKind::erase;
+        } else if ((option == "--zip" || option == "--tar-gz") && i + 1 < args.size()) {
+            request.kind = fs::TransferKind::compress;
+            request.tar_gz = option == "--tar-gz";
+            request.archive_name = args[++i];
         } else if (option == "--force-copy") {
             request.force_copy = true;
         } else {
@@ -119,6 +126,8 @@ int main(int argc, char** argv) {
             result = fs::run_trash(request, token, callbacks);
         } else if (erase) {
             result = fs::run_erase(request, token, callbacks);
+        } else if (request.kind == fs::TransferKind::compress) {
+            result = fs::run_compress(request, token, callbacks);
         } else if (archive) {
             result = fs::run_extract(request, token, callbacks);
         } else {

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -95,5 +96,30 @@ void set_entry_reader(EntryReader reader);
 [[nodiscard]] Listing list_archive(const std::filesystem::path& archive, const Limits& limits = {});
 [[nodiscard]] Read read_archive_entry(const std::filesystem::path& archive, Format format,
                                       const Entry& entry, int out, std::uint64_t max_bytes);
+
+// Reads of one archive's entries in a row, through one engine process (extracting): entries asked
+// for in the archive's order (by locator) inflate a tar.gz once. One thread at a time.
+class EntrySequence {
+public:
+    EntrySequence() = default;
+    virtual ~EntrySequence() = default;
+    EntrySequence(const EntrySequence&) = delete;
+    EntrySequence& operator=(const EntrySequence&) = delete;
+    EntrySequence(EntrySequence&&) = delete;
+    EntrySequence& operator=(EntrySequence&&) = delete;
+
+    // As read_archive_entry, for the archive the sequence was opened on.
+    [[nodiscard]] virtual Read read(const Entry& entry, int out, std::uint64_t max_bytes) = 0;
+};
+
+// stopped, when set, is asked while a read waits: true ends it (the engine is stopped too).
+using SequenceOpener = std::function<std::unique_ptr<EntrySequence>(
+    const std::filesystem::path& archive, Format format, std::function<bool()> stopped)>;
+
+void set_sequence_opener(SequenceOpener opener);
+
+// Never null: without an opener, each read is a read_archive_entry of its own.
+[[nodiscard]] std::unique_ptr<EntrySequence> open_entry_sequence(
+    const std::filesystem::path& archive, Format format, std::function<bool()> stopped = {});
 
 }  // namespace nordend::archive

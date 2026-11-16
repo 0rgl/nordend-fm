@@ -214,12 +214,18 @@ void answer_archive_list(int socket, int file, const nordend::archive::Limits& l
     }
 }
 
+// Entries asked for one after the other (extracting) go on from where the last one stopped.
+nordend::formats::archive::Sequence& sequence() {
+    static nordend::formats::archive::Sequence kept;
+    return kept;
+}
+
 void answer_archive_read(int socket, int file, int out, const protocol::ArchiveReadRequest& ask) {
     nordend::archive::Format format{};
     const std::optional<nordend::archive::Entry> entry = protocol::decode_archive_read(ask, format);
     nordend::archive::Read read;
     if (entry) {
-        read = nordend::formats::archive::read_entry(file, format, *entry, out, ask.max_bytes);
+        read = sequence().read(file, format, *entry, out, ask.max_bytes);
     } else {
         read.failure = nordend::archive::Failure::unreadable;
         read.detail = "not an entry";
@@ -339,6 +345,7 @@ int main(int argc, char** argv) {
             continue;
         }
         if (ready == 0 && holding) {
+            sequence().forget();  // a second without a read: the extraction is over
             ::malloc_trim(0);
             holding = false;
             idle_left = std::max(idle_left - wait_ms, 0);

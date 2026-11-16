@@ -226,6 +226,25 @@ const archive::Entry* ArchiveTree::entry(std::string_view path) const {
     return it == by_path_.end() ? nullptr : &entries_[it->second];
 }
 
+void ArchiveTree::each_under(
+    std::string_view path,
+    const std::function<void(const std::string& path, const archive::Entry* entry)>& visit) const {
+    const auto under = [&](const std::string& each) {
+        return path.empty() || each == path ||
+               (each.size() > path.size() && each.starts_with(path) && each[path.size()] == '/');
+    };
+    for (const auto& [each, index] : by_path_) {
+        if (under(each)) {
+            visit(each, &entries_[index]);
+        }
+    }
+    for (const auto& [each, list] : folders_) {
+        if (!each.empty() && under(each) && !by_path_.contains(each)) {
+            visit(each, nullptr);
+        }
+    }
+}
+
 namespace {
 
 struct Kept {
@@ -258,7 +277,8 @@ std::shared_ptr<const ArchiveTree> archive_tree(const std::filesystem::path& arc
         (static_cast<std::int64_t>(info.st_mtim.tv_sec) * 1'000'000'000) + info.st_mtim.tv_nsec;
     const auto same = [&](const Kept& each) {
         return each.archive == archive && each.device == info.st_dev && each.inode == info.st_ino &&
-               each.size == info.st_size && each.mtime_ns == mtime_ns && each.mime == mime;
+               each.size == info.st_size && each.mtime_ns == mtime_ns &&
+               (each.mime == mime || mime == nullptr);  // untyped: any will do
     };
     {
         const std::scoped_lock lock{kept_mutex};

@@ -203,7 +203,8 @@ target_link_libraries(nordend-open PRIVATE nordend::core nordend::fs nordend::pl
 # Development tool: the copy and move engine from the command line, timed (ROADMAP 6.3). Not
 # installed.
 add_executable(nordend-transfer src/tools/transfer.cpp)
-target_link_libraries(nordend-transfer PRIVATE nordend::core nordend::fs nordend::warnings)
+target_link_libraries(nordend-transfer
+    PRIVATE nordend::core nordend::fs nordend::engines nordend::isolate nordend::warnings)
 
 # Development tool: JPEG decoding, wuffs against TurboJPEG scaling (ROADMAP 5.2). Not installed;
 # built only when libjpeg-turbo-devel is there.

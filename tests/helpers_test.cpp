@@ -1,5 +1,7 @@
 #include "nordend/isolate/helpers.hpp"
 
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -9,6 +11,7 @@
 #include <fstream>
 #include <future>
 #include <ios>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -18,6 +21,7 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <zlib.h>
 
 #include <doctest/doctest.h>
 
@@ -423,6 +427,102 @@ TEST_CASE("helpers: the helper lists and reads archives in its cage as this proc
     const nordend::archive::Listing text = helpers.list_archive(kData / "blocks.png", {});
     CHECK(text.failure == nordend::archive::Failure::not_archive);
     CHECK(helpers.running() == 1);
+}
+
+TEST_CASE("helpers: a sequence reads a tar.gz's entries in one helper, as this process does") {
+    auto helpers = std::make_shared<isolate::Helpers>(real(2));
+    const fs::path archive = fs::path{NORDEND_TEST_DATA} / "archive" / "pax.tar.gz";
+    const nordend::archive::Listing listing = helpers->list_archive(archive, {});
+    REQUIRE(listing.failure == nordend::archive::Failure::none);
+    const int fd = ::open(archive.c_str(), O_RDONLY | O_CLOEXEC);
+    REQUIRE(fd >= 0);
+    const auto bytes_of = [](int out) {
+        std::string bytes;
+        std::array<char, 4096> buffer{};
+        off_t at = 0;
+        ssize_t got = 0;
+        while ((got = ::pread(out, buffer.data(), buffer.size(), at)) > 0) {
+            bytes.append(buffer.data(), static_cast<std::size_t>(got));
+            at += got;
+        }
+        return bytes;
+    };
+    {
+        const std::unique_ptr<nordend::archive::EntrySequence> sequence =
+            isolate::Helpers::open_sequence(helpers, archive, listing.format);
+        std::size_t files = 0;
+        for (const nordend::archive::Entry& entry : listing.entries) {
+            if (entry.type != nordend::archive::Type::file) {
+                continue;
+            }
+            CAPTURE(entry.path);
+            ++files;
+            const int out_there = ::memfd_create("there", MFD_CLOEXEC);
+            const int out_here = ::memfd_create("here", MFD_CLOEXEC);
+            const nordend::archive::Read there = sequence->read(entry, out_there, 1 << 20);
+            const nordend::archive::Read here =
+                nordend::formats::archive::read_entry(fd, listing.format, entry, out_here, 1 << 20);
+            CHECK(there.failure == nordend::archive::Failure::none);
+            CHECK(there.bytes == here.bytes);
+            CHECK(bytes_of(out_there) == bytes_of(out_here));
+            ::close(out_there);
+            ::close(out_here);
+        }
+        CHECK(files >= 4);
+        CHECK(helpers->running() == 1);  // one helper, taken for the whole sequence
+    }
+    ::close(fd);
+    // Given back: the next request finds it idle.
+    CHECK(helpers->list_archive(archive, {}).failure == nordend::archive::Failure::none);
+    CHECK(helpers->running() == 1);
+}
+
+TEST_CASE("helpers: a sequence's read is stopped mid-entry, the helper with it") {
+    // 4 GiB of zeros once inflated: one 64 MiB gzip member, 64 times over (gzip allows that).
+    std::string member;
+    {
+        z_stream z{};
+        REQUIRE(deflateInit2(&z, 1, Z_DEFLATED, MAX_WBITS + 16, 8, Z_DEFAULT_STRATEGY) == Z_OK);
+        const std::string zeros(std::size_t{64} << 20, '\0');
+        member.resize(deflateBound(&z, static_cast<uLong>(zeros.size())));
+        z.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(zeros.data()));  // NOLINT: zlib
+        z.avail_in = static_cast<uInt>(zeros.size());
+        z.next_out = reinterpret_cast<Bytef*>(member.data());  // NOLINT: zlib's API
+        z.avail_out = static_cast<uInt>(member.size());
+        REQUIRE(deflate(&z, Z_FINISH) == Z_STREAM_END);
+        member.resize(z.total_out);
+        deflateEnd(&z);
+    }
+    const TempDir dir;
+    {
+        std::ofstream out{dir.path / "zeros.gz", std::ios::binary};
+        for (int i = 0; i < 64; ++i) {
+            out.write(member.data(), static_cast<std::streamsize>(member.size()));
+        }
+    }
+    auto helpers = std::make_shared<isolate::Helpers>(real(1));
+    const nordend::archive::Listing listing = helpers->list_archive(dir.path / "zeros.gz", {});
+    REQUIRE(listing.format == nordend::archive::Format::gzip);
+    REQUIRE(listing.entries.size() == 1);
+    std::atomic<bool> stop{false};
+    const std::unique_ptr<nordend::archive::EntrySequence> sequence =
+        isolate::Helpers::open_sequence(helpers, dir.path / "zeros.gz", listing.format,
+                                        [&stop] { return stop.load(); });
+    const int sink = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
+    REQUIRE(sink >= 0);
+    std::thread stopper{[&stop] {
+        std::this_thread::sleep_for(std::chrono::milliseconds{200});
+        stop = true;
+    }};
+    const auto started = std::chrono::steady_clock::now();
+    const nordend::archive::Read read = sequence->read(listing.entries.front(), sink, UINT64_MAX);
+    const auto took = std::chrono::steady_clock::now() - started;
+    stopper.join();
+    ::close(sink);
+    CHECK(read.failure == nordend::archive::Failure::unreadable);
+    CHECK(read.detail == "stopped");
+    CHECK(took < std::chrono::seconds{2});  // inflating it all takes far longer
+    CHECK(helpers->running() == 0);         // stopped: let go of, not given back
 }
 
 TEST_CASE("helpers: an archive's entries travel whole, and nonsense is refused") {

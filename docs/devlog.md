@@ -4,6 +4,96 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-16 — Archives (0.9.0), step 4: extracting
+
+**Done**
+- A copy whose source folder is inside an archive extracts it (`fs/extract`, `run_extract`):
+  TransferQueue sends such copies there (`find_archive` on its thread), so Ctrl+C inside an archive
+  and Ctrl+V anywhere, a drag out of an archive into Nordend, and Ctrl+Z (the extracted items go to
+  the trash) all work as for files. `TransferRequest::from_archive` only picks the words
+  ("Extracting 3 files · …", "Extracted 3 files (5.1 kB)").
+- How it is written, safety first:
+  - the engine only reads; Nordend names and makes every file and folder, all inside a hidden
+    folder of the destination (`.nordend-extract-XXXXXXXX`, 0700), each opened with `openat2`
+    (`RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV`) one part at
+    a time from its parent, files with `O_CREAT | O_EXCL | O_NOFOLLOW`: nothing leads out, not
+    even a link made a moment before;
+  - the names are the tree's (`ArchiveTree::each_under`): `..`, NUL, over-long names left out, a
+    later entry winning as in tar, a folder winning over a file;
+  - only when all is written are the items renamed into the destination with `RENAME_NOREPLACE`,
+    a name taken getting "x 2" (`free_name`); nothing is ever replaced. Stopped (Shift+Esc):
+    nothing is published and the hidden folder goes;
+  - permissions the archive's without setuid, setgid or sticky, readable by the owner (folders
+    also writable and searchable by the owner, set last, deepest first); modification times the
+    archive's;
+  - symbolic links only when relative and, followed from where they are, never above the top item
+    (up and in again is refused too: above the top, the top may be another folder by then); hard
+    links only to a file extracted in the same run (`linkat` without following);
+  - encrypted entries, compressions not read yet, devices and fifos are left out and said;
+  - an entry never yields more than the archive says (the engine's `max_bytes` = its size);
+    refused before anything is written: more than the destination has free; asked (a
+    `Conflict` with a `question`, shown on the confirm card): more than 1 GiB that is more than
+    100 times the archive's size.
+- The engine (`formats::archive::Sequence`): reads in a row go on from where the last stopped, so
+  a tar.gz is inflated once when the entries come in its order (Nordend sorts files by locator);
+  the archive is the same while its device, inode, size and time are (a copy of the descriptor is
+  kept, let go of after a second without a read). No protocol change: the helper answers
+  `archive_read` through it.
+- Nordend's side (`archive::EntrySequence`, `open_entry_sequence`; `Helpers::open_sequence`): one
+  helper is taken for the whole extraction; while a read waits, Shift+Esc is looked at every
+  100 ms and stops the helper with it (a 4 GiB entry stops at once).
+- Enter on files inside an archive: extracted into a new private folder (0700) under
+  `$XDG_CACHE_HOME/nordend/opened`, then opened with their programs from there; folders there
+  older than a day go at the next one. "Extracting “a.txt” to open it…" meanwhile.
+- "Extract Here" in the menu of an archive (outside it): one item at its top comes out as it is;
+  more go into a new folder named after the archive (".zip", ".tar.gz", ".tgz", ".tar", ".gz" taken
+  off; "x 2" when taken). The menu inside an archive: Open, Copy, Sort By.
+- Inside an archive, Ctrl+C offers other programs only the paths as text (no `text/uri-list`: the
+  files are not on disk), and a drag does the same; Ctrl+X, Delete, F2 still say the archive is
+  read-only.
+- Kept trees: asked without a mime database, any kept tree does (extracting needs no types, and a
+  tar.gz is not inflated again just to list it).
+- The engine's time for a gzip file counts what it may inflate to (deflate's 1032:1 at most, found
+  from its first two bytes): a 2 MB tar.gz of 2 GiB of zeros timed out listing at 3 s before.
+- `nordend-transfer` extracts when its source is inside an archive (the engines as in Nordend).
+- Fuzz target `nordend-fuzz-archive` also reads every entry through a `Sequence`; a short run
+  (10 min, `-fork=3`): 18.2 M executions, no crash, timeout or out-of-memory.
+- Tests (9 new, 2 changed): a whole zip into a named folder, "basic 2", "b 2.txt" next to a file of
+  that name, into a folder reached through a link; tar.gz times and modes, setuid dropped, mode 0
+  readable; links (inside kept, absolute, up-and-in, a link to a file not extracted, a file
+  "through" a link made a folder) with nothing outside touched; encrypted left out; refused into an
+  archive or from outside one; cancelled before it starts; Ctrl+C/Ctrl+V and Extract Here (a zip,
+  a .gz) through the Browser; Enter opens from the private folder (0700); `Sequence` in any order
+  and across archives; the real helper's sequence (one helper, given back) and its stop mid-entry
+  (4 GiB of zeros, stopped within 2 s, the helper gone); a typed kept tree serves an untyped ask.
+- Checked by hand: a 2 MB tar.gz of 2 GiB of zeros is asked about (`nordend-transfer` answers no:
+  nothing written, no hidden folder left).
+- Snapshots checked: "Extract Here" in a zip's menu, Open / Copy / Sort By inside one.
+
+**Tested by the author** (2026-11-16): Extract Here (basic.zip twice, notes.txt.gz), Ctrl+C
+inside and Ctrl+V outside with Ctrl+Z, a drag out of pax.tar.gz, Enter opening a file, aes.zip
+said encrypted, the 2 GiB tar.gz asked about, cancelled, extracted and stopped with Shift+Esc,
+nothing hidden left behind: all as expected.
+
+**Measured** (benchmarks.md "Extracting"): firefox.tar.gz 318 MB in 1.38 s (tar 1.05 s, gzip -dc
+alone 1.00 s); firefox.zip 1.38 s (unzip 2.07 s); include.tar.gz 3691 files 0.39 s (tar 0.20 s).
+
+**Decisions**
+- Nordend leads the reads (it asks for entry N with a descriptor it made) rather than the engine
+  asking where to put entry N: the same guarantee (the engine never names a file, never sees a
+  path), no new messages, and a tar.gz still inflated once.
+- A cancelled extraction publishes nothing (unlike a copy, where what is done stays done).
+- "x 2" names always: an extraction never asks about a name taken and never replaces.
+
+**Open**
+- A .gz larger than 4 GiB once inflated cannot be extracted: its trailer gives the size modulo
+  4 GiB, and an entry never yields more than its size.
+- Dragging out of an archive into another program gives it the paths as text only (extracting
+  first, as for Enter, may come later).
+- Files opened from an archive are copies: saving them changes nothing in the archive.
+
+---
+
 ## 2026-11-16 — Archives (0.9.0), step 3b: archives you can recognise
 
 **Done**

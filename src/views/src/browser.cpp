@@ -15,10 +15,13 @@
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 #include "draw_helpers.hpp"
+#include "nordend/archive/archive.hpp"
 #include "nordend/core/file.hpp"
 #include "nordend/core/memory.hpp"
 #include "nordend/engines/engines.hpp"
+#include "nordend/fs/archive_folder.hpp"
 #include "nordend/fs/erase.hpp"
+#include "nordend/fs/extract.hpp"
 #include "nordend/fs/icon.hpp"
 #include "nordend/fs/operations.hpp"
 #include "nordend/fs/places.hpp"
@@ -27,6 +30,28 @@
 
 namespace nordend::views {
 namespace {
+
+// What a transfer does, in its words: "extract", "move" or "copy"; "Extracting"...; "Extracted"...
+std::string_view doing(bool extract, bool move) {
+    if (extract) {
+        return "extract";
+    }
+    return move ? "move" : "copy";
+}
+
+std::string_view doing_now(bool extract, bool move) {
+    if (extract) {
+        return "Extracting";
+    }
+    return move ? "Moving" : "Copying";
+}
+
+std::string_view done_word(bool extract, bool move) {
+    if (extract) {
+        return "Extracted";
+    }
+    return move ? "Moved" : "Copied";
+}
 
 // Back and forward in Nordend's own header (ROADMAP 3⅞).
 constexpr float kNavigationSize = 26.0F;
@@ -374,7 +399,9 @@ void Browser::take_selection(bool cut) {
         return;
     }
     const std::size_t count = names.size();
-    clipboard_ = {.directory = folder->path(), .names = std::move(names), .cut = cut};
+    const bool archive = folder->is_archive();
+    clipboard_ = {
+        .directory = folder->path(), .names = std::move(names), .cut = cut, .archive = archive};
     cut_marks_ = {};
     if (cut) {
         cut_marks_ = {.directory = clipboard_.directory,
@@ -389,11 +416,14 @@ void Browser::take_selection(bool cut) {
         }
         const std::string lines = path_lines(paths);
         std::vector<SystemClipboard::Format> formats{
-            {std::string{kGnomeFiles}, gnome_copied_files(cut, paths)},
-            {std::string{kUriList}, uri_list(paths)},
-            {std::string{kText}, lines},
-            {"UTF8_STRING", lines},
-            {"text/plain", lines}};
+            {std::string{kText}, lines}, {"UTF8_STRING", lines}, {"text/plain", lines}};
+        // Files inside an archive are not on disk: other programs get their paths as text only
+        // (Nordend's own Ctrl+V extracts them).
+        if (!archive) {
+            formats.insert(formats.begin(),
+                           {{std::string{kGnomeFiles}, gnome_copied_files(cut, paths)},
+                            {std::string{kUriList}, uri_list(paths)}});
+        }
         if (cut) {
             formats.emplace_back(std::string{kKdeCut}, "1");
         }
@@ -401,6 +431,10 @@ void Browser::take_selection(bool cut) {
     }
     const std::string items =
         count == 1 ? std::format("“{}”", clipboard_.names.front()) : std::format("{} items", count);
+    if (archive) {
+        show_message(std::format("Ctrl+V extracts {} where you want them", items), false);
+        return;
+    }
     show_message(cut ? std::format("Ctrl+V moves {} where you want them", items)
                      : std::format("Ctrl+V copies {} where you want them", items),
                  false);
@@ -496,11 +530,13 @@ void Browser::paste() {
         return;
     }
     const bool cut = clipboard_.cut;
+    const bool extract = clipboard_.archive;
     submit({.kind = cut ? fs::TransferKind::move : fs::TransferKind::copy,
             .source = clipboard_.directory,
             .names = clipboard_.names,
             .destination = folder->path(),
-            .force_copy = false},
+            .force_copy = false,
+            .from_archive = extract},
            open_batch(Purpose::user, cut ? FileOperation::Kind::move : FileOperation::Kind::copy));
     if (cut) {
         clipboard_ = {};  // moved once: there is nothing left to move
@@ -511,7 +547,7 @@ void Browser::paste() {
     }
     if (!status_bar_.transfer()) {
         status_bar_.set_transfer(TransferStatus{
-            .text = cut ? "Getting ready to move…" : "Getting ready to copy…", .fraction = -1.0F});
+            .text = std::format("Getting ready to {}…", doing(extract, cut)), .fraction = -1.0F});
     }
     redraw_();
 }
@@ -549,7 +585,7 @@ void Browser::paste_files(const std::filesystem::path& destination, const Clipbo
 
 void Browser::transfer_paths(const std::filesystem::path& destination,
                              const std::vector<std::filesystem::path>& paths, bool move,
-                             std::optional<std::uint64_t> empty_clipboard) {
+                             std::optional<std::uint64_t> empty_clipboard, bool from_archive) {
     // One transfer per folder the files are in, one operation for Ctrl+Z.
     const std::uint64_t batch =
         open_batch(Purpose::user, move ? FileOperation::Kind::move : FileOperation::Kind::copy);
@@ -568,12 +604,14 @@ void Browser::transfer_paths(const std::filesystem::path& destination,
                 .source = source,
                 .names = std::move(names),
                 .destination = destination,
-                .force_copy = false},
+                .force_copy = false,
+                .from_archive = from_archive},
                batch, empty_clipboard);
     }
     if (!status_bar_.transfer()) {
-        status_bar_.set_transfer(TransferStatus{
-            .text = move ? "Getting ready to move…" : "Getting ready to copy…", .fraction = -1.0F});
+        status_bar_.set_transfer(
+            TransferStatus{.text = std::format("Getting ready to {}…", doing(from_archive, move)),
+                           .fraction = -1.0F});
     }
     redraw_();
 }
@@ -991,6 +1029,17 @@ void Browser::cancel_transfer() {
 }
 
 void Browser::ask(const fs::Conflict& conflict, std::function<void(fs::Resolution)> answer) {
+    if (!conflict.question.empty()) {
+        // An archive that unpacks to far more than it weighs: asked, never remembered.
+        copy_started_.reset();
+        confirm_.open(
+            std::format("Extract “{}”?", conflict.name), conflict.question, "Extract",
+            [answer = std::move(answer)](bool confirmed) {
+                answer(confirmed ? fs::Resolution::replace : fs::Resolution::cancel);
+            },
+            "Archives made to fill a disk look like this; Shift+Esc stops it.");
+        return;
+    }
     if (for_the_rest_ &&
         (*for_the_rest_ != fs::Resolution::replace ||
          (conflict.directory == conflict.target_directory &&
@@ -1059,8 +1108,8 @@ void Browser::transfer_progress(const fs::TransferRequest& request,
                                       progress.files_done, progress.files_total);
         }
     } else if (progress.preparing) {
-        status.text = std::format("Getting ready to {} {} {}…", copy ? "copy" : "move", items,
-                                  items == 1 ? "item" : "items");
+        status.text = std::format("Getting ready to {} {} {}…", doing(request.from_archive, !copy),
+                                  items, items == 1 ? "item" : "items");
     } else if (progress.bytes_total > 0) {
         const auto now = std::chrono::steady_clock::now();
         if (!copy_started_) {
@@ -1069,8 +1118,8 @@ void Browser::transfer_progress(const fs::TransferRequest& request,
         status.fraction = static_cast<float>(static_cast<double>(progress.bytes_done) /
                                              static_cast<double>(progress.bytes_total));
         status.text =
-            std::format("{} {} {} · {} of {}", copy ? "Copying" : "Moving", progress.files_total,
-                        progress.files_total == 1 ? "file" : "files",
+            std::format("{} {} {} · {} of {}", doing_now(request.from_archive, !copy),
+                        progress.files_total, progress.files_total == 1 ? "file" : "files",
                         format_size(progress.bytes_done), format_size(progress.bytes_total));
         const double seconds = std::chrono::duration<double>(now - copy_started_->time).count();
         if (seconds >= 1.0 && progress.bytes_done > copy_started_->bytes) {
@@ -1147,11 +1196,14 @@ void Browser::report_done(const fs::TransferRequest& request, const fs::Transfer
         return;
     }
     const bool copy = request.kind == fs::TransferKind::copy;
-    const std::string_view done = copy ? "Copied" : "Moved";
+    const bool extract = request.from_archive;
+    const std::string_view done = done_word(extract, !copy);
     const std::size_t files = result.files_done;
     const std::string what = std::format("{} {}", files, files == 1 ? "file" : "files");
     if (!result.refused.empty()) {
         show_message(result.refused, true);
+    } else if (result.cancelled && extract) {
+        show_message("Stopped: nothing extracted", false);
     } else if (result.cancelled) {
         show_message(std::format("Stopped: {} {} so far", what, copy ? "copied" : "moved"), false);
     } else if (!result.errors.empty()) {
@@ -1740,6 +1792,14 @@ std::vector<MenuItem> Browser::entry_menu(const std::shared_ptr<Folder>& folder)
         });
     }
     const std::size_t count = names.size();
+    if (count == 1 && cursor != nullptr && cursor->name == names.front() && !pick_) {
+        fs::Entry typed = *cursor;
+        typed.mime = folder->mime_of(*cursor);
+        if (opens_as_folder(typed)) {
+            add("extract", "Extract Here", "",
+                [this, path = folder->path() / cursor->name] { extract_here(path); });
+        }
+    }
     std::vector<std::filesystem::path> folders;
     for (const fs::Entry& entry : folder->entries()) {
         if (entry.is_directory() && std::ranges::find(names, entry.name) != names.end()) {
@@ -1937,10 +1997,30 @@ void Browser::open_menu(float x, float y, bool keyboard) {
     menu_loaders_.clear();
     std::vector<MenuItem> items;
     if (folder->is_archive()) {
-        show_message(std::string{kArchiveReadOnly}, false);  // its menu comes with extracting
-        return;
-    }
-    if (!targets(*folder).empty()) {
+        if (targets(*folder).empty()) {
+            show_message(std::string{kArchiveReadOnly}, false);
+            return;
+        }
+        // Inside an archive: open, or copy out (Ctrl+V extracts).
+        MenuItem open_item;
+        open_item.id = "open";
+        open_item.label = "Open";
+        open_item.keys = "Enter";
+        open_item.action = [this] {
+            ui::KeyEvent enter;
+            enter.keysym = XKB_KEY_Return;
+            view_key(enter, Clock::now());
+        };
+        items.push_back(std::move(open_item));
+        MenuItem copy_item;
+        copy_item.id = "copy";
+        copy_item.label = "Copy";
+        copy_item.keys = keys_for(Command::copy);
+        copy_item.separator = true;
+        copy_item.action = [this] { take_selection(false); };
+        items.push_back(std::move(copy_item));
+        items.push_back(sort_menu());
+    } else if (!targets(*folder).empty()) {
         items = entry_menu(folder);
     } else if (!folder->is_trash()) {
         items = folder_menu();
@@ -3132,9 +3212,8 @@ std::optional<ViewHit> Browser::view_hit(float x, float y) const {
 void Browser::start_drag(Press press) {
     Folder& folder = *press.hit.folder;
     folder.forget_press();
-    if (folder.is_trash() || folder.is_archive() || !press.hit.entry ||
-        *press.hit.entry >= folder.entries().size()) {
-        return;  // the trash only gives back (Restore); an archive's entries are extracted
+    if (folder.is_trash() || !press.hit.entry || *press.hit.entry >= folder.entries().size()) {
+        return;  // the trash only gives back (Restore)
     }
     const fs::Entry& entry = folder.entries()[*press.hit.entry];
     std::vector<std::string> names = folder.is_selected(entry.name)
@@ -3153,17 +3232,23 @@ void Browser::start_drag(Press press) {
             folders_only = false;
         }
     }
+    const bool archive = folder.is_archive();
     drag_ = Drag{.directory = folder.path(),
                  .names = std::move(names),
                  .icon = std::string{fs::icon_name(folder.mime(), typed)},
-                 .folders_only = folders_only};
+                 .folders_only = folders_only && !archive,  // not to the sidebar
+                 .from_archive = archive};
     // The view lets go of the press: the drag has the pointer now.
     send_pointer(Target::view, {.kind = ui::PointerEvent::Kind::leave}, Clock::now());
     button_held_ = false;
     const std::string lines = path_lines(paths);
-    dnd_.start({{std::string{kUriList}, uri_list(paths)},
-                {std::string{kText}, lines},
-                {"text/plain", lines}});
+    // Out of an archive the files are not on disk: other programs get their paths as text only;
+    // dropped into Nordend they are extracted.
+    std::vector<DragAndDrop::Format> formats{{std::string{kText}, lines}, {"text/plain", lines}};
+    if (!archive) {
+        formats.insert(formats.begin(), {std::string{kUriList}, uri_list(paths)});
+    }
+    dnd_.start(std::move(formats));
     redraw_();
 }
 
@@ -3275,6 +3360,7 @@ void Browser::drop_event(const ui::DropEvent& event) {
     const std::vector<std::string> types = dnd_.types ? dnd_.types() : std::vector<std::string>{};
     const bool files = std::ranges::find(types, kUriList) != types.end();
     std::vector<std::filesystem::path> own;
+    const bool from_archive = drag_ && drag_->from_archive;
     if (drag_) {
         for (const std::string& name : drag_->names) {
             own.push_back(drag_->directory / name);
@@ -3296,7 +3382,13 @@ void Browser::drop_event(const ui::DropEvent& event) {
             if (target && target->bookmark) {
                 add_to_sidebar(std::move(own));
             } else if (target) {
-                drop_paths(target->folder, std::move(own), true, false);
+                if (from_archive && fs::is_trash(target->folder)) {
+                    show_message(std::string{kArchiveReadOnly}, false);
+                } else if (from_archive) {
+                    transfer_paths(target->folder, own, false, std::nullopt, true);
+                } else {
+                    drop_paths(target->folder, std::move(own), true, false);
+                }
             }
             return;
         }
@@ -3645,6 +3737,116 @@ void Browser::mount_place(const fs::Place& place, bool open) {
         });
 }
 
+void Browser::extract_here(const std::filesystem::path& archive) {
+    // Which entries are at its top is the tree's to say: on a worker.
+    ++operations_;
+    pool_.submit(
+        core::Priority::visible,
+        [archive, mime = mime_](const core::CancelToken& /*token*/) {
+            std::vector<std::string> names;
+            const std::shared_ptr<const fs::ArchiveTree> tree =
+                fs::archive_tree(archive, mime.get());
+            if (const std::vector<fs::Entry>* top = tree->folder(""); top != nullptr) {
+                for (const fs::Entry& entry : *top) {
+                    names.push_back(entry.name);
+                }
+            }
+            return std::pair{std::move(names), tree->failure() == archive::Failure::none
+                                                   ? std::string{}
+                                                   : tree->detail()};
+        },
+        [this, alive = alive_, archive](std::pair<std::vector<std::string>, std::string> found) {
+            if (!*alive) {
+                return;
+            }
+            --operations_;
+            auto& [names, problem] = found;
+            if (names.empty()) {
+                show_message(problem.empty() ? std::string{"The archive is empty"}
+                                             : "The archive cannot be read: " + problem,
+                             !problem.empty());
+                return;
+            }
+            // One item: as it is; more: inside a folder named after the archive.
+            std::string into;
+            if (names.size() > 1) {
+                into = archive.filename().string();
+                for (const std::string_view ending : {".tar.gz", ".tgz", ".zip", ".tar", ".gz"}) {
+                    if (into.size() > ending.size() && into.ends_with(ending)) {
+                        into.resize(into.size() - ending.size());
+                        break;
+                    }
+                }
+            }
+            submit({.kind = fs::TransferKind::copy,
+                    .source = archive,
+                    .names = std::move(names),
+                    .destination = archive.parent_path(),
+                    .force_copy = false,
+                    .extract_into = std::move(into),
+                    .from_archive = true},
+                   open_batch(Purpose::user, FileOperation::Kind::copy));
+            if (!status_bar_.transfer()) {
+                status_bar_.set_transfer(
+                    TransferStatus{.text = "Getting ready to extract…", .fraction = -1.0F});
+            }
+            redraw_();
+        });
+}
+
+void Browser::open_from_archive(const Folder& folder, std::vector<fs::Entry> files) {
+    if (files.empty()) {
+        return;
+    }
+    if (!open_) {
+        show_message("Nothing here opens files", false);
+        return;
+    }
+    std::vector<std::string> names;
+    names.reserve(files.size());
+    for (const fs::Entry& file : files) {
+        names.push_back(file.name);
+    }
+    show_message(files.size() == 1 ? std::format("Extracting “{}” to open it…", files.front().name)
+                                   : std::format("Extracting {} files to open them…", files.size()),
+                 false);
+    ++operations_;
+    pool_.submit(
+        core::Priority::visible,
+        [source = folder.path(), names = std::move(names)](const core::CancelToken& token) {
+            return fs::extract_to_open(source, names, token);
+        },
+        [this, alive = alive_, files = std::move(files)](const fs::ExtractedToOpen& extracted) {
+            if (!*alive) {
+                return;
+            }
+            --operations_;
+            const fs::TransferResult& result = extracted.result;
+            if (!result.refused.empty()) {
+                show_message(result.refused, true);
+                return;
+            }
+            std::vector<fs::Entry> opened;
+            for (const fs::Entry& file : files) {
+                if (std::ranges::find(result.placed, file.name) != result.placed.end()) {
+                    opened.push_back(file);
+                }
+            }
+            if (opened.empty()) {
+                show_message(result.errors.empty() ? std::string{"Nothing could be extracted"}
+                                                   : result.errors.front(),
+                             true);
+                return;
+            }
+            if (!result.errors.empty()) {
+                show_message(std::format("{} could not be opened: {}", result.errors.size(),
+                                         result.errors.front()),
+                             true);
+            }
+            open_(extracted.folder, std::move(opened));
+        });
+}
+
 bool Browser::opens_as_folder(const fs::Entry& file) const {
     const fs::MimeId type =
         file.mime != fs::kUnknownMime ? file.mime : mime_->by_name(file.name).mime;
@@ -3948,9 +4150,6 @@ void Browser::run(Command command, Clock::time_point now) {
             case Command::erase:
                 show_message(std::string{kArchiveReadOnly}, false);
                 return;
-            case Command::copy:
-                show_message("Copying out of an archive is not ready yet", false);
-                return;
             case Command::open_terminal:
                 show_message("A terminal cannot open inside an archive", false);
                 return;
@@ -4086,7 +4285,17 @@ bool Browser::open_selection() {
         return true;
     }
     if (folder->is_archive() && !pick_) {
-        show_message("Opening a file inside an archive is not ready yet: Space shows it", false);
+        std::vector<fs::Entry> files;
+        for (const fs::Entry& entry : folder->entries()) {
+            if (!entry.is_directory() &&
+                (folder->is_selected(cursor->name) ? folder->is_selected(entry.name)
+                                                   : entry.name == cursor->name)) {
+                fs::Entry typed = entry;
+                typed.mime = folder->mime_of(entry);
+                files.push_back(std::move(typed));
+            }
+        }
+        open_from_archive(*folder, std::move(files));
         return true;
     }
     // An archive the base engine reads opens as a folder (0.9.0); chosen as a file when picking.

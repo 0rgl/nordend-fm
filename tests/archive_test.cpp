@@ -353,6 +353,50 @@ TEST_CASE("archive: tar from GNU tar, gnu and pax, plain and gzip'd, read alike"
     }
 }
 
+TEST_CASE("archive: reads in a row give what single reads give, in any order") {
+    const std::string bytes = file_bytes(kData / "pax.tar.gz");
+    const Listing listing = list_bytes(bytes);
+    REQUIRE(listing.failure == Failure::none);
+    std::vector<const Entry*> files;
+    for (const Entry& entry : listing.entries) {
+        if (entry.type == Type::file) {
+            files.push_back(&entry);
+        }
+    }
+    REQUIRE(files.size() >= 4);
+    const Memfd archive{bytes};
+    engine::Sequence sequence;
+    const auto read_all = [&] {
+        for (const Entry* entry : files) {
+            CAPTURE(entry->path);
+            const Memfd out{""};
+            const nordend::archive::Read read =
+                sequence.read(archive.fd(), listing.format, *entry, out.fd(), UINT64_MAX);
+            CHECK(read.failure == Failure::none);
+            CHECK(out.bytes() == read_bytes(bytes, listing.format, *entry).bytes);
+        }
+    };
+    read_all();  // in the archive's order: inflated once
+    std::ranges::reverse(files);
+    read_all();  // backwards: from the start each time
+    // Another archive through the same sequence: its own bytes.
+    const std::string other = file_bytes(kData / "gnu.tar");
+    const Listing other_listing = list_bytes(other);
+    const Entry* a = find(other_listing, "./a.txt");
+    REQUIRE(a != nullptr);
+    const Memfd other_archive{other};
+    const Memfd out{""};
+    CHECK(
+        sequence.read(other_archive.fd(), other_listing.format, *a, out.fd(), UINT64_MAX).failure ==
+        Failure::none);
+    CHECK(out.bytes() == "hello from a\n");
+    // More than allowed is refused, as a single read refuses it.
+    const Memfd small{""};
+    CHECK(sequence.read(archive.fd(), listing.format, *files.front(), small.fd(), 1).failure ==
+          Failure::too_large);
+    sequence.forget();
+}
+
 TEST_CASE("archive: a single .gz is one entry, named by its header") {
     const std::string bytes = file_bytes(kData / "notes.txt.gz");
     const Listing listing = list_bytes(bytes);

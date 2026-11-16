@@ -378,6 +378,14 @@ README's [What's next](../README.md#whats-next).
   and the status bar says "zip archive · read-only · 3 items". From outside, Quick Look shows what
   an archive holds (files and folders, size unpacked, encrypted entries) and its first entries,
   folders first; the info pane shows the same counts, short.
+  Extracting: Ctrl+C inside an archive and Ctrl+V anywhere (or a drag into Nordend) extracts,
+  "Extract Here" in an archive's menu puts it next to it (in a folder named after it when it holds
+  more than one item), and Enter on a file inside opens it from a private copy. Nordend makes
+  every file itself in a hidden folder where nothing can lead out (no `..`, no link followed), and
+  moves the items in only when all is written, never over anything ("x 2"); setuid bits are
+  dropped, links that lead outside left out, encrypted entries said; more than the free space is
+  refused, and an archive that unpacks to more than 100 times its size (over 1 GiB) is asked
+  about. Shift+Esc stops it, leaving nothing behind.
 - **Disc images:** Enter (or a double click) on an `.iso` mounts it read-only through udisks2 and
   opens it: Nordend opens the file itself and hands udisks2 the open file, never a path; the
   kernel reads the file system, no parser of Nordend's. It shows among the devices with a disc

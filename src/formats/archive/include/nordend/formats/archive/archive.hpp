@@ -6,6 +6,7 @@
 // entry never yields more bytes than it says it holds.
 
 #include <cstdint>
+#include <memory>
 
 #include "nordend/archive/archive.hpp"
 
@@ -20,5 +21,32 @@ namespace nordend::formats::archive {
 [[nodiscard]] nordend::archive::Read read_entry(int fd, nordend::archive::Format format,
                                                 const nordend::archive::Entry& entry, int out,
                                                 std::uint64_t max_bytes);
+
+// Reads of one archive's entries in a row (extracting): a tar.gz goes on inflating from where the
+// last read stopped when the next entry comes after it, where read_entry inflates it from its
+// start each time. The archive may come as a new descriptor each time: it is the same archive
+// while its device, inode, size and modification time are; a copy of the descriptor is kept until
+// forget() or another archive.
+class Sequence {
+public:
+    Sequence();
+    ~Sequence();
+    Sequence(const Sequence&) = delete;
+    Sequence& operator=(const Sequence&) = delete;
+    Sequence(Sequence&&) = delete;
+    Sequence& operator=(Sequence&&) = delete;
+
+    // As read_entry.
+    [[nodiscard]] nordend::archive::Read read(int fd, nordend::archive::Format format,
+                                              const nordend::archive::Entry& entry, int out,
+                                              std::uint64_t max_bytes);
+
+    // Lets the archive go (its descriptor and the inflater's memory).
+    void forget();
+
+private:
+    struct State;
+    std::unique_ptr<State> state_;
+};
 
 }  // namespace nordend::formats::archive

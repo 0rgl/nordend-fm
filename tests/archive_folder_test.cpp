@@ -26,6 +26,7 @@
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/directory_model.hpp"
 #include "nordend/fs/directory_watcher.hpp"
+#include "nordend/fs/extract.hpp"
 #include "nordend/fs/mime.hpp"
 #include "nordend/preview/preview.hpp"
 #include "nordend/views/browser.hpp"
@@ -193,7 +194,9 @@ TEST_CASE("archive folders: the tree counts what it shows") {
                                                       .unsupported = 1});
 }
 
-TEST_CASE("archive folders: a tree kept untyped is not given where types are asked") {
+TEST_CASE(
+    "archive folders: a tree kept untyped is not given where types are asked; a typed one does "
+    "untyped") {
     TempDir dir;
     fs::copy_file(kArchives / "basic.zip", dir.path / "basic.zip");
     nordend::fs::forget_archive_trees();
@@ -203,6 +206,10 @@ TEST_CASE("archive folders: a tree kept untyped is not given where types are ask
     CHECK(untyped != typed);
     CHECK(nordend::fs::archive_tree(dir.path / "basic.zip", mime.get()) == typed);
     CHECK(nordend::fs::archive_tree(dir.path / "basic.zip", nullptr) == untyped);
+    // Typed first: asked without types, that one does (not listed again).
+    nordend::fs::forget_archive_trees();
+    const auto first = nordend::fs::archive_tree(dir.path / "basic.zip", mime.get());
+    CHECK(nordend::fs::archive_tree(dir.path / "basic.zip", nullptr) == first);
     const std::vector<nordend::fs::Entry>* top = typed->folder("");
     REQUIRE(top != nullptr);
     const auto text = std::ranges::find(*top, "a.txt", &nordend::fs::Entry::name);
@@ -318,12 +325,14 @@ TEST_CASE("archive folders: Enter goes into an archive, where nothing is changed
                                     [] {},   [](nordend::ui::CursorShape /*shape*/) {}};
     browser.set_home_trash(dir.path / "Trash");
     std::vector<std::string> opened;
-    browser.set_open_handler(
-        [&opened](const fs::path& /*directory*/, const std::vector<nordend::fs::Entry>& files) {
-            for (const nordend::fs::Entry& file : files) {
-                opened.push_back(file.name);
-            }
-        });
+    std::optional<fs::path> opened_in;
+    browser.set_open_handler([&opened, &opened_in](const fs::path& directory,
+                                                   const std::vector<nordend::fs::Entry>& files) {
+        opened_in = directory;
+        for (const nordend::fs::Entry& file : files) {
+            opened.push_back(file.name);
+        }
+    });
     const auto settle = [&] { return run_until(loop, [&] { return !browser.loading(); }); };
     const auto press = [&](xkb_keysym_t keysym, nordend::ui::Modifiers modifiers = {}) {
         nordend::ui::KeyEvent event;
@@ -350,12 +359,9 @@ TEST_CASE("archive folders: Enter goes into an archive, where nothing is changed
     CHECK(browser.status_bar().message() == "Nothing inside an archive can be changed");
     press(XKB_KEY_n, {.ctrl = true, .shift = true});
     CHECK(browser.status_bar().message() == "Nothing inside an archive can be changed");
-    press(XKB_KEY_c, {.ctrl = true});
-    CHECK(browser.status_bar().message() == "Copying out of an archive is not ready yet");
     CHECK(fs::file_size(dir.path / "basic.zip") == size_before);
     CHECK(fs::last_write_time(dir.path / "basic.zip") == time_before);
 
-    // A file inside is not handed to another program (it is not on disk).
     const auto cursor = [&] {
         const nordend::fs::Entry* entry = browser.columns().focused_folder()->cursor_entry();
         return entry != nullptr ? entry->name : std::string{};
@@ -364,10 +370,25 @@ TEST_CASE("archive folders: Enter goes into an archive, where nothing is changed
         press(XKB_KEY_Down);
     }
     REQUIRE(cursor() == "a.txt");
+    // Ctrl+C takes it to be extracted; Ctrl+X still may not.
+    press(XKB_KEY_c, {.ctrl = true});
+    CHECK(browser.status_bar().message() == "Ctrl+V extracts “a.txt” where you want them");
+    press(XKB_KEY_x, {.ctrl = true});
+    CHECK(browser.status_bar().message() == "Nothing inside an archive can be changed");
+
+    // Enter: extracted into a private folder first, then handed to another program from there.
     press(XKB_KEY_Return);
-    CHECK(opened.empty());
-    CHECK(browser.status_bar().message() ==
-          "Opening a file inside an archive is not ready yet: Space shows it");
+    REQUIRE(run_until(loop, [&] { return !opened.empty(); }));
+    CHECK(opened == std::vector<std::string>{"a.txt"});
+    REQUIRE(opened_in.has_value());
+    const fs::path extracted = opened_in.value_or(fs::path{}) / "a.txt";
+    CHECK(extracted.parent_path().parent_path() == nordend::fs::opened_files_folder());
+    std::ifstream copy{extracted};
+    std::string line;
+    std::getline(copy, line);
+    CHECK(line == "hello from a");
+    CHECK((fs::status(extracted.parent_path()).permissions() & fs::perms::others_read) ==
+          fs::perms::none);
 
     // Space shows it, read by the engine into memory: its text, as on disk.
     press(XKB_KEY_space);

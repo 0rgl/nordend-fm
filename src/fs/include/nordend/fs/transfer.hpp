@@ -37,6 +37,12 @@ struct TransferRequest {
     // An undo of a move: the destination (where the items came from) is made again when that
     // move took the folder away, emptied by a merge.
     bool make_destination{false};
+    // A copy out of an archive (source inside one): the items go into a new folder of this name
+    // in the destination ("x 2" when taken) instead of straight into it.
+    std::string extract_into{};  // NOLINT(readability-redundant-member-init): as trash_top
+    // A copy out of an archive, for the words people read ("Extracting"); the queue finds out by
+    // itself which copies are.
+    bool from_archive{false};
 };
 
 // What to do with an item whose name is taken in the destination.
@@ -53,6 +59,9 @@ struct Conflict {
     bool directory{false};         // the item is a folder
     bool target_directory{false};  // the name taken is a folder's
     bool merge{true};              // folders may be merged (Replace); not when restoring
+    // Not a name taken: a question before going on (an archive that unpacks to far more than it
+    // weighs); replace answers go on, anything else stops.
+    std::string question{};  // NOLINT(readability-redundant-member-init): as trash_top
 };
 
 struct TransferProgress {
@@ -121,6 +130,9 @@ struct TransferCallbacks {
 [[nodiscard]] TransferResult run_transfer(const TransferRequest& request,
                                           const core::CancelToken& token,
                                           const TransferCallbacks& callbacks);
+
+// "3.4 GB", as the status bar writes sizes (decimal units).
+[[nodiscard]] std::string human_size(std::uint64_t bytes);
 
 // The first free name in directory for name: "P1 2.ORF", "P1 3.ORF"... (a folder: "Trip 2"),
 // with the names its sidecars would take free too.

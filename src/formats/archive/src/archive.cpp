@@ -3,9 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <fcntl.h>
 #include <new>
 #include <span>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 #include "readers.hpp"
@@ -200,6 +203,85 @@ nordend::archive::Read read_entry(int fd, Format format, const Entry& entry, int
         result.failure = problem.failure;
         result.detail = problem.detail;
     } catch (const std::bad_alloc&) {
+        result.failure = Failure::too_large;
+        result.detail = "too large to read";
+    }
+    result.bytes = sink.written();
+    return result;
+}
+
+struct Sequence::State {
+    int fd{-1};
+    dev_t device{0};
+    ino_t inode{0};
+    off_t size{0};
+    timespec mtime{};
+    std::unique_ptr<File> file;
+    std::unique_ptr<Inflater> stream;
+
+    State() = default;
+    State(const State&) = delete;
+    State& operator=(const State&) = delete;
+    State(State&&) = delete;
+    State& operator=(State&&) = delete;
+
+    ~State() {
+        stream.reset();
+        file.reset();
+        if (fd >= 0) {
+            ::close(fd);
+        }
+    }
+
+    [[nodiscard]] bool same(const struct stat& info) const {
+        return fd >= 0 && info.st_dev == device && info.st_ino == inode && info.st_size == size &&
+               info.st_mtim.tv_sec == mtime.tv_sec && info.st_mtim.tv_nsec == mtime.tv_nsec;
+    }
+};
+
+Sequence::Sequence() = default;
+
+Sequence::~Sequence() = default;
+
+void Sequence::forget() { state_.reset(); }
+
+nordend::archive::Read Sequence::read(int fd, Format format, const Entry& entry, int out,
+                                      std::uint64_t max_bytes) {
+    struct stat info{};
+    if (format != Format::tar_gzip || entry.type != Type::file ||
+        entry.unreadable != Unreadable::none || ::fstat(fd, &info) != 0) {
+        return read_entry(fd, format, entry, out, max_bytes);  // read where it is: no stream
+    }
+    nordend::archive::Read result;
+    FdSink sink{out, max_bytes};
+    try {
+        if (!state_ || !state_->same(info) || !state_->stream ||
+            state_->stream->offset() > entry.locator) {
+            state_ = std::make_unique<State>();
+            state_->fd = ::fcntl(fd, F_DUPFD_CLOEXEC, 0);
+            if (state_->fd < 0) {
+                state_.reset();
+                return read_entry(fd, format, entry, out, max_bytes);
+            }
+            state_->device = info.st_dev;
+            state_->inode = info.st_ino;
+            state_->size = info.st_size;
+            state_->mtime = info.st_mtim;
+            state_->file = std::make_unique<File>(state_->fd);
+            state_->stream = std::make_unique<Inflater>(*state_->file, 0, state_->file->size(),
+                                                        Inflater::Wrapping::gzip);
+        }
+        Inflater& stream = *state_->stream;
+        if (!stream.skip(entry.locator - stream.offset())) {
+            damaged("an entry is cut short");
+        }
+        copy(stream, entry.size, sink);
+    } catch (const Problem& problem) {
+        state_.reset();  // where the stream is now is not known: from the start next time
+        result.failure = problem.failure;
+        result.detail = problem.detail;
+    } catch (const std::bad_alloc&) {
+        state_.reset();
         result.failure = Failure::too_large;
         result.detail = "too large to read";
     }

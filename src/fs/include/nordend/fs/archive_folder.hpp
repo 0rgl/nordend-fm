@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -75,6 +76,12 @@ public:
     // names under it, or no such entry.
     [[nodiscard]] const archive::Entry* entry(std::string_view path) const;
 
+    // Each entry the tree shows at path or under it ("" for all), with its clean path, in no
+    // particular order; folders made up from the names under them come with a null entry.
+    void each_under(std::string_view path,
+                    const std::function<void(const std::string& path, const archive::Entry* entry)>&
+                        visit) const;
+
 private:
     archive::Format format_;
     archive::Failure failure_;
@@ -87,8 +94,9 @@ private:
 };
 
 // The tree of the archive file, listed by the engine; the last few are kept while their files are
-// unchanged, each for the mime database it was typed with (blocking: workers only). Never null: a
-// failure is in the tree's failure().
+// unchanged, each for the mime database it was typed with (asked without one, any kept tree will
+// do: extracting needs no types, and a tar.gz is not inflated again to list it) (blocking: workers
+// only). Never null: a failure is in the tree's failure().
 [[nodiscard]] std::shared_ptr<const ArchiveTree> archive_tree(const std::filesystem::path& archive,
                                                               const MimeDatabase* mime);
 

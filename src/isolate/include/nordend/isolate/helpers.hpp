@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -68,6 +69,15 @@ public:
                                                    const archive::Entry& entry, int out,
                                                    std::uint64_t max_bytes);
 
+    // Reads of path's entries in a row, all by one helper, taken until the sequence goes (a
+    // tar.gz is inflated once when the entries come in its order). helpers stays alive as long.
+    // stopped, when set, is asked every kStopCheck while a read waits: true stops the helper.
+    [[nodiscard]] static std::unique_ptr<archive::EntrySequence> open_sequence(
+        std::shared_ptr<Helpers> helpers, const std::filesystem::path& path, archive::Format format,
+        std::function<bool()> stopped = {});
+
+    static constexpr std::chrono::milliseconds kStopCheck{100};
+
     // Helpers started and not yet known to be gone (tests).
     [[nodiscard]] std::size_t running() const;
 
@@ -78,6 +88,7 @@ private:
         std::chrono::steady_clock::time_point idle_since;
     };
     enum class Outcome : std::uint8_t { done, again, failed };
+    class Sequence;
 
     [[nodiscard]] std::optional<Helper> take();
     void give_back(Helper helper);
@@ -87,7 +98,8 @@ private:
     // One request and its reply; again: the helper had left (retry in a new one).
     static Outcome exchange(Helper helper, std::span<const std::byte> request,
                             std::span<const int> fds, protocol::Packet& reply, std::string& why,
-                            std::chrono::milliseconds timeout);
+                            std::chrono::milliseconds timeout,
+                            const std::function<bool()>& stopped = {});
     // The request to a helper (a new one if it had left), its reply handed to accept; false with
     // why when no helper answered in a way accept took.
     bool run(std::span<const std::byte> request, std::span<const int> fds,

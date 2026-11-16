@@ -280,7 +280,8 @@ int Helpers::discard(Helper helper) {
 
 Helpers::Outcome Helpers::exchange(Helper helper, std::span<const std::byte> request,
                                    std::span<const int> fds, protocol::Packet& reply,
-                                   std::string& why, std::chrono::milliseconds timeout) {
+                                   std::string& why, std::chrono::milliseconds timeout,
+                                   const std::function<bool()>& stopped) {
     if (!protocol::send_packet(helper.socket, request, fds)) {
         return Outcome::again;  // it had already left
     }
@@ -290,9 +291,20 @@ Helpers::Outcome Helpers::exchange(Helper helper, std::span<const std::byte> req
     while (true) {
         const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now());
-        ready = ::poll(&watched, 1, static_cast<int>(std::max<std::int64_t>(left.count(), 0)));
+        std::int64_t wait = std::max<std::int64_t>(left.count(), 0);
+        if (stopped) {
+            wait = std::min<std::int64_t>(wait, kStopCheck.count());
+        }
+        ready = ::poll(&watched, 1, static_cast<int>(wait));
         if (ready < 0 && errno == EINTR) {
             continue;
+        }
+        if (ready == 0 && stopped && stopped()) {
+            why = "stopped";
+            return Outcome::failed;  // the helper is let go of, mid-work
+        }
+        if (ready == 0 && wait < left.count()) {
+            continue;  // only a look at stopped
         }
         break;
     }
@@ -507,15 +519,21 @@ namespace {
 
 constexpr std::uint64_t kArchiveBytesPerMs = 40'000;
 constexpr std::uint64_t kArchiveMostMs = std::uint64_t{3600} * 1000;
+constexpr std::uint64_t kDeflateMostRatio = 1032;  // deflate never inflates more than this
 
 // The time an archive's work may take: the usual one, and a second for every 40 MB read (the
-// archive, and more_bytes written), an hour at most.
+// archive, and more_bytes written), an hour at most. A gzip file (its first two bytes) is read
+// as all it may inflate to: a tar.gz of zeros lists 1000 times its size.
 std::chrono::milliseconds archive_timeout(std::chrono::milliseconds usual, int file,
                                           std::uint64_t more_bytes) {
     struct stat info{};
-    const std::uint64_t size = ::fstat(file, &info) == 0 && info.st_size > 0
-                                   ? static_cast<std::uint64_t>(info.st_size)
-                                   : 0;
+    std::uint64_t size = ::fstat(file, &info) == 0 && info.st_size > 0
+                             ? static_cast<std::uint64_t>(info.st_size)
+                             : 0;
+    std::array<unsigned char, 2> magic{};
+    if (::pread(file, magic.data(), magic.size(), 0) == 2 && magic[0] == 0x1F && magic[1] == 0x8B) {
+        size = size > UINT64_MAX / kDeflateMostRatio ? UINT64_MAX : size * kDeflateMostRatio;
+    }
     const std::uint64_t bytes = more_bytes > UINT64_MAX - size ? UINT64_MAX : size + more_bytes;
     return usual + std::chrono::milliseconds{static_cast<std::int64_t>(
                        std::min(bytes / kArchiveBytesPerMs, kArchiveMostMs))};
@@ -587,6 +605,113 @@ archive::Listing Helpers::list_archive(const std::filesystem::path& path,
     return result;
 }
 
+namespace {
+
+// A helper's answer to a read of at most max_bytes, into result; false when it is not one.
+bool accept_read(const protocol::Packet& reply, std::uint64_t max_bytes, archive::Read& result,
+                 std::string& why) {
+    protocol::ArchiveReadResponse response;
+    if (reply.length < sizeof(response)) {
+        why = "the preview helper said something else";
+        return false;
+    }
+    std::memcpy(&response, reply.bytes.data(), sizeof(response));
+    if (response.magic != protocol::kArchiveReadMagic ||
+        reply.length != sizeof(response) + response.detail_length ||
+        response.failure > static_cast<std::uint8_t>(archive::Failure::unreadable) ||
+        response.bytes > max_bytes) {
+        why = "the preview helper said something else";
+        return false;
+    }
+    result.failure = static_cast<archive::Failure>(response.failure);
+    result.bytes = response.bytes;
+    result.detail.assign(reinterpret_cast<const char*>(  // NOLINT: bytes to chars
+                             reply.bytes.data() + sizeof(response)),
+                         response.detail_length);
+    return true;
+}
+
+}  // namespace
+
+class Helpers::Sequence final : public archive::EntrySequence {
+public:
+    Sequence(std::shared_ptr<Helpers> helpers, const std::filesystem::path& path,
+             archive::Format format, std::function<bool()> stopped)
+        : helpers_{std::move(helpers)},
+          stopped_{std::move(stopped)},
+          format_{format},
+          file_{open_regular(path)},
+          error_{file_ < 0 ? errno_text() : std::string{}} {}
+
+    Sequence(const Sequence&) = delete;
+    Sequence& operator=(const Sequence&) = delete;
+    Sequence(Sequence&&) = delete;
+    Sequence& operator=(Sequence&&) = delete;
+
+    ~Sequence() override {
+        if (helper_) {
+            helpers_->give_back(*helper_);
+        }
+        if (file_ >= 0) {
+            ::close(file_);
+        }
+    }
+
+    archive::Read read(const archive::Entry& entry, int out, std::uint64_t max_bytes) override {
+        if (file_ < 0) {
+            return {.failure = archive::Failure::unreadable, .detail = error_, .bytes = 0};
+        }
+        const protocol::ArchiveReadRequest message =
+            protocol::encode_archive_read(format_, entry, max_bytes);
+        const std::array<int, 2> fds{file_, out};
+        const std::chrono::milliseconds timeout =
+            archive_timeout(helpers_->options_.timeout, file_, std::min(entry.size, max_bytes));
+        std::string why = "the preview helper could not start";
+        // Twice at most: a helper that had just left gets the request again in a new one.
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            if (!helper_) {
+                helper_ = helpers_->take();
+                if (!helper_) {
+                    break;
+                }
+            }
+            protocol::Packet reply;
+            Outcome outcome = exchange(*helper_, std::as_bytes(std::span{&message, 1}), fds, reply,
+                                       why, timeout, stopped_);
+            if (outcome == Outcome::done) {
+                archive::Read result;
+                const bool accepted = accept_read(reply, max_bytes, result, why);
+                reply.close_fds();
+                if (accepted) {
+                    return result;
+                }
+                outcome = Outcome::failed;
+            }
+            helpers_->discard(*helper_);
+            helper_.reset();
+            if (outcome == Outcome::failed) {
+                break;
+            }
+        }
+        return {.failure = archive::Failure::unreadable, .detail = std::move(why), .bytes = 0};
+    }
+
+private:
+    std::shared_ptr<Helpers> helpers_;
+    std::function<bool()> stopped_;
+    archive::Format format_;
+    int file_;
+    std::string error_;
+    std::optional<Helper> helper_;  // taken at the first read, given back at the end
+};
+
+std::unique_ptr<archive::EntrySequence> Helpers::open_sequence(std::shared_ptr<Helpers> helpers,
+                                                               const std::filesystem::path& path,
+                                                               archive::Format format,
+                                                               std::function<bool()> stopped) {
+    return std::make_unique<Sequence>(std::move(helpers), path, format, std::move(stopped));
+}
+
 archive::Read Helpers::read_archive_entry(const std::filesystem::path& path, archive::Format format,
                                           const archive::Entry& entry, int out,
                                           std::uint64_t max_bytes) {
@@ -598,25 +723,7 @@ archive::Read Helpers::read_archive_entry(const std::filesystem::path& path, arc
         protocol::encode_archive_read(format, entry, max_bytes);
     archive::Read result;
     const auto accept = [&](protocol::Packet& reply, std::string& why) {
-        protocol::ArchiveReadResponse response;
-        if (reply.length < sizeof(response)) {
-            why = "the preview helper said something else";
-            return false;
-        }
-        std::memcpy(&response, reply.bytes.data(), sizeof(response));
-        if (response.magic != protocol::kArchiveReadMagic ||
-            reply.length != sizeof(response) + response.detail_length ||
-            response.failure > static_cast<std::uint8_t>(archive::Failure::unreadable) ||
-            response.bytes > max_bytes) {
-            why = "the preview helper said something else";
-            return false;
-        }
-        result.failure = static_cast<archive::Failure>(response.failure);
-        result.bytes = response.bytes;
-        result.detail.assign(reinterpret_cast<const char*>(  // NOLINT: bytes to chars
-                                 reply.bytes.data() + sizeof(response)),
-                             response.detail_length);
-        return true;
+        return accept_read(reply, max_bytes, result, why);
     };
     std::string why;
     const std::array<int, 2> fds{file, out};
@@ -682,6 +789,11 @@ void use_engines(const engines::Registry& registry, HelperOptions options) {
                                             archive::Format format, const archive::Entry& entry,
                                             int out, std::uint64_t max_bytes) {
             return helpers->read_archive_entry(path, format, entry, out, max_bytes);
+        });
+        archive::set_sequence_opener([helpers](const std::filesystem::path& path,
+                                               archive::Format format,
+                                               std::function<bool()> stopped) {
+            return Helpers::open_sequence(helpers, path, format, std::move(stopped));
         });
     } else {
         log::warn("no engine reads archives: archives are not opened");

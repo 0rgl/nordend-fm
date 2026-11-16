@@ -7,7 +7,9 @@
 #include <optional>
 #include <utility>
 
+#include "nordend/fs/archive_folder.hpp"
 #include "nordend/fs/erase.hpp"
+#include "nordend/fs/extract.hpp"
 #include "nordend/fs/trash.hpp"
 
 namespace nordend::fs {
@@ -143,6 +145,10 @@ void TransferQueue::work() {
                 result = run_erase(*request, token, callbacks);
                 break;
             case TransferKind::copy:
+                // Out of an archive: extracted (0.9.0).
+                result = find_archive(request->source) ? run_extract(*request, token, callbacks)
+                                                       : run_transfer(*request, token, callbacks);
+                break;
             case TransferKind::move:
                 result = run_transfer(*request, token, callbacks);
                 break;

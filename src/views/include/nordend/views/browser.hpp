@@ -468,6 +468,10 @@ public:
     // Said when something would change an archive's insides.
     static constexpr std::string_view kArchiveReadOnly = "Nothing inside an archive can be changed";
 
+    // "Extract Here" on an archive: its entries into the archive's folder, inside a new folder
+    // named after it unless the archive holds one item only.
+    void extract_here(const std::filesystem::path& archive);
+
     // Where a drop would go now, as the views mark it.
     [[nodiscard]] const DropMark& drop_mark() const noexcept { return drop_mark_; }
 
@@ -673,7 +677,9 @@ private:
     // Copies or moves paths into destination as one operation.
     void transfer_paths(const std::filesystem::path& destination,
                         const std::vector<std::filesystem::path>& paths, bool move,
-                        std::optional<std::uint64_t> empty_clipboard);
+                        std::optional<std::uint64_t> empty_clipboard, bool from_archive = false);
+    // Enter on files inside an archive: extracted into a private folder, then opened.
+    void open_from_archive(const Folder& folder, std::vector<fs::Entry> files);
     void scroll_near_edge();
     // The rubber band: where it runs in the view shown, the selection it makes, the list
     // scrolled under it (on a timer, while the pointer is beyond an edge), the band drawn.
@@ -906,6 +912,7 @@ private:
         std::filesystem::path directory;
         std::vector<std::string> names;
         bool cut{false};
+        bool archive{false};  // inside an archive: Ctrl+V extracts
     };
 
     Clipboard clipboard_;
@@ -957,6 +964,7 @@ private:
         std::vector<std::string> names;
         std::string icon;          // the first entry's
         bool folders_only{false};  // every entry is a folder
+        bool from_archive{false};  // dropped, it is extracted
     };
 
     std::optional<Drag> drag_;

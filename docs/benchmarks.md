@@ -115,6 +115,31 @@ at 2560x1440, 75 Hz (a frame is 13.3 ms).
 
 Details in "Start-up", "Directory loading", "Quick Look" and "Column view scrolling" below.
 
+## Extracting (0.9.0)
+
+### 2026-11-16: extracting against tar and unzip
+
+`nordend-transfer ARCHIVE DEST` (the archive listed before its clock starts, as Nordend has it
+listed once the archive was browsed or looked at; then `run_extract` through the base engine in its
+cage) against `tar xzf` and `unzip -q`, whole-process time with `date +%s%N`; warm cache, three
+runs each, destination `/home` (NVMe, btrfs), archives made from `/usr/include` (3691 files,
+49 MB) and `/usr/lib/firefox` (318 MB in 30 files; zip by 7-Zip `-mx=5`). Output compared with
+`diff -r`: the same.
+
+| Archive | Nordend (extraction) | Reference |
+|---|---|---|
+| include.tar.gz (9.0 MB) | 0.39 s | `tar xzf` 0.20 s (all of it) |
+| firefox.tar.gz (113 MB) | 1.38 s | `tar xzf` 1.05 s; `gzip -dc > /dev/null` alone 1.00 s |
+| firefox.zip (109 MB) | 1.38 s | `unzip -q` 2.07 s |
+
+- A tar.gz is inflated in one pass while extracting (the engine keeps its stream between the
+  entries Nordend asks for in order); listing it is another pass (about 1.0 s for firefox.tar.gz),
+  done when the archive is first browsed, looked at or extracted, then kept.
+- tar runs gzip in a process of its own, inflating and writing at once; Nordend inflates and
+  writes in the engine one after the other. Per file, about 0.1 ms more than tar (a round trip to
+  the engine, openat2, fchmod, futimens): include.tar.gz.
+- `strace -c -f` on firefox.tar.gz: 5835 writes, 3506 preads, 92 openat2, 62 sendmsg/recvmsg.
+
 ## Copying (0.8.0)
 
 ### 2026-11-15 (evening): a folder's files on several threads

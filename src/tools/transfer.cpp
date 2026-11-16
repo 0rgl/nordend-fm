@@ -9,7 +9,8 @@
 // --threads N: how many threads copy a folder's files (default: Nordend's choice).
 // --trash moves NAMEs to the trash as Delete does (ROADMAP 6.4): the real one, from
 // $XDG_DATA_HOME or $HOME. --erase deletes NAMEs for good as Shift+Delete does (ROADMAP 6.4d),
-// sidecars along: compare with time rm -rf.
+// sidecars along: compare with time rm -rf. A SOURCE_DIR inside an archive ("x.tar.gz" or
+// "x.zip/docs") extracts, by the engine in its cage as Ctrl+V does (0.9.0): compare with tar x.
 #include "nordend/fs/transfer.hpp"
 
 #include <charconv>
@@ -17,6 +18,8 @@
 #include <cstdio>
 #include <exception>
 #include <filesystem>
+#include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -24,8 +27,12 @@
 #include <vector>
 
 #include "nordend/core/worker_pool.hpp"
+#include "nordend/engines/engines.hpp"
+#include "nordend/fs/archive_folder.hpp"
 #include "nordend/fs/erase.hpp"
+#include "nordend/fs/extract.hpp"
 #include "nordend/fs/trash.hpp"
+#include "nordend/isolate/helpers.hpp"
 
 namespace fs = nordend::fs;
 
@@ -81,7 +88,23 @@ int main(int argc, char** argv) {
         request.source = positional[0];
         request.destination = positional[1];
         request.names.assign(positional.begin() + 2, positional.end());
-        if (request.names.empty()) {
+        const std::optional<fs::ArchiveLocation> archive = fs::find_archive(request.source);
+        if (archive) {
+            // The engines read it, as in Nordend; the names default to the folder's in it.
+            auto registry =
+                std::make_shared<const nordend::engines::Registry>(nordend::engines::Registry::load(
+                    nordend::engines::default_directory(), nordend::engines::locate_program));
+            nordend::isolate::use_engines(*registry);
+            nordend::engines::set_installed(std::move(registry));
+            if (request.names.empty()) {
+                const auto tree = fs::archive_tree(archive->archive, nullptr);
+                if (const auto* entries = tree->folder(archive->inner); entries != nullptr) {
+                    for (const fs::Entry& entry : *entries) {
+                        request.names.push_back(entry.name);
+                    }
+                }
+            }
+        } else if (request.names.empty()) {
             for (const auto& entry : std::filesystem::directory_iterator{request.source}) {
                 request.names.push_back(entry.path().filename().string());
             }
@@ -96,6 +119,8 @@ int main(int argc, char** argv) {
             result = fs::run_trash(request, token, callbacks);
         } else if (erase) {
             result = fs::run_erase(request, token, callbacks);
+        } else if (archive) {
+            result = fs::run_extract(request, token, callbacks);
         } else {
             result = fs::run_transfer(request, token, callbacks);
         }

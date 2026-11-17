@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -13,6 +12,7 @@
 #include <sdbus-c++/sdbus-c++.h>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -75,14 +75,17 @@ TEST_CASE("file manager: the arguments for nordend, local files only, in their o
 
 namespace {
 
-// The made-up nordend's records written so far: one "token=" line each.
-std::size_t count_records(const std::string& calls) {
-    std::size_t count = 0;
-    for (std::size_t at = calls.find("token="); at != std::string::npos;
-         at = calls.find("token=", at + 1)) {
-        ++count;
+// The records the made-up nordend has written to the end (the "token=" line comes last), sorted.
+std::vector<std::string> finished_records(const std::filesystem::path& calls) {
+    std::vector<std::string> records;
+    for (const auto& entry : std::filesystem::directory_iterator{calls}) {
+        std::string record = read_file(entry.path());
+        if (record.find("token=") != std::string::npos && record.ends_with('\n')) {
+            records.push_back(std::move(record));
+        }
     }
-    return count;
+    std::ranges::sort(records);
+    return records;
 }
 
 }  // namespace
@@ -95,13 +98,17 @@ TEST_CASE("file manager: on the bus, each call answers at once and starts norden
         MESSAGE("no dbus-daemon: skipped");
         return;
     }
-    // The made-up nordend: its arguments and its activation token, one line each, appended in one
-    // write (two started at once must not mix their lines; which comes first is not known).
+    // The made-up nordend: its arguments and its activation token, one line each, in a file of its
+    // own named by its pid, so two started at once can't mix their lines (bash, /bin/sh on some
+    // systems, writes them one at a time).
+    const std::filesystem::path calls = dir.path / "calls";
+    std::filesystem::create_directory(calls);
     const std::filesystem::path program = dir.path / "nordend";
     {
         std::ofstream out{program};
-        out << "#!/bin/sh\nrecord=$(printf '%s\\n' \"$@\"; echo \"token=$XDG_ACTIVATION_TOKEN\")\n"
-            << R"(printf '%s\n' "$record" >> ')" << (dir.path / "calls").string() << "'\n";
+        out << R"(#!/bin/sh
+printf '%s\n' "$@" "token=$XDG_ACTIVATION_TOKEN" > ')"
+            << calls.string() << "'/$$\n";
     }
     std::filesystem::permissions(program, std::filesystem::perms::owner_all);
 
@@ -143,25 +150,15 @@ TEST_CASE("file manager: on the bus, each call answers at once and starts norden
     REQUIRE(run_until(loop, [&] {
         return folders->has_value() && properties->has_value() && nothing->has_value() &&
                manager.started() == 3 &&
-               count_records(read_file(dir.path / "calls")) == 3;  // every start has written
+               finished_records(calls).size() == 3;  // every start has written
     }));
     CHECK(nothing->value_or(false));  // answered, nothing started
     // Each start's record (ending with its token), in whichever order they came.
-    std::vector<std::string> records;
-    const std::string calls = read_file(dir.path / "calls");
-    for (std::size_t at = 0; at < calls.size();) {
-        const std::size_t token = calls.find("token=", at);
-        const std::size_t end = token == std::string::npos ? calls.size() : calls.find('\n', token);
-        const std::size_t stop = end == std::string::npos ? calls.size() : end + 1;
-        records.push_back(calls.substr(at, stop - at));
-        at = stop;
-    }
-    std::ranges::sort(records);
     std::vector<std::string> expected{"--reveal\n--\n/tmp/a b.zip\ntoken=TOKEN-1\n",
                                       "--\n/tmp\ntoken=\n",
                                       "--properties\n--\n/etc/hostname\ntoken=TOKEN-2\n"};
     std::ranges::sort(expected);
-    CHECK(records == expected);
+    CHECK(finished_records(calls) == expected);
     CHECK_FALSE(idle);
     REQUIRE(run_until(loop, [&] { return idle; }));  // and gone when nothing more is asked
 }

@@ -737,7 +737,12 @@ private:
     // A change of permissions done (the user's, an undo or a redo): recorded and said.
     void modes_done(const fs::ModeResult& result, Purpose purpose);
     void report_done(const fs::TransferRequest& request, const fs::TransferResult& result);
-    // Ctrl+V in the name's field: the clipboard's text.
+    // Ctrl+C, Ctrl+X and Ctrl+V for the text field that has the keyboard, found in take_key()'s
+    // order: the palette's, a name being edited, a bookmark's label, the save bar's name. With
+    // nothing selected Ctrl+C and Ctrl+X do nothing but are still the field's, never the files'.
+    // false for other keys.
+    bool text_field_key(const ui::KeyEvent& event);
+    // Ctrl+V in a text field: the clipboard's text, into the field that has the keyboard.
     void paste_text();
     // "Open With…" in the palette: the palette again, with the applications for the cursor's entry.
     void open_with_palette();

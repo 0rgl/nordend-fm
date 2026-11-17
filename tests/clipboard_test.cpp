@@ -354,3 +354,120 @@ TEST_CASE("clipboard: Ctrl+V in a name's field pastes the text's first line") {
     CHECK(f.browser.name_editor().field().text() == "P2.ORF");
     CHECK(f.press(key(XKB_KEY_Escape)));
 }
+
+TEST_CASE("clipboard: Ctrl+C and Ctrl+X in a name's field copy and cut its selection as text") {
+    Fixture f;
+    f.show(f.root / "photos", "P2.ORF");
+    CHECK(f.press(key(XKB_KEY_x, {.ctrl = true})));
+    REQUIRE_FALSE(f.browser.cut_marks().names.empty());
+    CHECK(f.press(key(XKB_KEY_F2)));
+    const nordend::ui::TextField& field = f.browser.name_editor().field();
+
+    // F2 selects the name without its extension: Ctrl+C offers it as text, not the file.
+    CHECK(f.press(key(XKB_KEY_c, {.ctrl = true})));
+    CHECK(f.clipboard.ours);
+    CHECK(f.clipboard.data(views::kText) == "P2");
+    CHECK(f.clipboard.data("UTF8_STRING") == "P2");
+    CHECK(f.clipboard.data("text/plain") == "P2");
+    CHECK(f.clipboard.data(views::kGnomeFiles).empty());
+    CHECK(f.browser.cut_marks().names.empty());
+    CHECK(f.browser.status_bar().message() == "Copied 2 characters");
+    CHECK(field.text() == "P2.ORF");
+
+    // Ctrl+X takes it out; one Ctrl+Z brings it back.
+    CHECK(f.press(key(XKB_KEY_x, {.ctrl = true})));
+    CHECK(field.text() == ".ORF");
+    CHECK(f.clipboard.data(views::kText) == "P2");
+    CHECK(f.press(key(XKB_KEY_z, {.ctrl = true})));
+    CHECK(field.text() == "P2.ORF");
+
+    // Nothing selected: the keys are the field's all the same, and nothing changes.
+    CHECK(f.press(key(XKB_KEY_End)));
+    f.clipboard.copy_from_elsewhere({{"text/plain", "kept"}});
+    CHECK(f.press(key(XKB_KEY_c, {.ctrl = true})));
+    CHECK(f.press(key(XKB_KEY_x, {.ctrl = true})));
+    CHECK_FALSE(f.clipboard.ours);
+    CHECK(f.clipboard.data("text/plain") == "kept");
+    CHECK(field.text() == "P2.ORF");
+
+    // What was cut pastes back.
+    CHECK(f.press(key(XKB_KEY_a, {.ctrl = true})));
+    CHECK(f.press(key(XKB_KEY_x, {.ctrl = true})));
+    CHECK(field.text().empty());
+    CHECK(f.press(key(XKB_KEY_v, {.ctrl = true})));
+    REQUIRE(f.settle());
+    CHECK(field.text() == "P2.ORF");
+    CHECK(f.press(key(XKB_KEY_Escape)));
+}
+
+TEST_CASE("clipboard: while a rename is on its way Ctrl+X leaves the name, Ctrl+C still copies") {
+    Fixture f;
+    f.show(f.root / "photos", "P2.ORF");
+    CHECK(f.press(key(XKB_KEY_F2)));
+    f.browser.name_editor().paste("P3");
+    const nordend::ui::TextField& field = f.browser.name_editor().field();
+    REQUIRE(field.text() == "P3.ORF");
+    CHECK(f.press(key(XKB_KEY_Home, {.shift = true})));
+    CHECK(f.press(key(XKB_KEY_Return)));
+    REQUIRE(f.browser.name_editor().busy());
+
+    CHECK(f.press(key(XKB_KEY_x, {.ctrl = true})));
+    CHECK(field.text() == "P3.ORF");
+    CHECK_FALSE(f.clipboard.ours);
+    CHECK(f.press(key(XKB_KEY_c, {.ctrl = true})));
+    CHECK(f.clipboard.data(views::kText) == "P3");
+    REQUIRE(f.settle());
+    CHECK(listing(f.root / "photos") == Names{"P1.ORF", "P1.ORF.xmp", "P3.ORF"});
+}
+
+TEST_CASE(
+    "clipboard: in the save bar's name Ctrl+C and Ctrl+X take its text, never the file under the "
+    "cursor") {
+    Fixture f;
+    Browser::Pick options;
+    options.save = true;
+    options.name = "caffè.jpg";
+    f.browser.set_pick(std::move(options), [](auto&&...) {}, [] {});
+    f.show(f.root / "photos", "P2.ORF");
+    REQUIRE(f.browser.pick_bar().name_focused());
+
+    // The stem is selected.
+    CHECK(f.press(key(XKB_KEY_c, {.ctrl = true})));
+    CHECK(f.clipboard.data(views::kText) == "caffè");
+    CHECK(f.clipboard.data(views::kGnomeFiles).empty());
+    CHECK(f.browser.status_bar().message() == "Copied 5 characters");
+    CHECK(f.browser.cut_marks().names.empty());
+    CHECK(f.press(key(XKB_KEY_x, {.ctrl = true})));
+    CHECK(f.browser.pick_bar().name() == ".jpg");
+    CHECK(f.browser.cut_marks().names.empty());
+
+    // Nothing selected: still the field's keys, the file left alone.
+    CHECK(f.press(key(XKB_KEY_End)));
+    f.clipboard.copy_from_elsewhere({{"text/plain", "kept"}});
+    CHECK(f.press(key(XKB_KEY_c, {.ctrl = true})));
+    CHECK(f.press(key(XKB_KEY_x, {.ctrl = true})));
+    CHECK(f.clipboard.data("text/plain") == "kept");
+    CHECK(f.clipboard.data(views::kGnomeFiles).empty());
+    CHECK(f.browser.cut_marks().names.empty());
+    CHECK(f.browser.pick_bar().name() == ".jpg");
+}
+
+TEST_CASE("clipboard: a new folder's name made from the save bar takes Ctrl+V, not the save bar") {
+    Fixture f;
+    Browser::Pick options;
+    options.save = true;
+    options.name = "caffè.jpg";
+    f.browser.set_pick(std::move(options), [](auto&&...) {}, [] {});
+    f.show(f.root / "photos", "P2.ORF");
+    CHECK(f.press(key(XKB_KEY_N, {.ctrl = true, .shift = true})));
+    REQUIRE(f.settle());
+    REQUIRE(f.browser.name_editor().active());
+    REQUIRE(f.browser.pick_bar().name_focused());  // the save bar keeps its focus meanwhile
+
+    f.clipboard.copy_from_elsewhere({{"text/plain", "Trip"}});
+    CHECK(f.press(key(XKB_KEY_v, {.ctrl = true})));
+    REQUIRE(f.settle());
+    CHECK(f.browser.name_editor().field().text() == "Trip");
+    CHECK(f.browser.pick_bar().name() == "caffè.jpg");
+    CHECK(f.press(key(XKB_KEY_Escape)));
+}

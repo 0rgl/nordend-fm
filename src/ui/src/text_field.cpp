@@ -141,6 +141,11 @@ std::pair<std::size_t, std::size_t> TextField::selection() const noexcept {
     return {std::min(caret_, anchor_), std::max(caret_, anchor_)};
 }
 
+std::string TextField::selected_text() const {
+    const auto [first, last] = selection();
+    return text_.substr(first, last - first);
+}
+
 void TextField::move_to(std::size_t at, bool extend) {
     last_edit_ = Edit::other;  // typing after a move is a new edit
     caret_ = at;
@@ -161,6 +166,17 @@ void TextField::insert(std::string_view text) {
     text_.replace(first, last - first, text);
     caret_ = first + text.size();
     anchor_ = caret_;
+}
+
+std::string TextField::cut() {
+    const auto [first, last] = selection();
+    if (first == last) {
+        return {};
+    }
+    std::string taken = text_.substr(first, last - first);
+    remember(Edit::other);
+    erase(first, last);
+    return taken;
 }
 
 bool TextField::key(const KeyEvent& event) {

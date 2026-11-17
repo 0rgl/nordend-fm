@@ -149,6 +149,18 @@ void CommandPalette::paste(std::string_view text) {
     redraw_();
 }
 
+std::string CommandPalette::cut() {
+    if (!open_) {
+        return {};
+    }
+    std::string text = field_.cut();
+    if (!text.empty()) {
+        filter();
+        redraw_();
+    }
+    return text;
+}
+
 void CommandPalette::filter() {
     if (query_changed_) {
         moved_ = false;

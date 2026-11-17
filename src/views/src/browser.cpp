@@ -636,18 +636,47 @@ void Browser::paste_text() {
                          if (!text) {
                              return;
                          }
+                         // Into the field that has the keyboard, in take_key()'s order.
                          if (palette_.is_open()) {
                              palette_.paste(*text);
-                         } else if (pick_bar_.name_focused()) {
-                             pick_bar_.paste(*text);
+                         } else if (editor_.active()) {
+                             editor_.paste(*text);
                          } else if (sidebar_.renaming()) {
                              sidebar_.paste(*text);
                          } else {
-                             editor_.paste(*text);
+                             pick_bar_.paste(*text);  // nothing unless its name has the keyboard
                          }
                      });
         return;
     }
+}
+
+bool Browser::text_field_key(const ui::KeyEvent& event) {
+    if (event.modifiers != ui::Modifiers{.ctrl = true}) {
+        return false;
+    }
+    if (event.keysym == XKB_KEY_v || event.keysym == XKB_KEY_V) {
+        paste_text();
+        return true;
+    }
+    const bool cut = event.keysym == XKB_KEY_x || event.keysym == XKB_KEY_X;
+    if (!cut && event.keysym != XKB_KEY_c && event.keysym != XKB_KEY_C) {
+        return false;
+    }
+    std::string text;
+    if (palette_.is_open()) {
+        text = cut ? palette_.cut() : palette_.field().selected_text();
+    } else if (editor_.active()) {
+        text = cut ? editor_.cut() : editor_.field().selected_text();
+    } else if (sidebar_.renaming()) {
+        text = cut ? sidebar_.cut() : sidebar_.field().selected_text();
+    } else if (pick_bar_.name_focused()) {
+        text = cut ? pick_bar_.cut() : pick_bar_.field().selected_text();
+    }
+    if (!text.empty()) {
+        copy_text(std::move(text));
+    }
+    return true;
 }
 
 void Browser::clipboard_lost() {
@@ -4072,10 +4101,7 @@ bool Browser::take_key(const ui::KeyEvent& event, Clock::time_point now) {
             } else if (command == Command::command_palette && files) {
                 open_palette();
             }
-        } else if (event.modifiers == ui::Modifiers{.ctrl = true} &&
-                   (event.keysym == XKB_KEY_v || event.keysym == XKB_KEY_V)) {
-            paste_text();
-        } else {
+        } else if (!text_field_key(event)) {
             palette_.key(event);  // every key is the palette's meanwhile
         }
         return true;
@@ -4084,17 +4110,13 @@ bool Browser::take_key(const ui::KeyEvent& event, Clock::time_point now) {
         return menu_.key(event);  // every key is the menu's meanwhile
     }
     if (editor_.active()) {
-        if (event.modifiers == ui::Modifiers{.ctrl = true} &&
-            (event.keysym == XKB_KEY_v || event.keysym == XKB_KEY_V)) {
-            paste_text();
+        if (text_field_key(event)) {
             return true;
         }
         return editor_.key(event);  // every key is the name's meanwhile
     }
     if (sidebar_.renaming()) {
-        if (event.modifiers == ui::Modifiers{.ctrl = true} &&
-            (event.keysym == XKB_KEY_v || event.keysym == XKB_KEY_V)) {
-            paste_text();
+        if (text_field_key(event)) {
             return true;
         }
         return sidebar_.rename_key(event);  // every key is the bookmark's label meanwhile
@@ -4168,9 +4190,7 @@ bool Browser::take_key(const ui::KeyEvent& event, Clock::time_point now) {
             accept_pick();
             return true;
         }
-        if (event.modifiers == ui::Modifiers{.ctrl = true} &&
-            (event.keysym == XKB_KEY_v || event.keysym == XKB_KEY_V)) {
-            paste_text();
+        if (text_field_key(event)) {
             return true;
         }
         if (pick_bar_.name_key(event)) {

@@ -71,6 +71,12 @@ public:
     // Text pasted into the name field (the first line).
     void paste(std::string_view text);
 
+    // The name field (saving).
+    [[nodiscard]] const ui::TextField& field() const noexcept { return field_; }
+
+    // The selected text, taken out of the name field.
+    std::string cut();
+
     void draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::Palette& palette,
               ui::IconSet& icons);
 

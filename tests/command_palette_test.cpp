@@ -25,6 +25,7 @@
 #include "nordend/fs/places.hpp"
 #include "nordend/ui/seat.hpp"
 #include "nordend/views/browser.hpp"
+#include "nordend/views/file_clipboard.hpp"
 #include "nordend/views/fuzzy.hpp"
 #include "nordend/views/shortcuts.hpp"
 #include "nordend/views/state.hpp"
@@ -42,6 +43,7 @@ using nordend::views::fuzzy_positions;
 using nordend::views::fuzzy_score;
 using nordend::views::PaletteItem;
 using nordend::views::State;
+using nordend::views::SystemClipboard;
 using namespace std::chrono_literals;
 namespace fs = std::filesystem;
 
@@ -205,6 +207,20 @@ TEST_CASE("palette: arrows move within the list, Enter runs and closes, Escape c
     CHECK(labels(palette).front() == "Three");
 }
 
+TEST_CASE("palette: the selection cut out of the query, the list filters again") {
+    CommandPalette palette{[] {}};
+    palette.open(plain_items({"One", "Two", "Three", "Four", "Five", "Six"}), {}, "");
+    palette.set_query("zzz");
+    CHECK(palette.shown().empty());
+    CHECK(palette.cut().empty());  // nothing selected
+    CHECK(palette.query() == "zzz");
+    palette.key(key(XKB_KEY_a, kCtrl));
+    CHECK(palette.field().selected_text() == "zzz");
+    CHECK(palette.cut() == "zzz");
+    CHECK(palette.query().empty());
+    CHECK(palette.shown().size() == 6);
+}
+
 TEST_CASE("palette: filtering 500 items takes well under a millisecond a key") {
     std::vector<std::string> names;
     names.reserve(500);
@@ -296,6 +312,31 @@ TEST_CASE("palette in the browser: Ctrl+K opens and closes it, and it takes ever
     REQUIRE(f.browser.context_menu().is_open());
     f.browser.open_palette();
     CHECK_FALSE(f.browser.context_menu().is_open());
+    CHECK(f.browser.command_palette().is_open());
+}
+
+TEST_CASE("palette in the browser: Ctrl+C and Ctrl+X take the query's selection as text") {
+    Fixture f;
+    std::vector<SystemClipboard::Format> offered;
+    SystemClipboard clipboard;
+    clipboard.offer = [&](std::vector<SystemClipboard::Format> formats) {
+        offered = std::move(formats);
+    };
+    f.browser.set_system_clipboard(std::move(clipboard));
+    CHECK(f.press(key(XKB_KEY_k, kCtrl)));
+    for (const char c : std::string_view{"grid"}) {
+        CHECK(f.press(typed(c)));
+    }
+    CHECK(f.press(key(XKB_KEY_a, kCtrl)));
+    CHECK(f.press(key(XKB_KEY_c, kCtrl)));
+    REQUIRE_FALSE(offered.empty());
+    CHECK(offered.front() == SystemClipboard::Format{"text/plain;charset=utf-8", "grid"});
+    CHECK(f.browser.command_palette().query() == "grid");
+    offered.clear();
+    CHECK(f.press(key(XKB_KEY_x, kCtrl)));
+    REQUIRE_FALSE(offered.empty());
+    CHECK(offered.front().second == "grid");
+    CHECK(f.browser.command_palette().query().empty());
     CHECK(f.browser.command_palette().is_open());
 }
 

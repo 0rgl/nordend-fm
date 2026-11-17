@@ -84,6 +84,11 @@ public:
 
     [[nodiscard]] const std::string& query() const noexcept { return field_.text(); }
 
+    [[nodiscard]] const ui::TextField& field() const noexcept { return field_; }
+
+    // The selected text, taken out of the query; the list filters again.
+    std::string cut();
+
     [[nodiscard]] const std::vector<PaletteItem>& items() const noexcept { return items_; }
 
     // The items shown, best first: indexes into items().

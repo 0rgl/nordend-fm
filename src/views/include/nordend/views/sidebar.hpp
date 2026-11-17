@@ -133,6 +133,9 @@ public:
 
     [[nodiscard]] bool renaming() const noexcept { return renaming_.has_value(); }
 
+    // The label's field, while renaming.
+    [[nodiscard]] const ui::TextField& field() const noexcept { return field_; }
+
     // While renaming every key is the field's (true).
     bool rename_key(const ui::KeyEvent& event);
 
@@ -142,6 +145,9 @@ public:
 
     // Text pasted into the field (its first line, control characters left out).
     void paste(std::string_view text);
+
+    // While renaming: the selected text, taken out of the label.
+    std::string cut();
 
     void confirm_rename();
     void cancel_rename();

@@ -101,6 +101,17 @@ void PickBar::paste(std::string_view text) {
     redraw_();
 }
 
+std::string PickBar::cut() {
+    if (!name_focused()) {
+        return {};
+    }
+    std::string text = field_.cut();
+    if (!text.empty()) {
+        redraw_();
+    }
+    return text;
+}
+
 void PickBar::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::Palette& palette,
                    ui::IconSet& icons) {
     bounds_ = bounds;

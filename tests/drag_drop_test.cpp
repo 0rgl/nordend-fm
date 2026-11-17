@@ -860,6 +860,46 @@ TEST_CASE("sidebar bookmarks: renamed with F2, moved with Alt+arrows, pointed el
     CHECK(bookmarks() == root_line + "\n" + nordend::core::file_uri(f.album) + "\n");
 }
 
+TEST_CASE("sidebar bookmarks: Ctrl+C and Ctrl+X in the label's field copy and cut it as text") {
+    Fixture f;
+    std::vector<nordend::views::SystemClipboard::Format> offered;
+    nordend::views::SystemClipboard clipboard;
+    clipboard.offer = [&](std::vector<nordend::views::SystemClipboard::Format> formats) {
+        offered = std::move(formats);
+    };
+    f.browser.set_system_clipboard(std::move(clipboard));
+    f.browser.open(f.root);
+    REQUIRE(run_until(f.loop, [&] { return !f.browser.loading(); }));
+    f.browser.add_to_sidebar({f.root, f.photos});
+    REQUIRE(run_until(f.loop, [&] { return !f.browser.loading(); }));
+    const std::string before = nordend::core::read_text_file(f.bookmarks).text;
+    CHECK(f.browser.key(key(XKB_KEY_F6), Browser::Clock::now()));
+    f.browser.sidebar().set_cursor_to(f.photos);
+    CHECK(f.browser.key(key(XKB_KEY_F2), Browser::Clock::now()));
+    REQUIRE(f.browser.sidebar().renaming());
+    const nordend::ui::TextField& field = f.browser.sidebar().field();
+    const std::string label = field.text();  // all selected
+    REQUIRE_FALSE(label.empty());
+
+    CHECK(f.browser.key(key(XKB_KEY_c, {.ctrl = true}), Browser::Clock::now()));
+    REQUIRE_FALSE(offered.empty());
+    CHECK(offered.front() ==
+          nordend::views::SystemClipboard::Format{"text/plain;charset=utf-8", label});
+    CHECK(field.text() == label);
+    offered.clear();
+    CHECK(f.browser.key(key(XKB_KEY_x, {.ctrl = true}), Browser::Clock::now()));
+    REQUIRE_FALSE(offered.empty());
+    CHECK(offered.front().second == label);
+    CHECK(field.text().empty());
+    CHECK(f.browser.key(key(XKB_KEY_z, {.ctrl = true}), Browser::Clock::now()));
+    CHECK(field.text() == label);
+
+    CHECK(f.browser.key(key(XKB_KEY_Escape), Browser::Clock::now()));
+    REQUIRE(run_until(f.loop, [&] { return !f.browser.loading(); }));
+    CHECK_FALSE(f.browser.sidebar().renaming());
+    CHECK(nordend::core::read_text_file(f.bookmarks).text == before);
+}
+
 TEST_CASE("sidebar disks: a click on the eject icon ejects; the right click offers the rest") {
     Fixture f;
     if (!f.gl) {

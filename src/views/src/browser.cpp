@@ -2828,10 +2828,14 @@ void Browser::take_pointer(const ui::PointerEvent& event, Clock::time_point now)
         (conflict_.is_open() || confirm_.is_open() || palette_.is_open() || menu_.is_open() ||
          shortcuts_.is_open() || quick_look_.is_open())) {
         // Taken by what the press opened (a menu from a right click): the button is up all the
-        // same, and the next press finds its target again.
+        // same, and the next press finds its target again; a text field's drag ends.
         button_held_ = false;
         band_press_.reset();
         end_band();
+        pick_bar_.end_field_drag();
+        editor_.end_field_drag();
+        sidebar_.end_field_drag();
+        palette_.end_field_drag();
     }
     if (conflict_.is_open()) {
         conflict_.pointer(event);  // the question first: nothing under it reacts

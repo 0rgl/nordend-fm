@@ -133,12 +133,19 @@ public:
 
     [[nodiscard]] bool renaming() const noexcept { return renaming_.has_value(); }
 
+    // The label's field, while renaming.
+    [[nodiscard]] const ui::TextField& field() const noexcept { return field_; }
+
     // While renaming every key is the field's (true).
     bool rename_key(const ui::KeyEvent& event);
 
-    // While renaming: a press in the field is the field's (true); elsewhere it confirms and
-    // returns false, so the press goes on to what is under it.
+    // While renaming: a press in the field is the field's (true), and so is the drag that follows
+    // until the button is up; elsewhere it confirms and returns false, so the press goes on to
+    // what is under it.
     bool rename_pointer(const ui::PointerEvent& event);
+
+    // The button came up elsewhere: the field's drag ends.
+    void end_field_drag() noexcept { field_.end_drag(); }
 
     // Text pasted into the field (its first line, control characters left out).
     void paste(std::string_view text);

@@ -70,6 +70,21 @@ public:
     // extend, the selection reaches it from where it starts.
     void click(float x, bool extend);
 
+    // A press in the field. One click puts the caret at the pointer, or with Shift takes the
+    // selection there; with the left button a drag follows until the button is up. A double (or
+    // triple) click selects all.
+    void press(const PointerEvent& event);
+
+    // During a drag motion moves the caret and the selection follows it, outside the field too;
+    // the left button's release ends the drag, and so does leaving the window. true for the
+    // events the drag takes (all but leave); false, doing nothing, when there is no drag.
+    bool drag(const PointerEvent& event);
+
+    [[nodiscard]] bool dragging() const noexcept { return dragging_; }
+
+    // The button came up where the field could not see it (an overlay took the release).
+    void end_drag() noexcept { dragging_ = false; }
+
     // A box in rect, the text at size (logical pixels) with the selection behind it and the caret.
     void draw(Renderer& renderer, const Rect& rect, float size, const FieldColors& colors);
 
@@ -113,6 +128,7 @@ private:
     std::vector<State> undo_;     // oldest first
     std::vector<State> redo_;
     Edit last_edit_{Edit::other};  // other: the next edit starts a new one
+    bool dragging_{false};         // the left button pressed in the field and still down
 };
 
 }  // namespace nordend::ui

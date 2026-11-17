@@ -298,6 +298,10 @@ bool CommandPalette::pointer(const ui::PointerEvent& event) {
     if (!open_) {
         return false;
     }
+    if (field_.drag(event)) {  // selecting in the field: no rows highlighted meanwhile
+        redraw_();
+        return true;
+    }
     using Kind = ui::PointerEvent::Kind;
     switch (event.kind) {
         case Kind::motion:
@@ -311,7 +315,7 @@ bool CommandPalette::pointer(const ui::PointerEvent& event) {
             if (const std::optional<std::size_t> row = row_at(event.x, event.y)) {
                 choose(*row);
             } else if (contains(field_rect_, event.x, event.y)) {
-                field_.click(event.x, event.modifiers.shift);
+                field_.press(event);
                 redraw_();
             } else if (!contains(panel_, event.x, event.y)) {
                 close();  // a click outside closes the palette and does nothing else

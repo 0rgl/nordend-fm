@@ -39,7 +39,8 @@ struct PaletteItem {
 // While open it takes every key and every click: typing filters; Up, Down, Page Up, Page Down
 // move the highlight; Enter runs the highlighted item; Escape (or Ctrl+K again, the caller's
 // business) closes. The pointer highlights the row it is over, a click runs it, the wheel scrolls,
-// a click outside closes the palette and does nothing else.
+// a click outside closes the palette and does nothing else. In the field a click places the caret,
+// a drag or Shift+click selects, a double click selects all.
 //
 // Loop thread only.
 class CommandPalette {
@@ -103,6 +104,9 @@ public:
 
     // Every event while open: true.
     bool pointer(const ui::PointerEvent& event);
+
+    // The button came up elsewhere: the field's drag ends.
+    void end_field_drag() noexcept { field_.end_drag(); }
 
     void draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::Palette& palette);
 

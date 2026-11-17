@@ -1011,3 +1011,41 @@ TEST_CASE("band: beyond the bottom of the list, it scrolls and selects as it goe
     CHECK_FALSE(f.browser.banding());
     CHECK(folder->selected_count() == 80);
 }
+
+TEST_CASE("sidebar bookmarks: the label's field selects with a drag and a double click") {
+    Fixture f;
+    if (!f.gl) {
+        return;
+    }
+    f.browser.open(f.root);
+    REQUIRE(run_until(f.loop, [&] { return !f.browser.loading(); }));
+    f.browser.add_to_sidebar({f.root, f.photos});
+    REQUIRE(run_until(f.loop, [&] { return !f.browser.loading(); }));
+    CHECK(f.browser.key(key(XKB_KEY_F6), Browser::Clock::now()));
+    f.browser.sidebar().set_cursor_to(f.photos);
+    CHECK(f.browser.key(key(XKB_KEY_F2), Browser::Clock::now()));
+    REQUIRE(f.browser.sidebar().renaming());
+    f.draw();
+    const nordend::ui::TextField& field = f.browser.sidebar().field();
+    const nordend::ui::Rect box = field.bounds();
+    REQUIRE_FALSE(box.empty());
+    const float y = box.y + (box.height / 2.0F);
+    const std::pair<std::size_t, std::size_t> all{0, field.text().size()};
+
+    // From the end of the label past its start: all of it.
+    f.pointer(PointerEvent::Kind::press, {box.right() - 1.0F, y});
+    CHECK(field.selection().first == field.selection().second);
+    f.pointer(PointerEvent::Kind::motion, {box.x - 30.0F, y});
+    f.pointer(PointerEvent::Kind::release, {box.x - 30.0F, y});
+    CHECK(field.selection() == all);
+    CHECK(f.browser.sidebar().renaming());
+
+    // A click, then a double click.
+    f.pointer(PointerEvent::Kind::press, {box.right() - 1.0F, y});
+    f.pointer(PointerEvent::Kind::release, {box.right() - 1.0F, y});
+    CHECK(field.selection().first == field.selection().second);
+    f.pointer(PointerEvent::Kind::press, {box.right() - 1.0F, y}, 2);
+    f.pointer(PointerEvent::Kind::release, {box.right() - 1.0F, y}, 2);
+    CHECK(field.selection() == all);
+    CHECK(f.browser.key(key(XKB_KEY_Escape), Browser::Clock::now()));
+}

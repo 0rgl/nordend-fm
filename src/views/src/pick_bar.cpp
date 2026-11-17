@@ -234,6 +234,10 @@ bool PickBar::editable_at(float x, float y) const {
 }
 
 void PickBar::pointer(const ui::PointerEvent& event) {
+    if (field_.drag(event)) {  // selecting in the name: the button is still down
+        redraw_();
+        return;
+    }
     using Kind = ui::PointerEvent::Kind;
     const std::optional<Hit> over =
         event.kind == Kind::leave ? std::nullopt : hit(event.x, event.y);
@@ -246,7 +250,7 @@ void PickBar::pointer(const ui::PointerEvent& event) {
     }
     if (editable_at(event.x, event.y)) {
         set_name_focused(true);
-        field_.click(event.x, false);
+        field_.press(event);
         redraw_();
         return;
     }

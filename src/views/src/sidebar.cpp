@@ -463,18 +463,21 @@ bool Sidebar::rename_key(const ui::KeyEvent& event) {
 }
 
 bool Sidebar::rename_pointer(const ui::PointerEvent& event) {
-    if (!renaming_ || event.kind != ui::PointerEvent::Kind::press) {
+    if (!renaming_) {
+        return false;
+    }
+    if (field_.drag(event)) {
+        redraw_();
+        return true;
+    }
+    if (event.kind != ui::PointerEvent::Kind::press) {
         return false;
     }
     const ui::Rect& box = field_.bounds();
     const bool inside =
         event.x >= box.x && event.x < box.right() && event.y >= box.y && event.y < box.bottom();
     if (inside && event.button == ui::PointerButton::left) {
-        if (event.click_count >= 2) {
-            field_.select_all();
-        } else {
-            field_.click(event.x, event.modifiers.shift);
-        }
+        field_.press(event);
         redraw_();
         return true;
     }

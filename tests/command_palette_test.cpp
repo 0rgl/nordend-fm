@@ -3,12 +3,15 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -23,7 +26,14 @@
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
 #include "nordend/fs/places.hpp"
+#include "nordend/fs/transfer.hpp"
+#include "nordend/theme/palette.hpp"
+#include "nordend/ui/geometry.hpp"
+#include "nordend/ui/icons.hpp"
+#include "nordend/ui/offscreen.hpp"
+#include "nordend/ui/renderer.hpp"
 #include "nordend/ui/seat.hpp"
+#include "nordend/ui/text.hpp"
 #include "nordend/views/browser.hpp"
 #include "nordend/views/fuzzy.hpp"
 #include "nordend/views/shortcuts.hpp"
@@ -441,6 +451,79 @@ TEST_CASE("palette in the browser: the recently used come back first, and in sta
     Fixture g;
     g.browser.apply(read.state);
     CHECK(g.browser.palette_recent() == recent);
+}
+
+TEST_CASE("palette in the browser: in the field a drag selects, a double click selects all") {
+    constexpr std::int32_t width = 1000;
+    constexpr std::int32_t height = 700;
+    std::unique_ptr<nordend::ui::Offscreen> gl;
+    try {
+        gl = std::make_unique<nordend::ui::Offscreen>(width, height);
+    } catch (const std::runtime_error& error) {
+        MESSAGE("no offscreen OpenGL: " << error.what());
+        return;
+    }
+    nordend::ui::FontSystem fonts;
+    nordend::ui::Renderer renderer{fonts};
+    nordend::ui::IconSet icons{fonts};
+    Fixture f;
+    CommandPalette& palette = f.browser.command_palette();
+    const auto draw = [&] {
+        renderer.begin_frame(width, height, 1.0F, {});
+        f.browser.draw(renderer, {0.0F, 0.0F, width, height}, nordend::theme::Palette{}, icons,
+                       Browser::Clock::now());
+        renderer.end_frame();
+    };
+    using Kind = nordend::ui::PointerEvent::Kind;
+    const auto pointer = [&](Kind kind, float x, float y, int clicks = 1) {
+        f.browser.pointer({.kind = kind,
+                           .x = x,
+                           .y = y,
+                           .button = nordend::ui::PointerButton::left,
+                           .click_count = clicks,
+                           .modifiers = {}},
+                          Browser::Clock::now());
+    };
+    CHECK(f.press(key(XKB_KEY_k, kCtrl)));
+    palette.set_query("grid view");
+    draw();
+    const nordend::ui::Rect box = palette.field_bounds();
+    REQUIRE_FALSE(box.empty());
+    const float y = box.y + (box.height / 2.0F);
+
+    // From the end of the query to past the panel's left edge: all of it, the palette still open.
+    pointer(Kind::press, box.right() - 1.0F, y);
+    pointer(Kind::motion, box.x - 50.0F, y);
+    pointer(Kind::release, box.x - 50.0F, y);
+    REQUIRE(palette.is_open());
+    CHECK(f.press(typed('x')));
+    CHECK(palette.query() == "x");
+
+    palette.set_query("grid view");
+    draw();
+    pointer(Kind::press, box.x + (box.width / 2.0F), y);
+    pointer(Kind::release, box.x + (box.width / 2.0F), y);
+    pointer(Kind::press, box.x + (box.width / 2.0F), y, 2);
+    pointer(Kind::release, box.x + (box.width / 2.0F), y, 2);
+    CHECK(f.press(typed('y')));
+    CHECK(palette.query() == "y");
+
+    // A copy's question opens over the palette during a drag and takes the release: the drag
+    // ends all the same, and moving the pointer afterwards selects nothing.
+    palette.set_query("grid view");
+    draw();
+    pointer(Kind::press, box.right() - 1.0F, y);
+    nordend::fs::Conflict conflict;
+    conflict.name = "one.txt";
+    conflict.destination = f.b;
+    f.browser.conflict_dialog().open(conflict, "b", [](auto&&...) {});
+    pointer(Kind::release, box.right() - 1.0F, y);
+    CHECK(f.press(key(XKB_KEY_Escape)));  // the card's
+    REQUIRE_FALSE(f.browser.conflict_dialog().is_open());
+    REQUIRE(palette.is_open());
+    pointer(Kind::motion, box.x - 50.0F, y);
+    CHECK(f.press(typed('z')));
+    CHECK(palette.query() == "grid viewz");
 }
 
 TEST_CASE("state: palette.recent keeps strings only, ten at most") {

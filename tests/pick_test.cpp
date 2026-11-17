@@ -2,11 +2,13 @@
 // leaves out for them (Listing::set_only), and the Browser choosing files and folders.
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -22,6 +24,13 @@
 #include "nordend/fs/file_filter.hpp"
 #include "nordend/fs/mime.hpp"
 #include "nordend/fs/sort.hpp"
+#include "nordend/theme/palette.hpp"
+#include "nordend/ui/geometry.hpp"
+#include "nordend/ui/icons.hpp"
+#include "nordend/ui/offscreen.hpp"
+#include "nordend/ui/renderer.hpp"
+#include "nordend/ui/seat.hpp"
+#include "nordend/ui/text.hpp"
 #include "nordend/views/browser.hpp"
 #include "nordend/views/folder.hpp"
 #include "nordend/views/pick_bar.hpp"
@@ -80,6 +89,25 @@ std::vector<std::string> names(const Folder& folder) {
         out.push_back(entry.name);
     }
     return out;
+}
+
+// The save bar's name field as last drawn: where the bar shows a text cursor.
+nordend::ui::Rect name_field(const nordend::views::PickBar& bar, float width, float height) {
+    float left = width;
+    float right = 0.0F;
+    float top = height;
+    float bottom = 0.0F;
+    for (float y = 0.0F; y < height; y += 2.0F) {
+        for (float x = 0.0F; x < width; x += 2.0F) {
+            if (bar.editable_at(x, y)) {
+                left = std::min(left, x);
+                right = std::max(right, x);
+                top = std::min(top, y);
+                bottom = std::max(bottom, y);
+            }
+        }
+    }
+    return {left, top, right - left, bottom - top};
 }
 
 struct Fixture {
@@ -394,4 +422,141 @@ TEST_CASE("pick: saving several files, into the folder chosen, asked once for th
     CHECK_FALSE(f.browser.confirm_dialog().is_open());
     REQUIRE(f.chosen.size() == 2);
     CHECK(f.chosen[1].front() == f.root / "photos" / "a.jpg");
+}
+
+TEST_CASE(
+    "pick: saving, the name's field selects with the pointer: a drag, Shift+click, double click") {
+    constexpr std::int32_t width = 1000;
+    constexpr std::int32_t height = 700;
+    std::unique_ptr<nordend::ui::Offscreen> gl;
+    try {
+        gl = std::make_unique<nordend::ui::Offscreen>(width, height);
+    } catch (const std::runtime_error& error) {
+        MESSAGE("no offscreen OpenGL: " << error.what());
+        return;
+    }
+    nordend::ui::FontSystem fonts;
+    nordend::ui::Renderer renderer{fonts};
+    nordend::ui::IconSet icons{fonts};
+    Fixture f;
+    Browser::Pick options;
+    options.save = true;
+    options.name = "holiday.jpg";
+    f.pick(options);
+    const auto draw = [&] {
+        renderer.begin_frame(width, height, 1.0F, {});
+        f.browser.draw(renderer, {0.0F, 0.0F, width, height}, nordend::theme::Palette{}, icons,
+                       Browser::Clock::now());
+        renderer.end_frame();
+    };
+    draw();
+    REQUIRE(f.browser.pick_bar().name() == "holiday.jpg");
+    const nordend::ui::Rect box = name_field(f.browser.pick_bar(), width, height);
+    REQUIRE(box.width > 0.0F);
+    const float left = box.x;
+    const float right = box.right();
+    const float y = box.y + (box.height / 2.0F);
+    using Kind = nordend::ui::PointerEvent::Kind;
+    const auto pointer = [&](Kind kind, float x, float at_y, int clicks = 1, bool shift = false) {
+        f.browser.pointer({.kind = kind,
+                           .x = x,
+                           .y = at_y,
+                           .button = nordend::ui::PointerButton::left,
+                           .click_count = clicks,
+                           .modifiers = {.shift = shift}},
+                          Browser::Clock::now());
+    };
+
+    // A drag from the start of the name past the bar's edge: all of it.
+    pointer(Kind::press, left + 1.0F, y);
+    pointer(Kind::motion, width - 1.0F, 5.0F);
+    pointer(Kind::release, width - 1.0F, 5.0F);
+    f.type("x");
+    CHECK(f.browser.pick_bar().name() == "x");
+    f.press(XKB_KEY_z, {.ctrl = true});
+    REQUIRE(f.browser.pick_bar().name() == "holiday.jpg");
+
+    // A click at the start, Shift+click at the end.
+    pointer(Kind::press, left + 1.0F, y);
+    pointer(Kind::release, left + 1.0F, y);
+    pointer(Kind::press, right - 1.0F, y, 1, true);
+    pointer(Kind::release, right - 1.0F, y);
+    f.type("y");
+    CHECK(f.browser.pick_bar().name() == "y");
+    f.press(XKB_KEY_z, {.ctrl = true});
+    REQUIRE(f.browser.pick_bar().name() == "holiday.jpg");
+
+    // A double click: all of it.
+    pointer(Kind::press, (left + right) / 2.0F, y);
+    pointer(Kind::release, (left + right) / 2.0F, y);
+    pointer(Kind::press, (left + right) / 2.0F, y, 2);
+    pointer(Kind::release, (left + right) / 2.0F, y);
+    f.type("z");
+    CHECK(f.browser.pick_bar().name() == "z");
+}
+
+TEST_CASE("pick: saving, a drag in the name ends when an overlay takes the button's release") {
+    constexpr std::int32_t width = 1000;
+    constexpr std::int32_t height = 700;
+    std::unique_ptr<nordend::ui::Offscreen> gl;
+    try {
+        gl = std::make_unique<nordend::ui::Offscreen>(width, height);
+    } catch (const std::runtime_error& error) {
+        MESSAGE("no offscreen OpenGL: " << error.what());
+        return;
+    }
+    nordend::ui::FontSystem fonts;
+    nordend::ui::Renderer renderer{fonts};
+    nordend::ui::IconSet icons{fonts};
+    // F1 opens the shortcuts over the bar, Ctrl+K the palette.
+    for (const bool palette : {false, true}) {
+        CAPTURE(palette);
+        Fixture f;
+        Browser::Pick options;
+        options.save = true;
+        options.name = "holiday.jpg";
+        f.pick(options);
+        const auto draw = [&] {
+            renderer.begin_frame(width, height, 1.0F, {});
+            f.browser.draw(renderer, {0.0F, 0.0F, width, height}, nordend::theme::Palette{}, icons,
+                           Browser::Clock::now());
+            renderer.end_frame();
+        };
+        draw();
+        const nordend::ui::Rect box = name_field(f.browser.pick_bar(), width, height);
+        REQUIRE(box.width > 0.0F);
+        const float y = box.y + (box.height / 2.0F);
+        using Kind = nordend::ui::PointerEvent::Kind;
+        const auto pointer = [&](Kind kind, float x) {
+            f.browser.pointer({.kind = kind,
+                               .x = x,
+                               .y = y,
+                               .button = nordend::ui::PointerButton::left,
+                               .click_count = 1,
+                               .modifiers = {}},
+                              Browser::Clock::now());
+        };
+
+        pointer(Kind::press, box.right() - 1.0F);  // the caret at the end, a drag starts
+        if (palette) {
+            f.press(XKB_KEY_k, {.ctrl = true});
+        } else {
+            f.press(XKB_KEY_F1);
+        }
+        draw();
+        pointer(Kind::release, box.right() - 1.0F);  // the overlay's
+        f.press(XKB_KEY_Escape);
+        draw();
+
+        // The button is up: moving selects nothing, a click places the caret.
+        pointer(Kind::motion, box.x + 1.0F);
+        f.type("q");
+        CHECK(f.browser.pick_bar().name() == "holiday.jpgq");
+        f.press(XKB_KEY_z, {.ctrl = true});
+        REQUIRE(f.browser.pick_bar().name() == "holiday.jpg");
+        pointer(Kind::press, box.x + 1.0F);
+        pointer(Kind::release, box.x + 1.0F);
+        f.type("q");
+        CHECK(f.browser.pick_bar().name() == "qholiday.jpg");
+    }
 }

@@ -1,9 +1,11 @@
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
@@ -19,6 +21,12 @@
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
 #include "nordend/fs/operations.hpp"
+#include "nordend/theme/palette.hpp"
+#include "nordend/ui/geometry.hpp"
+#include "nordend/ui/icons.hpp"
+#include "nordend/ui/offscreen.hpp"
+#include "nordend/ui/renderer.hpp"
+#include "nordend/ui/text.hpp"
 #include "nordend/ui/text_field.hpp"
 #include "nordend/views/browser.hpp"
 #include "temp_dir.hpp"
@@ -27,6 +35,8 @@ using nordend::core::EventLoop;
 using nordend::test::TempDir;
 using nordend::ui::KeyEvent;
 using nordend::ui::Modifiers;
+using nordend::ui::PointerButton;
+using nordend::ui::PointerEvent;
 using nordend::ui::TextField;
 using nordend::views::Browser;
 using nordend::views::Folder;
@@ -64,6 +74,27 @@ KeyEvent typed(std::string text) { return key(XKB_KEY_NoSymbol, {}, std::move(te
 std::string selected(const TextField& field) {
     const auto [first, last] = field.selection();
     return field.text().substr(first, last - first);
+}
+
+// The left button's events.
+PointerEvent pointer(PointerEvent::Kind kind, float x, float y, int clicks = 1,
+                     bool shift = false) {
+    return {.kind = kind,
+            .x = x,
+            .y = y,
+            .button = PointerButton::left,
+            .click_count = clicks,
+            .modifiers = {.shift = shift}};
+}
+
+// The GL context the drawing needs; nullptr where the platform has none (the tests then stop).
+std::unique_ptr<nordend::ui::Offscreen> offscreen(std::int32_t width, std::int32_t height) {
+    try {
+        return std::make_unique<nordend::ui::Offscreen>(width, height);
+    } catch (const std::runtime_error& error) {
+        MESSAGE("no offscreen OpenGL: " << error.what());
+        return nullptr;
+    }
 }
 
 std::vector<std::string> listing(const fs::path& directory) {
@@ -219,6 +250,67 @@ TEST_CASE("text field: typing, selecting, deleting, by characters and by words")
     CHECK_FALSE(field.key(key(XKB_KEY_Return)));
     CHECK_FALSE(field.key(key(XKB_KEY_Escape, {}, "\x1b")));
     CHECK_FALSE(field.key(key(XKB_KEY_c, {.ctrl = true}, "c")));
+}
+
+TEST_CASE("text field: a double click selects all, and no drag follows it") {
+    using Kind = PointerEvent::Kind;
+    TextField field{"P1.ORF"};
+    field.press(pointer(Kind::press, 0.0F, 0.0F, 2));
+    CHECK(selected(field) == "P1.ORF");
+    CHECK_FALSE(field.dragging());
+    CHECK_FALSE(field.drag(pointer(Kind::motion, 0.0F, 0.0F)));
+    CHECK(selected(field) == "P1.ORF");
+    // Only the left button drags.
+    PointerEvent right = pointer(Kind::press, 0.0F, 0.0F);
+    right.button = PointerButton::right;
+    field.press(right);
+    CHECK_FALSE(field.dragging());
+}
+
+TEST_CASE("text field: a press puts the caret; Shift+press and a drag select up to the pointer") {
+    const std::unique_ptr<nordend::ui::Offscreen> gl = offscreen(400, 60);
+    if (!gl) {
+        return;
+    }
+    nordend::ui::FontSystem fonts;
+    nordend::ui::Renderer renderer{fonts};
+    TextField field{"holiday.jpg"};
+    const nordend::ui::Rect box{10.0F, 10.0F, 300.0F, 28.0F};
+    renderer.begin_frame(400, 60, 1.0F, {});
+    field.draw(renderer, box, 14.0F, nordend::ui::FieldColors{});
+    renderer.end_frame();
+    using Kind = PointerEvent::Kind;
+    const float start = box.x + 1.0F;
+    const float end = box.right() - 1.0F;
+    const float y = box.y + 10.0F;
+
+    // A press past the text: the caret at its end; a drag back to the start selects it all.
+    field.press(pointer(Kind::press, end, y));
+    CHECK(field.caret() == 11);
+    CHECK(field.dragging());
+    CHECK(field.drag(pointer(Kind::motion, start, y)));
+    CHECK(selected(field) == "holiday.jpg");
+    CHECK(field.drag(pointer(Kind::release, start, y)));
+    CHECK_FALSE(field.dragging());
+    CHECK_FALSE(field.drag(pointer(Kind::motion, end, y)));  // the button is up
+    CHECK(selected(field) == "holiday.jpg");
+
+    // Shift+press: from the caret to the pointer.
+    field.press(pointer(Kind::press, start, y));
+    CHECK(field.drag(pointer(Kind::release, start, y)));
+    CHECK(selected(field).empty());
+    field.press(pointer(Kind::press, end, y, 1, true));
+    CHECK(selected(field) == "holiday.jpg");
+    CHECK(field.drag(pointer(Kind::release, end, y)));
+
+    // A drag to the middle; leaving the window ends it.
+    field.press(pointer(Kind::press, start, y));
+    CHECK(field.drag(pointer(Kind::motion, box.x + 40.0F, y)));
+    CHECK(field.caret() > 0);
+    CHECK(field.caret() < 11);
+    CHECK(selected(field) == field.text().substr(0, field.caret()));
+    CHECK_FALSE(field.drag({.kind = Kind::leave}));
+    CHECK_FALSE(field.dragging());
 }
 
 namespace {
@@ -456,4 +548,61 @@ TEST_CASE(
     CHECK(f.press(key(XKB_KEY_F2)));
     CHECK_FALSE(f.browser.name_editor().active());
     CHECK_FALSE(f.browser.sidebar().renaming());
+}
+
+TEST_CASE(
+    "browser: in the name's field a drag selects, past the field too, until the button is up") {
+    const std::unique_ptr<nordend::ui::Offscreen> gl = offscreen(1000, 700);
+    if (!gl) {
+        return;
+    }
+    nordend::ui::FontSystem fonts;
+    nordend::ui::Renderer renderer{fonts};
+    nordend::ui::IconSet icons{fonts};
+    BrowserFixture f;
+    f.browser.open(f.root);
+    f.browser.set_mode(Browser::Mode::details);
+    REQUIRE(f.settle());
+    f.folder()->select_name("notes.txt");
+    CHECK(f.press(key(XKB_KEY_F2)));
+    const TextField& field = f.browser.name_editor().field();
+    const auto draw = [&] {
+        renderer.begin_frame(1000, 700, 1.0F, {});
+        f.browser.draw(renderer, {0.0F, 0.0F, 1000.0F, 700.0F}, nordend::theme::Palette{}, icons,
+                       Browser::Clock::now());
+        renderer.end_frame();
+    };
+    draw();
+    const nordend::ui::Rect box = field.bounds();
+    REQUIRE_FALSE(box.empty());
+    const auto send = [&f](const PointerEvent& event) {
+        f.browser.pointer(event, Browser::Clock::now());
+    };
+    using Kind = PointerEvent::Kind;
+    const float y = box.y + (box.height / 2.0F);
+
+    // From the start of the name to well past it, over the view.
+    send(pointer(Kind::press, box.x + 1.0F, y));
+    CHECK(field.caret() == 0);
+    send(pointer(Kind::motion, box.right() + 200.0F, y + 100.0F));
+    CHECK(selected(field) == "notes.txt");
+    CHECK(f.browser.name_editor().active());
+    send(pointer(Kind::release, box.right() + 200.0F, y + 100.0F));
+    CHECK_FALSE(field.dragging());
+    send(pointer(Kind::motion, box.x + 1.0F, y));  // the button is up: nothing changes
+    CHECK(selected(field) == "notes.txt");
+
+    // Shift+click, then a double click.
+    send(pointer(Kind::press, box.x + 1.0F, y));
+    send(pointer(Kind::release, box.x + 1.0F, y));
+    CHECK(selected(field).empty());
+    send(pointer(Kind::press, box.right() - 1.0F, y, 1, true));
+    send(pointer(Kind::release, box.right() - 1.0F, y));
+    CHECK(selected(field) == "notes.txt");
+    send(pointer(Kind::press, box.x + 1.0F, y));
+    send(pointer(Kind::release, box.x + 1.0F, y));
+    send(pointer(Kind::press, box.x + 20.0F, y, 2));
+    send(pointer(Kind::release, box.x + 20.0F, y, 2));
+    CHECK(selected(field) == "notes.txt");
+    CHECK(f.press(key(XKB_KEY_Escape)));
 }

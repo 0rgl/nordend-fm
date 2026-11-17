@@ -85,6 +85,9 @@ public:
     [[nodiscard]] bool editable_at(float x, float y) const;  // the name field: a text cursor
     void pointer(const ui::PointerEvent& event);
 
+    // The button came up elsewhere: the name field's drag ends.
+    void end_field_drag() noexcept { field_.end_drag(); }
+
     [[nodiscard]] const std::string& accept_label() const noexcept { return accept_; }
 
     [[nodiscard]] const std::vector<Item>& items() const noexcept { return items_; }

@@ -40,6 +40,7 @@ void TextField::set_text(std::string text) {
     undo_.clear();
     redo_.clear();
     last_edit_ = Edit::other;
+    dragging_ = false;
 }
 
 void TextField::remember(Edit kind) {
@@ -274,6 +275,36 @@ void TextField::click(float x, bool extend) {
         }
     }
     move_to(best, extend);
+}
+
+void TextField::press(const PointerEvent& event) {
+    dragging_ = event.button == PointerButton::left && event.click_count < 2;
+    if (event.click_count >= 2) {
+        select_all();  // a name is mostly replaced whole
+    } else {
+        click(event.x, event.modifiers.shift);
+    }
+}
+
+bool TextField::drag(const PointerEvent& event) {
+    if (!dragging_) {
+        return false;
+    }
+    switch (event.kind) {
+        case PointerEvent::Kind::motion:
+            click(event.x, true);
+            return true;
+        case PointerEvent::Kind::release:
+            if (event.button == PointerButton::left) {
+                dragging_ = false;
+            }
+            return true;
+        case PointerEvent::Kind::leave:
+            dragging_ = false;  // the button may come up elsewhere
+            return false;
+        default:
+            return true;  // the other buttons and the wheel wait until it is up
+    }
 }
 
 void TextField::draw(Renderer& renderer, const Rect& rect, float size, const FieldColors& colors) {

@@ -47,9 +47,13 @@ public:
     // While active every key is the editor's: true.
     bool key(const ui::KeyEvent& event);
 
-    // A press inside the field moves the caret (true); elsewhere it confirms and returns false,
-    // so the press goes on to what is under it.
+    // A press inside the field moves the caret (true), and the drag that follows is the field's
+    // until the button is up; elsewhere it confirms and returns false, so the press goes on to
+    // what is under it.
     bool pointer(const ui::PointerEvent& event);
+
+    // The button came up elsewhere: the field's drag ends.
+    void end_field_drag() noexcept { field_.end_drag(); }
 
     // Text pasted into the field (its first line, control characters left out).
     void paste(std::string_view text);

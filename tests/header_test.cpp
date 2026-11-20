@@ -351,3 +351,35 @@ TEST_CASE("header: opacity preserves the header palette and sidebar background")
         CHECK(glGetError() == GL_NO_ERROR);
     }
 }
+
+TEST_CASE("path row: back and forward before the path, under the compositor's title bar") {
+    Fixture f;
+    if (!f.gl) {
+        return;
+    }
+    f.browser.set_window_header(std::nullopt);
+    REQUIRE(f.open(f.root / "alpha"));
+    REQUIRE(f.open(f.root / "beta"));
+    // The path starts after the two buttons.
+    std::optional<float> path_left;
+    for (float x = 0.0F; x < kWidth && !path_left; x += 1.0F) {
+        if (f.browser.breadcrumb().claims(x, kRow)) {
+            path_left = x;
+        }
+    }
+    REQUIRE(path_left);
+    const float forward_x = path_left.value_or(0.0F) - 2.0F - 13.0F;
+    const float back_x = forward_x - 28.0F;
+    // The hand only over the button that can go somewhere.
+    CHECK(f.browser.cursor_at(back_x, kRow) == nordend::ui::CursorShape::pointer);
+    CHECK(f.browser.cursor_at(forward_x, kRow) == nordend::ui::CursorShape::standard);
+
+    f.click(back_x, kRow);
+    REQUIRE(run_until(f.loop, [&] { return !f.browser.loading(); }));
+    CHECK(f.here() == f.root / "alpha");
+    f.click(back_x, kRow);  // nothing further back
+    CHECK(f.here() == f.root / "alpha");
+    f.click(forward_x, kRow);
+    REQUIRE(run_until(f.loop, [&] { return !f.browser.loading(); }));
+    CHECK(f.here() == f.root / "beta");
+}

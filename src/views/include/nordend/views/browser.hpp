@@ -180,7 +180,8 @@ public:
 
     // Nordend's own header (ROADMAP 3⅞): the sidebar runs to the window's top, the path row is
     // the header, with back and forward before the path and reserve logical pixels kept free at
-    // its right for the window's buttons. nullopt: the path row under the compositor's title bar.
+    // its right for the window's buttons. nullopt: the path row under the compositor's title bar,
+    // back and forward still first.
     void set_window_header(std::optional<float> reserve);
 
     // Where a press moves the window, as last drawn: the header's free space and the top of the
@@ -804,11 +805,13 @@ private:
         header
     };
 
-    // Back and forward in the header: -1, 1, or 0 for neither.
+    // Back and forward before the path: -1, 1, or 0 for neither.
     [[nodiscard]] int navigation_at(float x, float y) const;
     [[nodiscard]] bool can_travel(int direction) const;
     void navigation_pointer(const ui::PointerEvent& event);
-    void draw_navigation(ui::Renderer& renderer, const theme::Palette& palette, ui::IconSet& icons);
+    // Back and forward at the start of the row: the header or the path row.
+    void draw_navigation(ui::Renderer& renderer, const ui::Rect& row, const theme::Palette& palette,
+                         ui::IconSet& icons);
 
     void send_pointer(Target target, const ui::PointerEvent& event, Clock::time_point now);
     void draw_view(ui::Renderer& renderer, const ui::Rect& bounds, const theme::Palette& palette,

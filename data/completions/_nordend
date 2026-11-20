@@ -1,0 +1,43 @@
+#compdef nordend
+# zsh completion for nordend, loaded from share/zsh/site-functions.
+
+local -a options pick_options
+options=(
+  '(- *)--version[print the version and exit]'
+  '(- *)--about[print what Nordend runs on and exit]'
+  '(- *)--set-file-chooser[make Nordend the file chooser and exit]'
+  '(- *)--unset-file-chooser[give the file chooser back and exit]'
+  '(- *)--set-file-manager[make "Show in Folder" open Nordend and exit]'
+  '(- *)--unset-file-manager[give "Show in Folder" back and exit]'
+  '--config[read this file instead of config.toml]:config file:_files'
+  '--check-config[report problems in the config file and exit]'
+  '--test-scene[show the renderer test scene]'
+  '(--properties)--reveal[show each path selected in its folder]'
+  '(--reveal)--properties[the same as --reveal, with the details open]'
+  '--pick[choose a file and print its URI]'
+)
+# What goes with --pick, offered once it is there.
+if (( ${words[(I)--pick]} )); then
+  pick_options=(
+    '--multiple[choose several files]'
+    '--folders[choose folders instead of files]'
+    '--title[the window title]:title: '
+    '--accept-label[the label of the choosing button]:label: '
+    '*--filter[offer a filter, of the --glob and --mime after it]:label: '
+    '*--glob[a pattern of the last --filter]:pattern: '
+    '*--mime[a MIME type of the last --filter]:MIME type: '
+    '--current-filter[the filter in use at first (0 = the first)]:number: '
+    '--parent[the application window]:wayland\:HANDLE: '
+    '--save[save instead of open]'
+    '--name[the name proposed for saving]:name: '
+    '*--file[a file saved into the folder chosen]:name: '
+    '*--choice[a choice]:id: :label: :default: '
+    '*--option[an option of the last --choice]:id: :label: '
+  )
+fi
+# Files after --reveal and --properties; otherwise a folder to show.
+if (( ${words[(I)--(reveal|properties)]} )); then
+  _arguments -S $options $pick_options '*:path:_files'
+else
+  _arguments -S $options $pick_options '1:folder:_files -/'
+fi

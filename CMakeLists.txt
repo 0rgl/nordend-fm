@@ -269,3 +269,12 @@ option(NORDEND_INSTALL_SETUP "Install the nordend-setup script beside nordend" O
 if(NORDEND_INSTALL_SETUP)
     install(PROGRAMS scripts/nordend-setup DESTINATION bin)
 endif()
+# The shell completions of nordend's own options, where bash-completion, fish and zsh look under
+# the prefix. Relative paths, so they follow `cmake --install --prefix` and DESTDIR (pkg-config
+# would answer /usr/share whatever the prefix).
+option(NORDEND_INSTALL_COMPLETIONS "Install the bash, zsh and fish completions" ON)
+if(NORDEND_INSTALL_COMPLETIONS)
+    install(FILES data/completions/nordend.bash DESTINATION share/bash-completion/completions)
+    install(FILES data/completions/nordend.fish DESTINATION share/fish/vendor_completions.d)
+    install(FILES data/completions/_nordend DESTINATION share/zsh/site-functions)
+endif()

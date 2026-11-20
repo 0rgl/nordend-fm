@@ -335,8 +335,8 @@ TEST_CASE("tabs: the bar with two tabs; a click shows one, its × or a middle cl
     REQUIRE(bar.tab_rects().size() == 2);
     const nordend::ui::Rect first = bar.tab_rects()[0];
     CHECK(f.browser.cursor_at(first.x + 20.0F, first.y + 10.0F) == CursorShape::pointer);
-    // The path and the view moved down under the bar.
-    CHECK(f.browser.breadcrumb().claims(first.x + 20.0F, first.bottom() + 5.0F));
+    // The path and the view moved down under the bar, back and forward first.
+    CHECK(f.browser.breadcrumb().claims(first.right() - 4.0F, first.bottom() + 5.0F));
 
     click(first, PointerButton::left);
     CHECK(f.browser.active_tab() == 0);

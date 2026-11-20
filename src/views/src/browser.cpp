@@ -54,7 +54,7 @@ std::string_view done_word(bool extract, bool move) {
     return move ? "Moved" : "Copied";
 }
 
-// Back and forward in Nordend's own header (ROADMAP 3⅞).
+// Back and forward before the path, in Nordend's own header or in the path row (ROADMAP 3⅞).
 constexpr float kNavigationSize = 26.0F;
 constexpr float kNavigationGap = 8.0F;
 
@@ -2675,7 +2675,7 @@ void Browser::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::
     if (own_header && view.height > 0.0F) {
         header_ = {view.x, view.y, view.width, std::min(kTitleHeight, view.height)};
         renderer.fill_background(header_, palette.header);
-        draw_navigation(renderer, palette, icons);
+        draw_navigation(renderer, header_, palette, icons);
         view.y += header_.height;
         view.height -= header_.height;
     }
@@ -2689,20 +2689,26 @@ void Browser::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::
     } else {
         tab_bar_.not_drawn();
     }
+    // The path row: the header, or a row of its own under the tabs, back and forward first.
+    const ui::Rect path_rect =
+        own_header ? header_ : ui::Rect{view.x, view.y, view.width, kTitleHeight};
+    if (!own_header && view.height > 0.0F) {
+        draw_navigation(renderer, path_rect, palette, icons);
+    }
     const float bar = std::min(StatusBar::kHeight, std::max(0.0F, view.height - path_row));
     // The file chooser's bar over the status bar.
     const float pick_bar =
         pick_ ? std::min(PickBar::kHeight, std::max(0.0F, view.height - path_row - bar)) : 0.0F;
     if (folder) {
-        if (own_header) {
-            const float left = forward_.right() + 2.0F;
-            const float right = header_.right() - header_reserve_.value_or(0.0F);
-            breadcrumb_.draw(renderer,
-                             {left, header_.y, std::max(0.0F, right - left), kTitleHeight}, palette,
-                             icons, *folder);
-        } else {
-            breadcrumb_.draw(renderer, {view.x, view.y, view.width, kTitleHeight}, palette, icons,
-                             *folder);
+        const float left = forward_.right() + 2.0F;
+        const float right = path_rect.right() - header_reserve_.value_or(0.0F);
+        breadcrumb_.draw(renderer, {left, path_rect.y, std::max(0.0F, right - left), kTitleHeight},
+                         palette, icons, *folder);
+        if (!own_header) {
+            // Under back and forward too, as under the path.
+            renderer.fill_rect({path_rect.x, path_rect.y + kTitleHeight - 1.0F, left - path_rect.x,
+                                1.0F / renderer.scale()},
+                               palette.outline_variant);
         }
         status_bar_.draw(renderer, {view.x, view.bottom() - bar, view.width, bar}, palette, icons,
                          *folder, static_cast<std::size_t>(pane().mode));
@@ -3306,10 +3312,10 @@ void Browser::navigation_pointer(const ui::PointerEvent& event) {
     }
 }
 
-void Browser::draw_navigation(ui::Renderer& renderer, const theme::Palette& palette,
-                              ui::IconSet& icons) {
-    const float top = header_.y + ((kTitleHeight - kNavigationSize) / 2.0F);
-    back_ = {header_.x + kNavigationGap, top, kNavigationSize, kNavigationSize};
+void Browser::draw_navigation(ui::Renderer& renderer, const ui::Rect& row,
+                              const theme::Palette& palette, ui::IconSet& icons) {
+    const float top = row.y + ((kTitleHeight - kNavigationSize) / 2.0F);
+    back_ = {row.x + kNavigationGap, top, kNavigationSize, kNavigationSize};
     forward_ = {back_.right() + 2.0F, top, kNavigationSize, kNavigationSize};
     // The path follows close: its first step has a margin of its own.
     for (const int direction : {-1, 1}) {

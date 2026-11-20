@@ -5,7 +5,7 @@
 <p align="center">
   <b>A native file manager for Wayland: fast, light and safe.</b><br>
   No GTK, no Qt, no GLib: C++20 straight on Wayland and OpenGL ES.<br>
-  At home on any Wayland desktop, and right at home on <a href="https://github.com/noctalia-dev">Noctalia</a>.
+  At home on any Wayland desktop.
 </p>
 
 <p align="center">
@@ -378,8 +378,8 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 ## What's next
 
-Nordend stays what it is: a native C++ file manager, at home on any Wayland desktop and right at
-home on Noctalia, with no GTK or Qt; very light, safe and fast. Everything else is a feature on
+Nordend stays what it is: a native C++ file manager, at home on any Wayland desktop, with no GTK
+or Qt; very light, safe and fast. Everything else is a feature on
 top, added only when it keeps those three. Coming, roughly in this order:
 
 - **Network shares** in the sidebar (Samba, SFTP, FTP, WebDAV, through gvfs when it runs)

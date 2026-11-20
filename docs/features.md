@@ -348,7 +348,8 @@ README's [What's next](../README.md#whats-next).
   Zoom, Select All, Quit); only what can be used at that moment is offered ("Paste" with
   something to paste, "Rename…" with one entry). The sidebar's places are there as "Go to …" and
   the other tabs as "Tab 2: …". The letters are matched in order anywhere (fzy, as Noctalia's
-  launcher): "nf" finds New Folder, "gdo" Go to Downloads; the matched letters show in the accent.
+  launcher): "nf" finds New Folder, "gdo" Go to Downloads; spaces split what you type into terms,
+  all needed, in any order ("pa co" finds Copy Path); the matched letters show in the accent.
   With nothing typed, the ten most recently used come first, remembered in `state.toml`. ↑ ↓
   and Page Up/Down move, Enter runs, Escape or Ctrl+K again closes; the mouse works too. Each item
   goes the same way as its key or menu item, so they never differ. "Open With…" lists the
@@ -356,10 +357,17 @@ README's [What's next](../README.md#whats-next).
 - **Find files** (Ctrl+F): the same card, on every file and folder under the folder you are in,
   at any depth. They are listed once, nearest first, on a worker (273 000 entries in under half a
   second), and what you type is matched against their paths on all the workers, a new letter
-  cancelling the search before: the first results show in about 8 ms. A match in a file's name
-  ranks above one that needs its folders, so "vinc17" finds `Piramide Vincent/_7230017.ORF`;
-  spaces in what you type do not count. Enter shows the file in the view (the columns unfold down
-  to it), Space opens it in Quick Look, Shift+Enter in its application. Hidden files are left out
+  cancelling the search before: the first results show in about 8 ms. Names come first: one that
+  is what you typed, then one that starts with it, then one that holds it as typed, then one with
+  its letters scattered, and last a match that needs the folders ("vinc17" still finds
+  `Piramide Vincent/_7230017.ORF`); within each, the shallower path first (stradus64's issue #25).
+  Spaces split what you type into terms, all needed, in any order ("monte rosa" finds `Monte
+  Rosa` and `MonteRosa`). A name too long for its row keeps its match in sight, lit. Enter shows
+  the file in the view (the columns unfold down to it), Shift+Enter opens it in its application.
+  Space works as in a Finder window: while you type it is a space; once ↑ ↓ (or Page Up/Down)
+  have moved into the list it opens the highlighted file in Quick Look, and typing again goes
+  back to the field (Shift+Space is always a space; the caret fades while you are in the list).
+  Hidden files are left out
   unless Ctrl+H shows them; links are not followed and other disks mounted inside are not entered;
   the search stops at 300 000 entries and says so. The memory the paths took (about 85 bytes
   each) goes back to the system when the card closes.

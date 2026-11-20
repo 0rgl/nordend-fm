@@ -49,8 +49,11 @@ using nordend::ui::Modifiers;
 using nordend::views::Browser;
 using nordend::views::Command;
 using nordend::views::CommandPalette;
+using nordend::views::fit_label;
 using nordend::views::fuzzy_positions;
 using nordend::views::fuzzy_score;
+using nordend::views::FuzzyQuery;
+using nordend::views::LabelRun;
 using nordend::views::PaletteItem;
 using nordend::views::State;
 using nordend::views::SystemClipboard;
@@ -169,6 +172,76 @@ TEST_CASE("palette: filters as it is typed, the best first, recent first when em
     palette.key(key(XKB_KEY_BackSpace));
     CHECK(palette.query().empty());
     CHECK(palette.shown().size() == 6);
+}
+
+TEST_CASE("palette: a label too long keeps its match in sight, lit (issue #25)") {
+    // One unit a character ("…" too), whatever its bytes.
+    const auto width = [](std::string_view text) {
+        return static_cast<float>(std::ranges::count_if(
+            text, [](char c) { return (static_cast<unsigned char>(c) & 0xC0U) != 0x80U; }));
+    };
+    const auto text_of = [](const std::vector<LabelRun>& runs) {
+        std::string text;
+        for (const LabelRun& run : runs) {
+            text += run.text;
+        }
+        return text;
+    };
+    const auto lit_of = [](const std::vector<LabelRun>& runs) {
+        std::vector<std::string> lit;
+        for (const LabelRun& run : runs) {
+            if (run.lit) {
+                lit.push_back(run.text);
+            }
+        }
+        return lit;
+    };
+
+    // It fits: the whole label, its matches lit.
+    const std::vector<std::size_t> nt{0, 4};
+    CHECK(fit_label("New Tab", nt, false, 100.0F, width) ==
+          std::vector<LabelRun>{{"N", true}, {"ew ", false}, {"T", true}, {"ab", false}});
+
+    // A path: its name whole, as much of its start as fits.
+    const std::string path = "Documents/Projects/2026/report.pdf";
+    const std::vector<std::size_t> rep = FuzzyQuery{"rep"}.path_positions(path);
+    const std::vector<LabelRun> cut = fit_label(path, rep, true, 20.0F, width);
+    CHECK(text_of(cut) == "Document…/report.pdf");
+    CHECK(lit_of(cut) == std::vector<std::string>{"rep"});
+
+    // A name alone too long (stradus64's): from its match on, the match lit.
+    const std::string name =
+        "2026-11-16 @absolute_bajoding human slop existed long  before LLMs [UOqxEJwvhpY].webm";
+    const std::vector<std::size_t> slo = FuzzyQuery{"slo"}.path_positions(name);
+    REQUIRE_FALSE(slo.empty());
+    const std::vector<LabelRun> shown = fit_label(name, slo, true, 30.0F, width);
+    CHECK(width(text_of(shown)) <= 30.0F);
+    CHECK(text_of(shown).starts_with("…"));
+    CHECK(lit_of(shown) == std::vector<std::string>{"slo"});
+
+    // Cuts fall between characters, never inside one.
+    const std::vector<std::size_t> fifth{8};  // the fifth "à"
+    const std::vector<LabelRun> accents = fit_label("àààààààààà", fifth, false, 5.0F, width);
+    CHECK(text_of(accents) == "…ààà…");
+    CHECK(lit_of(accents) == std::vector<std::string>{"à"});
+    // Not one character fits: only "…".
+    CHECK(text_of(fit_label("New Tab", nt, false, 1.5F, width)) == "…");
+}
+
+TEST_CASE("palette: commands take terms in any order; Space is always a space there") {
+    CommandPalette palette{[] {}};
+    palette.open(plain_items({"Open in Terminal", "Copy Path", "Paste", "New Tab"}), {},
+                 "Type a command");
+    for (const char c : std::string_view{"pa co"}) {
+        palette.key(typed(c));
+    }
+    CHECK(palette.query() == "pa co");
+    CHECK(labels(palette) == std::vector<std::string>{"Copy Path"});
+    // No Quick Look among commands: from the list too, Space types.
+    palette.key(key(XKB_KEY_Down));
+    palette.key(typed(' '));
+    CHECK(palette.is_open());
+    CHECK(palette.query() == "pa co ");
 }
 
 TEST_CASE("palette: arrows move within the list, Enter runs and closes, Escape closes") {

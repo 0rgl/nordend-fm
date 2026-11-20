@@ -10,6 +10,7 @@
 
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/walk.hpp"
+#include "nordend/views/fuzzy.hpp"
 
 // Finding files under a folder (Ctrl+F, ROADMAP 8b): every entry under it is listed once, on a
 // worker, breadth first, and what is typed is matched against their paths on the workers, a new
@@ -22,7 +23,7 @@ namespace nordend::views {
 struct FoundFile {
     std::string path;  // relative to the folder searched
     bool directory{false};
-    double score{0.0};
+    PathRank rank;  // how well it matches (default with nothing typed)
 
     bool operator==(const FoundFile&) const = default;
 };

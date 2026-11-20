@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -41,6 +42,12 @@ struct PaletteItem {
 // business) closes. The pointer highlights the row it is over, a click runs it, the wheel scrolls,
 // a click outside closes the palette and does nothing else. In the field a click places the caret,
 // a drag or Shift+click selects, a double click selects all.
+//
+// Finding files, Space works as in a Finder window (issue #25): typing, it is a space in the query
+// (terms in any order); once Up, Down, Page Up or Page Down have moved into the list, it shows the
+// highlighted file in Quick Look. Typing again (or Backspace, the arrows across the text, a click
+// in the field) goes back to the field; Shift+Space is always a space. The caret fades while the
+// keyboard is in the list.
 //
 // Loop thread only.
 class CommandPalette {
@@ -98,6 +105,9 @@ public:
     // The highlighted row: an index into shown(); none when nothing matches.
     [[nodiscard]] std::optional<std::size_t> highlighted() const noexcept { return highlighted_; }
 
+    // The keyboard is in the list (moved there with Up, Down, Page Up, Page Down), not the field.
+    [[nodiscard]] bool in_list() const noexcept { return in_list_; }
+
     // The first row in sight.
     [[nodiscard]] std::size_t first_row() const noexcept { return first_; }
 
@@ -138,7 +148,8 @@ private:
     std::function<void()> closed_;
     std::function<void(const std::string&)> query_changed_;
     std::string status_;
-    bool moved_{false};  // the highlight was moved by hand
+    bool moved_{false};    // the highlight was moved by hand
+    bool in_list_{false};  // the keyboard is in the list: Space is Quick Look (finding files)
     bool open_{false};
     std::vector<PaletteItem> items_;
     std::vector<std::size_t> recent_;  // indexes into items_, most recent first
@@ -155,5 +166,22 @@ private:
     ui::Rect field_rect_{};
     ui::Rect list_{};
 };
+
+// A piece of a label as drawn: matched characters lit.
+struct LabelRun {
+    std::string text;
+    bool lit{false};
+
+    bool operator==(const LabelRun&) const = default;
+};
+
+// A label with its matched bytes (positions) fitted into room, measured by width (issue #25): the
+// whole label when it fits; a path too long keeps its name and as much of its start as fits
+// ("Documents/Pro…/report.pdf"); anything else too long (a name alone) keeps the part from its
+// first matched character on, cut with "…" where needed, so the match stays in sight.
+[[nodiscard]] std::vector<LabelRun> fit_label(std::string_view label,
+                                              std::span<const std::size_t> positions, bool path,
+                                              float room,
+                                              const std::function<float(std::string_view)>& width);
 
 }  // namespace nordend::views

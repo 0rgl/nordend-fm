@@ -29,8 +29,35 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   the fix. Checked on real files: appimagetool and Xournal++ 1.3.8 (static runtime, `DYN`, no
   `PT_INTERP`) are programs now, LocalSend 1.18.2 (old runtime, `EXEC`) and `libz.so` unchanged.
 
+- Issue #25 (stradus64), Find Files:
+  - Ranking: `FuzzyQuery::path_rank` gives a `PathRank` (tier, depth, fzy score) in place of a
+    score with a name bonus. Tiers: the name is the query, starts with it, holds it as typed,
+    holds its letters scattered, needs the folders; within a tier the shallower path, then fzy's
+    score, then the shorter path. `match_paths` keeps its best 200 by the same order, so
+    `/swapfile` is second for "swap" (after a file named `SWAP`) and first for "apfil" even
+    behind 300 mingw `api-ms-win-core-file-*` names, his cases as tests.
+  - Terms: spaces split the query, every term must match, in any order (fuzzel, orderless): the
+    weakest term's tier counts, the scores add up, the positions are their union. The commands
+    palette too ("pa co" finds Copy Path).
+  - Space: in the finder a space while typing, Quick Look once ↑ ↓ Page Up/Down moved into the
+    list; typing, Backspace, the arrows across the text, a paste or a click in the field go back
+    (Shift or Ctrl alone do not); Shift+Space always types; the caret fades in the list. Quick
+    Look itself unchanged (it goes to the file, the finder closes); one that follows the results
+    over the finder is an idea for later. Commands: Space always types.
+  - Long labels: `fit_label` (pure, tested with a width of one per character) keeps a path's
+    name and as much of its start as fits, or a long name from its first match on, cut between
+    characters; the matches stay lit (the `.webm` of his screenshot). Looked at in an offscreen
+    snapshot.
+
+**Measured** (`nordend-bench-find --runs 5 /usr`, 116 266 entries, runs 2-5, the whole list
+matched again on the workers): swap 3.0 → 3.8 ms, apfil 2.8 → 3.8, x 3.0 → 3.8, "monte rosa"
+3.0 → 7.0 (two terms, each tried in the name then the path). The timer rounds to about a
+millisecond.
+
 **Tested by the author** (2026-11-20): #29 and #30 by hand (rename field, Ctrl+K, the file
-chooser from Firefox). #23: LocalSend's AppImage asks, then starts; Xournal++'s now starts too
+chooser from Firefox). #25 by hand with his cases (swap, apfil, "ga st", "monte rosa", the long
+`.webm`, Space in the list and in the field, Shift+Space, Ctrl+K "pa co"): all as expected. #23:
+LocalSend's AppImage asks, then starts; Xournal++'s now starts too
 and exits 1, as it does from a terminal on his system (its bundled uim input module looks for
 `/usr/share/uim`): Xournal++'s packaging, not Nordend.
 

@@ -91,6 +91,15 @@ Browser::Browser(core::EventLoop& loop, core::WorkerPool& pool, fs::DirectoryWat
                       go_to(folder, child);
                   },
                   home_directory()},
+      path_entry_{
+          redraw,
+          [this](const std::filesystem::path& folder,
+                 std::function<void(PathEntry::Listing)> done) {
+              return list_for_entry(folder, std::move(done));
+          },
+          [this](const std::filesystem::path& path, const std::string& file) { go_to(path, file); },
+          [this](std::string problem) { show_message(std::move(problem), false); },
+          home_directory()},
       tab_bar_{redraw,
                {.select = [this](std::size_t index) { select_tab(index); },
                 .close = [this](std::size_t index) { close_tab(index); },
@@ -246,6 +255,7 @@ void Browser::enter_pane() {
 
 void Browser::new_tab() {
     const std::shared_ptr<Folder> shown = current_folder();
+    path_entry_.close();  // the field belongs to the tab that opened it
     open_tab(shown ? shown->path() : home_directory(), true);
 }
 
@@ -294,6 +304,7 @@ void Browser::close_tab(std::size_t index) {
     if (panes_.size() <= 1 || index >= panes_.size()) {
         return;  // the last tab stays: Ctrl+W does nothing then
     }
+    path_entry_.close();  // the field belongs to the tab that opened it
     const bool shown = index == active_;
     if (shown) {
         leave_pane();
@@ -361,6 +372,7 @@ void Browser::select_tab(std::size_t index) {
     if (index >= panes_.size() || index == active_) {
         return;
     }
+    path_entry_.close();  // the field belongs to the tab that opened it
     note_location();
     leave_pane();
     active_ = index;
@@ -694,6 +706,8 @@ void Browser::paste_text() {
                          // Into the field that has the keyboard, in take_key()'s order.
                          if (palette_.is_open()) {
                              palette_.paste(*text);
+                         } else if (path_entry_.active()) {
+                             path_entry_.paste(*text);
                          } else if (editor_.active()) {
                              editor_.paste(*text);
                          } else if (sidebar_.renaming()) {
@@ -721,6 +735,8 @@ bool Browser::text_field_key(const ui::KeyEvent& event) {
     std::string text;
     if (palette_.is_open()) {
         text = cut ? palette_.cut() : palette_.field().selected_text();
+    } else if (path_entry_.active()) {
+        text = cut ? path_entry_.cut() : path_entry_.field().selected_text();
     } else if (editor_.active()) {
         text = cut ? editor_.cut() : editor_.field().selected_text();
     } else if (sidebar_.renaming()) {
@@ -2820,10 +2836,19 @@ void Browser::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::
     const float pick_bar =
         pick_ ? std::min(PickBar::kHeight, std::max(0.0F, view.height - path_row - bar)) : 0.0F;
     if (folder) {
+        // The path field, while it is open, is drawn where the breadcrumb is; a folder changed
+        // another way meanwhile gives the breadcrumb back.
+        if (path_entry_.active() && folder->path() != path_entry_.shown()) {
+            path_entry_.close();
+        }
         const float left = forward_.right() + 2.0F;
         const float right = path_rect.right() - header_reserve_.value_or(0.0F);
-        breadcrumb_.draw(renderer, {left, path_rect.y, std::max(0.0F, right - left), kTitleHeight},
-                         palette, icons, *folder);
+        const ui::Rect row{left, path_rect.y, std::max(0.0F, right - left), kTitleHeight};
+        if (path_entry_.active()) {
+            path_entry_.draw(renderer, row, palette);
+        } else {
+            breadcrumb_.draw(renderer, row, palette, icons, *folder);
+        }
         if (!own_header) {
             // Under back and forward too, as under the path.
             renderer.fill_rect({path_rect.x, path_rect.y + kTitleHeight - 1.0F, left - path_rect.x,
@@ -2993,6 +3018,9 @@ ui::CursorShape Browser::cursor_at(float x, float y) const {
         return hand(can_travel(direction));
     }
     if (breadcrumb_.claims(x, y)) {
+        if (path_entry_.active()) {
+            return path_entry_.claims(x, y) ? Shape::text : Shape::standard;
+        }
         return hand(breadcrumb_.clickable_at(x, y));
     }
     if (status_bar_.claims(x, y)) {
@@ -3023,6 +3051,7 @@ void Browser::take_pointer(const ui::PointerEvent& event, Clock::time_point now)
         editor_.end_field_drag();
         sidebar_.end_field_drag();
         palette_.end_field_drag();
+        path_entry_.end_field_drag();
     }
     if (conflict_.is_open()) {
         conflict_.pointer(event);  // the question first: nothing under it reacts
@@ -3090,6 +3119,7 @@ void Browser::take_pointer(const ui::PointerEvent& event, Clock::time_point now)
     }
     if (event.kind == ui::PointerEvent::Kind::press &&
         (event.button == ui::PointerButton::back || event.button == ui::PointerButton::forward)) {
+        path_entry_.close();  // going back or forward gives the breadcrumb back
         travel(event.button == ui::PointerButton::back ? -1 : 1);
         return;
     }
@@ -3115,6 +3145,8 @@ void Browser::dispatch_pointer(const ui::PointerEvent& event, Clock::time_point 
             target = Target::tabs;
         } else if (navigation_at(event.x, event.y) != 0) {
             target = Target::header;
+        } else if (path_entry_.active() && breadcrumb_.claims(event.x, event.y)) {
+            target = Target::path_entry;  // the field, and the margin beside it
         } else if (breadcrumb_.claims(event.x, event.y)) {
             target = Target::breadcrumb;
         } else if (status_bar_.claims(event.x, event.y)) {
@@ -3134,6 +3166,9 @@ void Browser::dispatch_pointer(const ui::PointerEvent& event, Clock::time_point 
         }
         if (pointer_target_ == Target::view) {
             pick_bar_.set_name_focused(false);  // saving: the view has the keyboard now
+        }
+        if (path_entry_.active() && pointer_target_ != Target::path_entry) {
+            path_entry_.close();  // a press elsewhere gives the breadcrumb back
         }
     } else if (event.kind == Kind::release) {
         button_held_ = false;
@@ -3364,6 +3399,9 @@ void Browser::send_pointer(Target target, const ui::PointerEvent& event, Clock::
         case Target::breadcrumb:
             breadcrumb_.pointer(event);
             break;
+        case Target::path_entry:
+            path_entry_.pointer(event);
+            break;
         case Target::status_bar:
             status_bar_.pointer(event);
             break;
@@ -3394,7 +3432,9 @@ bool Browser::window_drag_at(float x, float y) const {
     if (sidebar_top_.contains(x, y)) {
         return true;
     }
-    return header_.contains(x, y) && navigation_at(x, y) == 0 && !breadcrumb_.clickable_at(x, y);
+    return header_.contains(x, y) && navigation_at(x, y) == 0 && !breadcrumb_.clickable_at(x, y) &&
+           // The path field's row is the field's, the margin beside it included.
+           !(path_entry_.active() && breadcrumb_.claims(x, y));
 }
 
 int Browser::navigation_at(float x, float y) const {
@@ -3469,6 +3509,77 @@ void Browser::go_to(const std::filesystem::path& folder, const std::string& chil
         }
     }
     note_location();
+}
+
+void Browser::open_path_entry() {
+    const std::shared_ptr<Folder> folder = current_folder();
+    if (!folder) {
+        return;
+    }
+    quick_look_.close();
+    shortcuts_.close();
+    sidebar_.set_focused(false);
+    pick_bar_.set_name_focused(false);  // saving: the path field has the keyboard now
+    path_entry_.open(folder->path(), show_hidden_);
+}
+
+core::CancelToken Browser::list_for_entry(const std::filesystem::path& folder,
+                                          std::function<void(PathEntry::Listing)> done) {
+    // What a worker finds in folder: the entries, or the error. The split into folders and
+    // files, which asks the engines (opens_as_folder), waits for the loop thread.
+    struct Found {
+        std::error_code error;
+        std::vector<fs::Entry> entries;
+    };
+
+    return pool_.submit(
+        core::Priority::visible,
+        [folder, mime = mime_](const core::CancelToken& token) {
+            Found found;
+            std::vector<fs::Entry> entries;
+            const fs::ReadResult read = fs::read_directory(
+                folder, token, {.mime = mime}, [&entries](std::vector<fs::Entry> chunk) {
+                    entries.insert(entries.end(), std::make_move_iterator(chunk.begin()),
+                                   std::make_move_iterator(chunk.end()));
+                });
+            if (read.error == std::errc::not_a_directory && !token.cancelled()) {
+                // The path goes through a file: an archive's folder, as the model opens it.
+                if (const std::optional<fs::ArchiveLocation> where = fs::find_archive(folder)) {
+                    const std::shared_ptr<const fs::ArchiveTree> tree =
+                        fs::archive_tree(where->archive, mime.get());
+                    if (const std::vector<fs::Entry>* inside = tree->folder(where->inner)) {
+                        entries.assign(inside->begin(), inside->end());
+                    } else {
+                        found.error = std::make_error_code(std::errc::not_a_directory);
+                    }
+                } else {
+                    found.error = std::make_error_code(std::errc::not_a_directory);
+                }
+            } else {
+                found.error = read.error;
+            }
+            found.entries = std::move(entries);
+            return found;
+        },
+        [this, alive = alive_, folder, done = std::move(done)](const Found& found) {
+            if (!*alive) {
+                return;
+            }
+            PathEntry::Listing listing;
+            listing.folder = folder;
+            listing.error = found.error;
+            for (const fs::Entry& entry : found.entries) {
+                // A link to a folder is a directory, as read_directory has it.
+                if (entry.is_directory() || opens_as_folder(entry)) {
+                    listing.folders.push_back(entry.name);
+                } else {
+                    listing.files.push_back(entry.name);
+                }
+            }
+            std::ranges::sort(listing.folders);
+            std::ranges::sort(listing.files);
+            done(std::move(listing));
+        });
 }
 
 std::optional<ViewHit> Browser::view_hit(float x, float y) const {
@@ -3569,8 +3680,11 @@ std::optional<Browser::DropTarget> Browser::drop_target_at(float x, float y) con
             return std::nullopt;
         }
     }
-    if (const std::optional<std::filesystem::path> crumb = breadcrumb_.path_at(x, y)) {
-        return DropTarget{.folder = *crumb, .mark = {}, .place = {}, .crumb = crumb};
+    // While the path field is open the steps are hidden: nothing drops onto what is not there.
+    if (!path_entry_.active()) {
+        if (const std::optional<std::filesystem::path> crumb = breadcrumb_.path_at(x, y)) {
+            return DropTarget{.folder = *crumb, .mark = {}, .place = {}, .crumb = crumb};
+        }
     }
     const std::optional<ViewHit> hit = view_hit(x, y);
     if (!hit || hit->folder->is_trash() || hit->folder->is_archive()) {
@@ -4271,6 +4385,21 @@ bool Browser::take_key(const ui::KeyEvent& event, Clock::time_point now) {
     if (menu_.is_open()) {
         return menu_.key(event);  // every key is the menu's meanwhile
     }
+    // While the path field is open every key is its, as the name editor's are; before the
+    // picker's Escape, so the first one closes the field and not the dialog. New tab and close
+    // tab go through as well: they close the field, the folder stays as it was, and the
+    // command runs below as for any other key.
+    if (path_entry_.active()) {
+        const Command command = command_for(event);
+        if (command == Command::new_tab || command == Command::close_tab) {
+            path_entry_.close();
+        } else {
+            if (text_field_key(event)) {
+                return true;  // Ctrl+C, Ctrl+X and Ctrl+V, as the other fields have them
+            }
+            return path_entry_.key(event);
+        }
+    }
     if (editor_.active()) {
         if (text_field_key(event)) {
             return true;
@@ -4504,6 +4633,9 @@ void Browser::run(Command command, Clock::time_point now) {
             break;
         case Command::forward:
             forward();
+            break;
+        case Command::path_entry:
+            open_path_entry();
             break;
         case Command::toggle_hidden:
             set_show_hidden(!show_hidden_);

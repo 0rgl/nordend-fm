@@ -193,9 +193,11 @@ README's [What's next](../README.md#whats-next).
 - **Rename in place** (F2): the name becomes a field where it is, in all three views, with the
   name selected but not its extension. Typing works with accents and compose. Enter keeps the
   name, Escape gives up, and a click elsewhere keeps it. The usual editing keys work, including
-  words with Ctrl+arrows and selection with Shift; Ctrl+V pastes the clipboard's text (its first
-  line); Ctrl+Z undoes and Ctrl+Shift+Z redoes (a word typed, characters deleted one after
-  another, or a paste is one step; up to 100).
+  words with Ctrl+arrows and selection with Shift; Ctrl+C and Ctrl+X copy and cut the selected
+  text, Ctrl+V pastes the clipboard's text (its first line); Ctrl+Z undoes and Ctrl+Shift+Z redoes
+  (a word typed, characters deleted one after another, a cut or a paste is one step; up to 100).
+  With the pointer, a drag or Shift+click selects and a double click selects the whole name. The
+  same goes for every text field: a bookmark's label, Ctrl+K and the file chooser's name.
 - **New folder** (Ctrl+Shift+N): "New Folder" (or "New Folder 2"...), ready to be named.
 - **Never overwrites:** renames use `RENAME_NOREPLACE`, so an existing file is never replaced,
   even one that appears in the meantime. A taken or invalid name is refused with a message and

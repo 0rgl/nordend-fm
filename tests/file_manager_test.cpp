@@ -118,7 +118,8 @@ printf '%s\n' "$@" "token=$XDG_ACTIVATION_TOKEN" > ')"
     BusLoop service_bus{loop, *service, "service"};
     portal::FileManager manager{loop, *service, service_bus, program};
     bool idle = false;
-    manager.set_idle_handler(100ms, [&idle] { idle = true; });
+    // Long enough that a slow machine starting three scripts is not taken for idleness.
+    manager.set_idle_handler(1s, [&idle] { idle = true; });
     service->requestName(sdbus::ServiceName{std::string{portal::kFileManagerName}});
     service_bus.pump();
     const auto client = sdbus::createSessionBusConnectionWithAddress(address);

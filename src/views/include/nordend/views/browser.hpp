@@ -737,7 +737,7 @@ private:
     // window_list and window_grid for a tab written before tabs had a zoom of their own.
     void restore_tab(const State::Tab& tab, std::size_t window_list, std::size_t window_grid);
     // The folder pane shows into its history: a new step when it changed, else its cursor.
-    void note_location(Pane& pane);
+    static void note_location(Pane& pane);
     // Before the pane at index goes: a ClosedTab for reopen_tab(), the oldest dropped past
     // kMaxClosedTabs.
     void remember_closed(std::size_t index);

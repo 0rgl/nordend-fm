@@ -174,8 +174,10 @@ README's [What's next](../README.md#whats-next).
     kitty, ghostty, alacritty, wezterm...);
   - the new window comes up in front, through an xdg-activation token;
   - apps run detached: no zombies, and closing Nordend leaves them open;
-  - **a program starts itself** (issue #17): an ELF executable or an AppImage, named as one
-    (Nordend's type, by name then content: a program called `invoice.pdf` is a PDF), that may
+  - **a program starts itself** (issue #17): an ELF executable or an AppImage (its runtime, a
+    static PIE without an interpreter, known by the AppImage magic: Evergaster's issue #23),
+    named as one (Nordend's type, by name then content: a program called `invoice.pdf` is a
+    PDF), that may
     already run, starts in its folder like any app. One that may not run yet asks first, on the
     card ("Allow “Tool.AppImage” to run?", **Allow and Run** gives it `u+x` and starts it).
     Safety first: scripts never start this way (a downloaded `.sh` looks like a document: it

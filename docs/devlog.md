@@ -4,6 +4,45 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-20 — Toward 0.9.1: pull requests, AppImages
+
+**Done**
+- 0rgl's pull requests merged (rebase), each read, the four builds green before merging:
+  - #31: the made-up nordend of "file manager: on the bus…" writes each record to a file of its
+    own (bash, Fedora's `/bin/sh`, writes a record a line at a time: 10 mixed records in 500
+    runs here with the old script, none with the new). Ours on top: the test's idle wait 1 s
+    (the countdown starts at the last call, not when the scripts have written). Our own earlier
+    fix of the same test, never committed, dropped.
+  - #34: copy and move into (and out of) a folder reached through a link, slutsaint's #27: the
+    two folders are `stat`ed, everything in them still `lstat`ed. Its tests fail without the
+    fix (9 checks). #27 stays open until the release.
+  - #29 and #30, slutsaint's #24 points 2 and 1: Ctrl+C and Ctrl+X in every text field, and a
+    drag, Shift+click or double click selecting in all of them (the rename field could not
+    drag, the save bar's name only placed the caret). Ours on top: F1's line and features.md.
+- README and features.md say "at home on any Wayland desktop"; the line singling out Noctalia is
+  gone (the author's choice). Noctalia stays where it is a fact (a theme source).
+- Issue #23 (Evergaster): an AppImage marked runnable opened as a document. Its runtime is a
+  static PIE, `ET_DYN` with no `PT_INTERP`, so `is_elf_program` took it for a library. Now an
+  `ET_DYN` with the AppImage magic (`AI` and type 1 or 2 at byte 8) is a program; the exec bit
+  and `noexec` rules are unchanged. Tests with synthetic headers (type 2, type 1, 32-bit; type 3,
+  an object file and a core dump with the magic refused); the three AppImage cases fail without
+  the fix. Checked on real files: appimagetool and Xournal++ 1.3.8 (static runtime, `DYN`, no
+  `PT_INTERP`) are programs now, LocalSend 1.18.2 (old runtime, `EXEC`) and `libz.so` unchanged.
+
+**Tested by the author** (2026-11-20): #29 and #30 by hand (rename field, Ctrl+K, the file
+chooser from Firefox). #23: LocalSend's AppImage asks, then starts; Xournal++'s now starts too
+and exits 1, as it does from a terminal on his system (its bundled uim input module looks for
+`/usr/share/uim`): Xournal++'s packaging, not Nordend.
+
+**Open**
+- "helpers: a sequence's read is stopped mid-entry" fails now and then on Fedora (zlib-ng
+  inflates the 4 GiB of zeros before the 200 ms stop): 0rgl will send a fix (stop once the
+  first bytes have arrived).
+- Other static PIEs (some Go or Rust builds) are still not programs: telling them from libraries
+  needs the dynamic section (`DF_1_PIE`). Not asked for yet.
+
+---
+
 ## 2026-11-16 — Nordend 0.9.0
 
 **Done**

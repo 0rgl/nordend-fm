@@ -165,6 +165,8 @@ std::vector<PaletteItem> Browser::palette_items() {
     }
     if (folder) {
         view_command("select_all", "Select All", "Ctrl+A", XKB_KEY_a, {.ctrl = true});
+        view_command("invert_selection", "Invert Selection", "Ctrl+Shift+I", XKB_KEY_I,
+                     {.ctrl = true, .shift = true});
     }
     if (editable) {
         command(Command::add_bookmark, "add_bookmark", "Add to Sidebar");

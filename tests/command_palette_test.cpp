@@ -492,9 +492,9 @@ TEST_CASE("palette in the browser: every command is offered where it can be used
         CAPTURE(id);
         CHECK(seen.contains(id));
     }
-    for (const char* id :
-         {"sort:size", "sort:descending", "view:zoom_in", "view:select_all", "view:parent",
-          "go:", "command:empty_trash", "command:new_file", "command:open"}) {
+    for (const char* id : {"sort:size", "sort:descending", "view:zoom_in", "view:select_all",
+                           "view:invert_selection", "view:parent", "go:", "command:empty_trash",
+                           "command:new_file", "command:open"}) {
         if (std::string_view{id} == "go:") {
             CHECK(seen.contains("go:" + f.b.string()));
         } else {
@@ -533,6 +533,18 @@ TEST_CASE("palette in the browser: an item does what its key does") {
     f.run("show details");
     g.press(key(XKB_KEY_3, kCtrl));
     CHECK(f.browser.mode() == g.browser.mode());
+}
+
+TEST_CASE("palette in the browser: Invert Selection does what Ctrl+Shift+I does") {
+    Fixture f;
+    Fixture g;
+    f.run("invert");
+    REQUIRE(g.press(key(XKB_KEY_I, {.ctrl = true, .shift = true})));
+    const std::vector<std::string> inverted =
+        f.browser.columns().focused_folder()->selected_names();
+    CHECK_FALSE(inverted.empty());
+    CHECK(inverted == g.browser.columns().focused_folder()->selected_names());
+    CHECK(f.browser.state().palette_recent.front() == "view:invert_selection");
 }
 
 TEST_CASE("palette in the browser: the recently used come back first, and in state.toml") {

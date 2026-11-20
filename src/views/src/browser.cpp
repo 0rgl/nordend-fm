@@ -63,6 +63,13 @@ std::filesystem::path home_directory() {
     return home != nullptr && *home == '/' ? std::filesystem::path{home} : std::filesystem::path{};
 }
 
+// Whether path is a folder on disk (restore_tabs(), reopen_tab(); the trash and archives have
+// none).
+bool folder_there(const std::filesystem::path& path) {
+    std::error_code error;
+    return !path.empty() && std::filesystem::is_directory(path, error);
+}
+
 }  // namespace
 
 Browser::Browser(core::EventLoop& loop, core::WorkerPool& pool, fs::DirectoryWatcher& watcher,
@@ -291,6 +298,7 @@ void Browser::close_tab(std::size_t index) {
     if (shown) {
         leave_pane();
     }
+    remember_closed(index);
     panes_.erase(panes_.begin() + static_cast<std::ptrdiff_t>(index));
     if (active_ > index || active_ >= panes_.size()) {
         --active_;  // the one after it takes its place, or the one before when it was the last
@@ -300,6 +308,53 @@ void Browser::close_tab(std::size_t index) {
     } else {
         redraw_();
     }
+}
+
+void Browser::remember_closed(std::size_t index) {
+    Pane& closing = *panes_[index];
+    const std::shared_ptr<Folder> folder = folder_of(closing);
+    if (!folder) {
+        return;  // nothing shown yet: nothing to bring back
+    }
+    note_location(closing);  // its cursor now, also for a tab closed by its × while not shown
+    closed_tabs_.push_back({.tab = tab_of(closing),
+                            .history = closing.history,
+                            .here = closing.here,
+                            .index = index,
+                            .off_disk = folder->is_trash() || folder->is_archive()});
+    if (closed_tabs_.size() > kMaxClosedTabs) {
+        closed_tabs_.erase(closed_tabs_.begin());
+    }
+}
+
+void Browser::reopen_tab() {
+    if (closed_tabs_.empty()) {
+        show_message("No closed tab to reopen", false);
+        return;
+    }
+    ClosedTab closed = std::move(closed_tabs_.back());
+    closed_tabs_.pop_back();
+    if (!closed.off_disk && !folder_there(closed.tab.folder)) {
+        const std::string name = closed.tab.folder.filename().string();
+        show_message(
+            std::format("{} no longer exists", name.empty() ? closed.tab.folder.string() : name),
+            true);
+        return;
+    }
+    note_location();  // where the tab shown was, for its history
+    const std::size_t window_list = pane().details.list_size();
+    const std::size_t window_grid = pane().grid.size_index();
+    leave_pane();
+    const std::size_t at = std::min(closed.index, panes_.size());
+    add_pane(at);  // the window's order, widths and hidden files
+    active_ = at;
+    restore_tab(closed.tab, window_list, window_grid);
+    if (closed.here < closed.history.size() &&
+        closed.history[closed.here].folder == closed.tab.folder) {
+        pane().history = std::move(closed.history);
+        pane().here = closed.here;
+    }
+    enter_pane();
 }
 
 void Browser::select_tab(std::size_t index) {
@@ -2273,30 +2328,32 @@ void Browser::show_items(const std::vector<std::filesystem::path>& items, bool d
     redraw_();
 }
 
-void Browser::note_location() {
-    if (pane().mode == Mode::columns && pane().columns.revealing()) {
+void Browser::note_location() { note_location(pane()); }
+
+void Browser::note_location(Pane& pane) {
+    if (pane.mode == Mode::columns && pane.columns.revealing()) {
         return;  // noted once the columns have unfolded
     }
-    const std::shared_ptr<Folder> shown = current_folder();
+    const std::shared_ptr<Folder> shown = folder_of(pane);
     if (!shown) {
         return;
     }
     const fs::Entry* const cursor = shown->cursor_entry();
-    if (!pane().history.empty() && pane().history[pane().here].folder == shown->path()) {
+    if (!pane.history.empty() && pane.history[pane.here].folder == shown->path()) {
         if (cursor != nullptr) {
-            pane().history[pane().here].cursor = cursor->name;
+            pane.history[pane.here].cursor = cursor->name;
         }
         return;
     }
-    if (!pane().history.empty()) {
-        pane().history.erase(pane().history.begin() + static_cast<std::ptrdiff_t>(pane().here) + 1,
-                             pane().history.end());
+    if (!pane.history.empty()) {
+        pane.history.erase(pane.history.begin() + static_cast<std::ptrdiff_t>(pane.here) + 1,
+                           pane.history.end());
     }
-    pane().history.push_back({.folder = shown->path(), .cursor = cursor ? cursor->name : ""});
-    if (pane().history.size() > kHistorySize) {
-        pane().history.erase(pane().history.begin());
+    pane.history.push_back({.folder = shown->path(), .cursor = cursor ? cursor->name : ""});
+    if (pane.history.size() > kHistorySize) {
+        pane.history.erase(pane.history.begin());
     }
-    pane().here = pane().history.size() - 1;
+    pane.here = pane.history.size() - 1;
 }
 
 void Browser::back() { travel(-1); }
@@ -2478,34 +2535,54 @@ State Browser::state() const {
             if (!folder || folder->is_trash()) {
                 continue;
             }
-            State::Tab tab{.folder = folder->path(),
-                           .mode = static_cast<State::Mode>(each.mode),
-                           .root = {},
-                           .cursor = {},
-                           .list_size = {},
-                           .grid_icon = {}};
-            if (each.mode == Mode::columns && each.columns.column_count() > 0) {
-                tab.root = each.columns.column(0).folder().path();
-            }
-            if (const fs::Entry* entry = folder->cursor_entry()) {
-                tab.cursor = entry->name;
-            }
-            tab.list_size = each.details.list_size();
-            tab.grid_icon = static_cast<std::int32_t>(each.grid.icon_size());
             if (i == active_) {
                 state.shown_tab = state.tabs.size();
             }
-            state.tabs.push_back(std::move(tab));
+            state.tabs.push_back(tab_of(each));
         }
     }
     return state;
 }
 
+State::Tab Browser::tab_of(const Pane& pane) {
+    const std::shared_ptr<Folder> folder = folder_of(pane);
+    State::Tab tab{.folder = folder ? folder->path() : std::filesystem::path{},
+                   .mode = static_cast<State::Mode>(pane.mode),
+                   .root = {},
+                   .cursor = {},
+                   .list_size = {},
+                   .grid_icon = {}};
+    if (pane.mode == Mode::columns && pane.columns.column_count() > 0) {
+        tab.root = pane.columns.column(0).folder().path();
+    }
+    if (const fs::Entry* entry = folder ? folder->cursor_entry() : nullptr) {
+        tab.cursor = entry->name;
+    }
+    tab.list_size = pane.details.list_size();
+    tab.grid_icon = static_cast<std::int32_t>(pane.grid.icon_size());
+    return tab;
+}
+
+void Browser::restore_tab(const State::Tab& tab, std::size_t window_list, std::size_t window_grid) {
+    pane().mode = static_cast<Mode>(tab.mode);
+    const std::filesystem::path relative = tab.folder.lexically_relative(tab.root);
+    if (pane().mode == Mode::columns && folder_there(tab.root) && !relative.empty() &&
+        *relative.begin() != "..") {
+        // The columns unfold as they were, down to the cursor in the folder shown.
+        pane().columns.reveal(tab.root, tab.cursor.empty() ? tab.folder : tab.folder / tab.cursor);
+    } else {
+        open(tab.folder);
+        if (const std::shared_ptr<Folder> opened = current_folder();
+            opened && !tab.cursor.empty()) {
+            opened->select_name(tab.cursor);
+        }
+    }
+    set_list_size(tab.list_size.value_or(window_list));
+    set_grid_size(tab.grid_icon ? grid_index(*tab.grid_icon) : window_grid);
+    note_location();
+}
+
 bool Browser::restore_tabs(const std::vector<State::Tab>& tabs, std::size_t shown) {
-    const auto folder_there = [](const std::filesystem::path& path) {
-        std::error_code error;
-        return !path.empty() && std::filesystem::is_directory(path, error);
-    };
     // Tabs written before they had a zoom of their own take the window's (apply()).
     const std::size_t window_list = pane().details.list_size();
     const std::size_t window_grid = pane().grid.size_index();
@@ -2520,23 +2597,7 @@ bool Browser::restore_tabs(const std::vector<State::Tab>& tabs, std::size_t show
             add_pane(restored);
         }
         active_ = restored;
-        pane().mode = static_cast<Mode>(tab.mode);
-        const std::filesystem::path relative = tab.folder.lexically_relative(tab.root);
-        if (pane().mode == Mode::columns && folder_there(tab.root) && !relative.empty() &&
-            *relative.begin() != "..") {
-            // The columns unfold as they were, down to the cursor in the folder shown.
-            pane().columns.reveal(tab.root,
-                                  tab.cursor.empty() ? tab.folder : tab.folder / tab.cursor);
-        } else {
-            open(tab.folder);
-            if (const std::shared_ptr<Folder> opened = current_folder();
-                opened && !tab.cursor.empty()) {
-                opened->select_name(tab.cursor);
-            }
-        }
-        set_list_size(tab.list_size.value_or(window_list));
-        set_grid_size(tab.grid_icon ? grid_index(*tab.grid_icon) : window_grid);
-        note_location();
+        restore_tab(tab, window_list, window_grid);
         if (i == shown) {
             to_show = restored;
         }
@@ -4355,6 +4416,9 @@ void Browser::run(Command command, Clock::time_point now) {
             break;
         case Command::close_tab:
             close_tab(active_);
+            break;
+        case Command::reopen_tab:
+            reopen_tab();
             break;
         case Command::next_tab:
             select_tab((active_ + 1) % panes_.size());

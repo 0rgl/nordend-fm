@@ -20,6 +20,7 @@
 #include "nordend/fs/file_filter.hpp"
 #include "nordend/fs/mime.hpp"
 #include "nordend/fs/places.hpp"
+#include "nordend/fs/scripts.hpp"
 #include "nordend/fs/transfer_queue.hpp"
 #include "nordend/theme/palette.hpp"
 #include "nordend/ui/clipboard.hpp"
@@ -285,6 +286,18 @@ public:
     void set_actions(std::vector<core::Config::Action> actions, ActionHandler run) {
         actions_ = std::move(actions);
         run_action_ = std::move(run);
+    }
+
+    // The user's scripts (issue #26) in a "Scripts" submenu, on the selection and on the
+    // folder's empty space (no files then); run(script, files, folder shown) starts one. Without
+    // a handler, none.
+    using ScriptHandler =
+        std::function<void(const fs::Script& script, std::vector<std::filesystem::path> files,
+                           const std::filesystem::path& directory)>;
+
+    void set_scripts(std::vector<fs::Script> scripts, ScriptHandler run) {
+        scripts_ = std::move(scripts);
+        run_script_ = std::move(run);
     }
 
     // Lets the user choose a folder, starting in start (Nordend's own folder chooser, a process
@@ -824,6 +837,9 @@ private:
     void add_actions(std::vector<MenuItem>& items, std::span<const ActionTarget> targets,
                      const std::vector<std::filesystem::path>& files,
                      const std::filesystem::path& directory, bool background);
+    // The "Scripts" submenu, a line above it; nothing without scripts.
+    void add_scripts(std::vector<MenuItem>& items, const std::vector<std::filesystem::path>& files,
+                     const std::filesystem::path& directory);
     [[nodiscard]] MenuItem sort_menu();
     // A new pane at index at, its views wired to the window, sorted and filtered as the window is.
     Pane& add_pane(std::size_t at);
@@ -854,6 +870,8 @@ private:
     TerminalHandler terminal_;
     std::vector<core::Config::Action> actions_;
     ActionHandler run_action_;
+    std::vector<fs::Script> scripts_;
+    ScriptHandler run_script_;
     FolderChooser folder_chooser_;
     std::optional<std::filesystem::path> templates_dir_;
     fs::PlaceSources place_sources_{

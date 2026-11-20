@@ -307,6 +307,16 @@ README's [What's next](../README.md#whats-next).
     empty space too (`background`), in a terminal (`terminal`); started detached in the folder
     shown, a quick failing exit reported; never in the trash or the file chooser; followed live,
     a broken action left out and reported by `--check-config` (0rgl's issue #14);
+  - **scripts of your own**, as in Nautilus (HOkket's issue #26): every program in
+    `~/.local/share/nordend/scripts` shows under "Scripts", on the selection and on the empty
+    space, a subfolder's as "Photos › crop"; it runs in the folder shown with the selected files
+    as its arguments (relative to the folder) and `NAUTILUS_SCRIPT_SELECTED_FILE_PATHS`,
+    `NAUTILUS_SCRIPT_SELECTED_URIS` and `NAUTILUS_SCRIPT_CURRENT_URI` set, so Nautilus's scripts
+    work as they are (link Nautilus's folder there; the window's geometry variable is gone from
+    Nautilus too). Safety first: only your own executables that nobody else may write to, in
+    folders nobody else may write to; a link only to what passes the same checks; hidden names,
+    a third level of folders and anything past 200 scripts left out, said in the log and by
+    `--check-config`. Read on a worker and followed live; never in the trash or the file chooser;
   - New File makes an empty file, or a copy of one of your templates (`XDG_TEMPLATES_DIR`),
     never over an existing file, with the name ready to edit;
   - drawn by Nordend in your theme's colors, it stays whole near the window's edges, and the

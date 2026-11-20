@@ -4,6 +4,44 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-20 — Scripts of your own (0.10.0, issue #26)
+
+**Done**
+- `fs/scripts`: `find_scripts(folder)` (worker) reads `$XDG_DATA_HOME/nordend/scripts` through
+  descriptors (`openat`/`fstatat`, `O_NOFOLLOW` for subfolders): a folder only when it is the
+  user's (or root's) and nobody else may write to it, a script only when it is a regular file of
+  the same kind, executable; hidden names out; two levels of subfolders ("Photos › crop", the
+  menu has one level of submenus); 200 scripts at most. A link is followed only to a file (the
+  folder itself: to a folder) that passes the same checks, in a folder that does too: a link to
+  Nautilus's scripts works, one into /tmp does not; links to folders inside are not followed (no
+  loops). Every refusal is a line for the log and `--check-config`.
+- What Nautilus gives a script, read in its source (`src/nautilus-files-view.c`): the selected
+  files as arguments relative to the folder shown, `NAUTILUS_SCRIPT_SELECTED_FILE_PATHS` and
+  `_URIS` (one a line, each line ended), `NAUTILUS_SCRIPT_CURRENT_URI`, started in the folder
+  shown; `NAUTILUS_SCRIPT_WINDOW_GEOMETRY` is no longer set by Nautilus either.
+  `script_arguments` / `script_environment`; `OpenPlan::Launch::env`; `Opener::run_script` (no
+  shell, a quick failing exit reported).
+- `fs::ScriptsWatcher`: read at start, again 30 ms after the folder appears or goes
+  (`core::FileWatcher`) or anything in it or its subfolders changes (`DirectoryWatcher`).
+- Browser: a "Scripts" submenu after a line, on the selection and on the empty space (no files
+  then, as Nautilus); never in the trash, an archive or the file chooser.
+- Decision: our reply on #26 said both "links leading outside the folder are skipped" and "link
+  Nautilus's folder or single scripts"; the rule above keeps the second safely. To say on #26 at
+  the release.
+
+**Tests**: `scripts_test.cpp` (labels and order, notes and hidden names, folders and files others
+may write to, too deep, links in and out and dangling, the folder itself a link, the 200 limit,
+arguments and environment, the watcher following a folder made later and a subfolder);
+`platform_test.cpp` (a script run: folder, arguments, the three variables, the empty space);
+`context_menu_test.cpp` (the submenu on the selection and the space, none when taken away).
+
+**Tested by the author** (2026-11-20): a scripts folder with a subfolder and a group-writable
+script: `--check-config` and the log name the latter, left out; "mostra" on two files got
+`a b.txt` and `c.txt` as arguments, both full paths and the folder's URI; "Foto › ritaglia" on the
+empty space ran with no files; a script added while Nordend was open was read again at once.
+
+---
+
 ## 2026-11-20 — Nordend 0.9.1
 
 **Done**

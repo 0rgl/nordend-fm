@@ -14,6 +14,7 @@
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/entry.hpp"
 #include "nordend/fs/mime.hpp"
+#include "nordend/fs/scripts.hpp"
 #include "nordend/platform/applications.hpp"
 #include "nordend/platform/desktop_entry.hpp"
 #include "nordend/platform/launcher.hpp"
@@ -35,6 +36,7 @@ struct OpenPlan {
         std::filesystem::path directory;  // the entry's Path, else the first file's folder
         std::size_t files{0};             // how many of the files it opens
         bool program{false};              // the file itself, started as a program
+        std::vector<std::string> env;     // added to its environment ("NAME=value")
     };
 
     std::vector<Launch> launches;
@@ -115,6 +117,13 @@ public:
     // command lines started as applications are (activation token, a quick failing exit
     // reported), in the terminal when the action asks; "Extract Here: photos.zip…", or why not.
     void run_action(const core::Config::Action& action, std::vector<std::filesystem::path> files,
+                    const std::filesystem::path& directory);
+
+    // Runs a script of the user's (issue #26) on files (absolute paths, maybe none: the folder's
+    // empty space) in directory, the folder shown, as Nautilus does: the files as arguments
+    // relative to directory, its NAUTILUS_SCRIPT_* variables, started there, no shell; a quick
+    // failing exit reported.
+    void run_script(const fs::Script& script, std::vector<std::filesystem::path> files,
                     const std::filesystem::path& directory);
 
     // config.toml's [terminal] changed: Environment::configured_terminal from now on.

@@ -13,6 +13,7 @@ add_library(nordend_fs
     src/operations.cpp
     src/permissions.cpp
     src/places.cpp
+    src/scripts.cpp
     src/sort.cpp
     src/transfer.cpp
     src/transfer_queue.cpp

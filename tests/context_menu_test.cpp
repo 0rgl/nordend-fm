@@ -360,6 +360,58 @@ TEST_CASE("context menu: config.toml's actions where they fit, grouped, run on t
                                          "sort"});
 }
 
+TEST_CASE("context menu: the user's scripts in a Scripts submenu, on the selection and the space") {
+    Fixture f;
+    std::vector<std::pair<std::string, Names>> ran;
+    std::vector<fs::path> where;
+    f.browser.set_scripts({{.label = "Photos › crop", .path = "/s/Photos/crop"},
+                           {.label = "resize", .path = "/s/resize"}},
+                          [&](const nordend::fs::Script& script, const std::vector<fs::path>& files,
+                              const fs::path& directory) {
+                              Names names;
+                              for (const fs::path& file : files) {
+                                  names.push_back(file.filename().string());
+                              }
+                              ran.emplace_back(script.label, names);
+                              where.push_back(directory);
+                          });
+
+    // On the selection: after a line, the scripts by their labels, run on the selected files.
+    f.select({"a.txt", "b.txt"});
+    f.browser.open_menu(100, 100, false);
+    const auto found = std::ranges::find(f.menu().items(), "scripts", &MenuItem::id);
+    REQUIRE(found != f.menu().items().end());
+    CHECK(found->submenu);
+    CHECK(found->separator);
+    CHECK(found->label == "Scripts");
+    CHECK(ids(found->children) == Names{"script:0", "script:1"});
+    CHECK(found->children[0].label == "Photos › crop");
+    const std::function<void()> resize = found->children[1].action;
+    f.menu().close();
+    resize();
+    REQUIRE(ran.size() == 1);
+    CHECK(ran[0] == std::pair<std::string, Names>{"resize", {"a.txt", "b.txt"}});
+    CHECK(where[0] == f.photos);
+
+    // On the empty space: there too, with nothing selected (as in Nautilus).
+    f.select({});
+    CHECK(f.press(key(XKB_KEY_Menu)));
+    const auto space = std::ranges::find(f.menu().items(), "scripts", &MenuItem::id);
+    REQUIRE(space != f.menu().items().end());
+    const std::function<void()> crop = space->children[0].action;
+    f.menu().close();
+    crop();
+    REQUIRE(ran.size() == 2);
+    CHECK(ran[1] == std::pair<std::string, Names>{"Photos › crop", {}});
+    CHECK(where[1] == f.photos);
+
+    // None (no folder, or taken away): no submenu.
+    f.browser.set_scripts({}, nullptr);
+    f.select({"a.txt"});
+    f.browser.open_menu(100, 100, false);
+    CHECK(std::ranges::count(ids(f.menu().items()), "scripts") == 0);
+}
+
 TEST_CASE("context menu: Sort By sorts every view, and the folders they open later") {
     Fixture f;
     // Sizes 1, 30, 200 and 5000 bytes; "sub" stays first, folders before files.

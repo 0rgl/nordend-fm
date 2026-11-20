@@ -56,6 +56,7 @@ add_executable(nordend-tests
     scroller_test.cpp
     shortcuts_test.cpp
     scale_test.cpp
+    scripts_test.cpp
     sort_test.cpp
     syntax_test.cpp
     syntax_colors_test.cpp

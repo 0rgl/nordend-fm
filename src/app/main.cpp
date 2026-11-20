@@ -36,6 +36,7 @@
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
 #include "nordend/fs/places.hpp"
+#include "nordend/fs/scripts.hpp"
 #include "nordend/isolate/helpers.hpp"
 #include "nordend/platform/about.hpp"
 #include "nordend/platform/desktop_entry.hpp"
@@ -459,9 +460,13 @@ bool print_choice(const views::Browser::Picked& picked) {
     return true;
 }
 
-// --check-config: every problem on stderr, a one-line verdict on stdout.
+// --check-config: every problem on stderr, a one-line verdict on stdout; the scripts folder's
+// problems (issue #26) said too, without changing the verdict on the file.
 int check_config(const std::filesystem::path& path, const core::ConfigResult& result) {
     for (const std::string& problem : result.problems) {
+        std::fprintf(stderr, "%s\n", problem.c_str());
+    }
+    for (const std::string& problem : fs::find_scripts(fs::default_scripts_folder()).problems) {
         std::fprintf(stderr, "%s\n", problem.c_str());
     }
     if (!result.problems.empty()) {
@@ -741,6 +746,9 @@ int main(int argc, char** argv) {
         // size and the terminal change at once, the font families at the next start (`config`
         // keeps the ones in use).
         std::unique_ptr<core::FileWatcher> config_watcher;
+        // The user's scripts in the context menu (issue #26), followed live; never in the file
+        // chooser.
+        std::unique_ptr<fs::ScriptsWatcher> scripts;
         // [terminal] as Environment::configured_terminal wants it: the program, then its options.
         const auto configured_terminal = [](const core::Config& from) {
             std::vector<std::string> line;
@@ -863,6 +871,19 @@ int main(int argc, char** argv) {
                 [&](const std::filesystem::path& directory) { opener->open_terminal(directory); });
             give_actions(config);
             if (!pick) {
+                scripts = std::make_unique<fs::ScriptsWatcher>(
+                    loop, pool, watcher, fs::default_scripts_folder(),
+                    [&](const fs::ScriptsFound& found) {
+                        for (const std::string& problem : found.problems) {
+                            log::warn("{}", problem);
+                        }
+                        columns->set_scripts(
+                            found.scripts,
+                            [&](const fs::Script& script, std::vector<std::filesystem::path> files,
+                                const std::filesystem::path& directory) {
+                                opener->run_script(script, std::move(files), directory);
+                            });
+                    });
                 // This very program as the chooser: `nordend --pick --folders START`, a window of
                 // its own, printing the folder chosen as a file:// URI.
                 columns->set_folder_chooser([&](const std::filesystem::path& start,

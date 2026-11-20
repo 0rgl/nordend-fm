@@ -1942,6 +1942,15 @@ std::vector<MenuItem> Browser::entry_menu(const std::shared_ptr<Folder>& folder)
         }
         add_actions(items, fits, paths, folder->path(), false);
     }
+    if (run_script_ && !scripts_.empty()) {
+        std::vector<std::filesystem::path> paths;
+        for (const fs::Entry& entry : folder->entries()) {
+            if (std::ranges::find(names, entry.name) != names.end()) {
+                paths.push_back(folder->path() / entry.name);
+            }
+        }
+        add_scripts(items, paths, folder->path());
+    }
     if (const RunningTargets running = running_targets(*folder); !running.files.empty()) {
         const bool stop = running.all_run;
         add("running", stop ? "Stop Running as Program" : "Allow Running as Program", "",
@@ -2056,6 +2065,9 @@ std::vector<MenuItem> Browser::folder_menu() {
                 {{.name = name, .folder = true, .mime = fs::MimeDatabase::kDirectory}}};
             add_actions(items, self, {shown->path()}, shown->path(), true);
         }
+        if (run_script_ && !scripts_.empty()) {
+            add_scripts(items, {}, shown->path());  // no selection, as in Nautilus
+        }
     }
     items.push_back(sort_menu());
     return items;
@@ -2095,6 +2107,26 @@ void Browser::add_actions(std::vector<MenuItem>& items, std::span<const ActionTa
     if (items.size() > first) {
         items[first].separator = true;
     }
+}
+
+void Browser::add_scripts(std::vector<MenuItem>& items,
+                          const std::vector<std::filesystem::path>& files,
+                          const std::filesystem::path& directory) {
+    MenuItem sub;
+    sub.id = "scripts";
+    sub.label = "Scripts";
+    sub.submenu = true;
+    sub.separator = true;
+    for (std::size_t i = 0; i < scripts_.size(); ++i) {
+        MenuItem item;
+        item.id = std::format("script:{}", i);
+        item.label = scripts_[i].label;
+        item.action = [this, script = scripts_[i], files, directory] {
+            run_script_(script, files, directory);
+        };
+        sub.children.push_back(std::move(item));
+    }
+    items.push_back(std::move(sub));
 }
 
 void Browser::open_menu(float x, float y, bool keyboard) {

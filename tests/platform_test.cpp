@@ -15,9 +15,11 @@
 
 #include "nordend/core/config.hpp"
 #include "nordend/core/event_loop.hpp"
+#include "nordend/core/file.hpp"
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/entry.hpp"
 #include "nordend/fs/mime.hpp"
+#include "nordend/fs/scripts.hpp"
 #include "nordend/platform/applications.hpp"
 #include "nordend/platform/desktop_entry.hpp"
 #include "nordend/platform/exec.hpp"
@@ -626,6 +628,43 @@ TEST_CASE("applications: every one for a type, in GLib's order, the default firs
     CHECK(plan.files == 2);
     CHECK(platform::plan_open(files, apps, *sys.mime, sys.environment, "nope.desktop").problems ==
           std::vector<std::string>{"nope.desktop is not installed"});
+}
+
+TEST_CASE("opener: a script runs as Nautilus runs one (issue #26)") {
+    System sys;
+    const fs::path log = sys.dir.path / "seen";
+    const fs::path script = sys.program(
+        "resize",
+        R"({ pwd; for a in "$@"; do echo "arg $a"; done; printf 'paths %s' )"
+        R"("$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS"; printf 'uris %s' )"
+        R"("$NAUTILUS_SCRIPT_SELECTED_URIS"; echo "here $NAUTILUS_SCRIPT_CURRENT_URI"; } > )" +
+            log.string() + "\n");
+    const fs::path photos = sys.dir.path / "my photos";
+    fs::create_directories(photos);
+
+    EventLoop loop;
+    WorkerPool pool{loop, 2};
+    std::vector<std::pair<std::string, bool>> reports;
+    Opener opener{
+        loop, pool, sys.mime, sys.environment,
+        [&](const std::string& message, bool error) { reports.emplace_back(message, error); }};
+    const nordend::fs::Script resize{.label = "Photos › resize", .path = script};
+    opener.run_script(resize, {photos / "a.jpg", photos / "b c.jpg"}, photos);
+    REQUIRE(run_until(loop, [&] { return opener.launcher().running() == 0 && fs::exists(log); }));
+    REQUIRE(reports.size() == 1);
+    CHECK(reports[0] == std::pair<std::string, bool>{"resize: 2 items…", false});
+    const std::string uri = nordend::core::file_uri(photos);
+    CHECK(read_file(log) == photos.string() + "\narg a.jpg\narg b c.jpg\npaths " + photos.string() +
+                                "/a.jpg\n" + photos.string() + "/b c.jpg\nuris " + uri +
+                                "/a.jpg\n" + uri + "/b%20c.jpg\nhere " + uri + "\n");
+
+    // The folder's empty space: no arguments, nothing selected.
+    fs::remove(log);
+    reports.clear();
+    opener.run_script(resize, {}, photos);
+    REQUIRE(run_until(loop, [&] { return opener.launcher().running() == 0 && fs::exists(log); }));
+    CHECK(reports[0] == std::pair<std::string, bool>{"resize…", false});
+    CHECK(read_file(log) == photos.string() + "\npaths uris here " + uri + "\n");
 }
 
 TEST_CASE("opener: an action runs in the folder shown, in a terminal when asked, and reports") {

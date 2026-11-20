@@ -90,3 +90,10 @@ programs = true
 # name = "Copy Paths"
 # kinds = ["file", "folder"]
 # exec = ["sh", "-c", 'printf "%s\n" "$@" | wl-copy', "sh", "%F"]
+#
+# Scripts need no key: every program in ~/.local/share/nordend/scripts ($XDG_DATA_HOME/nordend/
+# scripts) shows under "Scripts" in the context menu, a subfolder's as "Photos › crop", and runs
+# as Nautilus runs one: the selected files as its arguments, NAUTILUS_SCRIPT_SELECTED_FILE_PATHS,
+# _URIS and _CURRENT_URI set, in the folder shown. Only your own executables, in folders nobody
+# else may write to; a link only to what passes the same checks (Nautilus's scripts: link the
+# folder). Followed live; nordend --check-config says what was left out.

@@ -59,7 +59,8 @@ OpenPlan::Launch program_launch(const std::filesystem::path& program) {
             .argv = {program.string()},
             .directory = program.parent_path(),
             .files = 1,
-            .program = true};
+            .program = true,
+            .env = {}};
 }
 
 }  // namespace
@@ -124,7 +125,8 @@ OpenPlan plan_open(std::span<const OpenFile> files, const Applications& apps,
                                      .directory = app.working_directory.empty()
                                                       ? group.files.front().parent_path()
                                                       : app.working_directory,
-                                     .files = per_line});
+                                     .files = per_line,
+                                     .env = {}});
             started = true;
         }
         if (started) {
@@ -305,7 +307,8 @@ void Opener::open_terminal(const std::filesystem::path& directory) {
                                      .app_name = name,
                                      .argv = std::move(*line),
                                      .directory = directory,
-                                     .files = 1});
+                                     .files = 1,
+                                     .env = {}});
             plan.files = 1;
             plan.first_name =
                 directory.has_filename() ? directory.filename().string() : directory.string();
@@ -407,7 +410,8 @@ void Opener::run_action(const core::Config::Action& action,
                             .app_name = action.name,
                             .argv = std::move(line),
                             .directory = directory,
-                            .files = files.size()});
+                            .files = files.size(),
+                            .env = {}});
     }
     report_(files.size() == 1
                 ? std::format("{}: {}…", action.name, files.front().filename().string())
@@ -416,8 +420,30 @@ void Opener::run_action(const core::Config::Action& action,
     launch(std::move(launches));
 }
 
+void Opener::run_script(const fs::Script& script, std::vector<std::filesystem::path> files,
+                        const std::filesystem::path& directory) {
+    std::vector<std::string> argv{script.path.string()};
+    std::vector<std::string> arguments = fs::script_arguments(files, directory);
+    argv.insert(argv.end(), std::make_move_iterator(arguments.begin()),
+                std::make_move_iterator(arguments.end()));
+    const std::string name = script.path.filename().string();
+    std::string said = std::format("{}: {} items…", name, files.size());
+    if (files.empty()) {
+        said = std::format("{}…", name);
+    } else if (files.size() == 1) {
+        said = std::format("{}: {}…", name, files.front().filename().string());
+    }
+    report_(said, false);
+    launch({{.app_id = std::format("script \"{}\"", script.label),
+             .app_name = name,
+             .argv = std::move(argv),
+             .directory = directory,
+             .files = files.size(),
+             .env = fs::script_environment(files, directory)}});
+}
+
 void Opener::start_one(const OpenPlan::Launch& launch, const std::string& token) {
-    std::vector<std::string> env;
+    std::vector<std::string> env = launch.env;
     if (!token.empty()) {
         // XDG_ACTIVATION_TOKEN for Wayland apps; DESKTOP_STARTUP_ID for the ones that only know
         // startup notification (GLib sets both).

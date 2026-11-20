@@ -1,10 +1,28 @@
 #include "nordend/core/memory.hpp"
 
 #include <cstdint>
+#include <fstream>
 #include <string>
 #include <vector>
 
 #include <doctest/doctest.h>
+
+namespace {
+
+// The "Swap:" line of /proc/self/smaps_rollup, for the message when a check fails: memory swapped
+// out is not counted as the process's anonymous memory.
+std::string swap_line() {
+    std::ifstream in{"/proc/self/smaps_rollup"};
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.starts_with("Swap:")) {
+            return line;
+        }
+    }
+    return "Swap: ?";
+}
+
+}  // namespace
 
 TEST_CASE("memory report: the process, malloc and the lines for the log") {
     const nordend::core::MemoryReport before = nordend::core::read_memory_report();
@@ -19,7 +37,13 @@ TEST_CASE("memory report: the process, malloc and the lines for the log") {
     // 64 MB held and touched: malloc and the process both see it.
     constexpr std::size_t size = std::size_t{64} << 20U;
     std::vector<std::uint8_t> block(size, 1);
+    // Every byte written before the report is read: as far as the compiler knows, the block is
+    // only read at its last byte, and the stores before could be left out or come later (the
+    // Fedora RPM builds once saw the process's memory not grow at all, *to be verified*).
+    asm volatile("" : : "r"(block.data()) : "memory");  // NOLINT(hicpp-no-assembler)
     const nordend::core::MemoryReport during = nordend::core::read_memory_report();
+    INFO("anonymous before " << before.anonymous << ", during " << during.anonymous << "; "
+                             << swap_line());
 #if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__)
     // Under a sanitizer malloc is the sanitizer's: glibc's mallinfo2 reports nothing.
     CHECK(during.heap_in_use >= before.heap_in_use + size);

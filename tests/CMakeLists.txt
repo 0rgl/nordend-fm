@@ -120,7 +120,7 @@ add_executable(nordend-sandbox-probe sandbox_probe.cpp
                                      ${PROJECT_SOURCE_DIR}/src/isolate/src/sandbox.cpp)
 target_include_directories(nordend-sandbox-probe PRIVATE ${PROJECT_SOURCE_DIR}/src/isolate/src)
 target_link_libraries(nordend-sandbox-probe PRIVATE nordend::warnings)
-add_dependencies(nordend-tests nordend-preview nordend-fake-preview nordend-sandbox-probe
+add_dependencies(nordend-tests nordend nordend-preview nordend-fake-preview nordend-sandbox-probe
                  nordend-snapshot nordend-decode)
 # The MIME database the tests read: shared-mime-info as pkg-config finds it at build time, not
 # whatever $XDG_DATA_DIRS says when they run (NixOS keeps it outside /usr/share, Flatpak adds
@@ -137,6 +137,8 @@ target_compile_definitions(nordend-tests
             NORDEND_TEST_DATA="${PROJECT_SOURCE_DIR}/tests/data"
             NORDEND_APP_ICON="${PROJECT_SOURCE_DIR}/data/nordend.svg"
             NORDEND_ENGINES="${PROJECT_SOURCE_DIR}/data/engines"
+            NORDEND_APP="$<TARGET_FILE:nordend>"
+            NORDEND_COMPLETIONS="${PROJECT_SOURCE_DIR}/data/completions"
             NORDEND_MIME_DATA="${NORDEND_MIME_PREFIX}/share"
             NORDEND_PREVIEW_HELPER="$<TARGET_FILE:nordend-preview>"
             NORDEND_FAKE_HELPER="$<TARGET_FILE:nordend-fake-preview>"

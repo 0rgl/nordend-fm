@@ -1,22 +1,27 @@
 // The development tools' command lines: --help answers, an unknown option is refused, and nothing
 // is written or crashes on the way (nordend-snapshot once wrote a PPM called "--help",
 // nordend-decode crashed on it and called an ORF "unknown").
+// The shell completions are checked here too: they offer nordend's own options, the ones its
+// usage names.
 
 #include <array>
 #include <cstddef>
 #include <fcntl.h>
 #include <filesystem>
 #include <initializer_list>
+#include <set>
 #include <spawn.h>
 #include <string>
 #include <string_view>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
 
+#include "nordend/core/file.hpp"
 #include "temp_dir.hpp"
 
 extern char** environ;  // NOLINT(readability-redundant-declaration): POSIX, not in a header
@@ -69,6 +74,25 @@ bool contains(const std::string& text, std::string_view part) {
     return text.find(part) != std::string::npos;
 }
 
+// The long options a text names: each `before` ("--", or fish's "-l ") followed by a word of
+// small letters and dashes.
+std::set<std::string> long_options(std::string_view text, std::string_view before) {
+    std::set<std::string> options;
+    for (std::size_t at = text.find(before); at != std::string_view::npos;
+         at = text.find(before, at + 1)) {
+        const std::size_t start = at + before.size();
+        if (start >= text.size() || text[start] < 'a' || text[start] > 'z') {
+            continue;
+        }
+        std::size_t end = start;
+        while (end < text.size() && ((text[end] >= 'a' && text[end] <= 'z') || text[end] == '-')) {
+            ++end;
+        }
+        options.insert("--" + std::string{text.substr(start, end - start)});
+    }
+    return options;
+}
+
 }  // namespace
 
 TEST_CASE("tools: --help prints the usage and writes nothing") {
@@ -111,4 +135,25 @@ TEST_CASE("nordend-decode: a raw without the TIFF magic goes the camera raw way"
     CHECK(exit_code(decode) == 1);
     CHECK(contains(decode.out, "(camera raw)"));
     CHECK_FALSE(contains(decode.out, "unknown"));
+}
+
+TEST_CASE("completions: each shell's file offers nordend's options, all of them and no others") {
+    const nordend::test::TempDir dir;
+    const Ran nordend = run(NORDEND_APP, {"--nope"}, dir.path);
+    CHECK(exit_code(nordend) == 2);
+    const std::size_t usage = nordend.out.find("usage: nordend");
+    REQUIRE(usage != std::string::npos);
+    const std::set<std::string> options =
+        long_options(std::string_view{nordend.out}.substr(usage), "--");
+    CHECK(options.contains("--pick"));
+    const std::filesystem::path completions{NORDEND_COMPLETIONS};
+    for (const auto& [file, before] :
+         {std::pair<std::string_view, std::string_view>{"nordend.bash", "--"},
+          {"_nordend", "--"},
+          {"nordend.fish", "-l "}}) {
+        CAPTURE(file);
+        const nordend::core::TextFile text = nordend::core::read_text_file(completions / file);
+        REQUIRE(text.exists);
+        CHECK(long_options(text.text, before) == options);
+    }
 }

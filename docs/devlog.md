@@ -4,7 +4,55 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
-## 2026-11-20 — Scripts of your own (0.10.0, issue #26)
+## 2026-11-20 — Nordend 0.9.5
+
+**Done**
+- Release commit: CMake 0.9.5, `setup_version` 0.9.5, the RPM spec's `Version` 0.9.5 and a
+  `%changelog` line, README (badges, note, Install, Numbers, Versions: 0.8.1 out, What's next:
+  moving and organising first), CHANGELOG, features.md Next.
+- No long fuzz run: no parser changed since 0.9.0's (the hour per target on 2026-11-16).
+
+**Measured** (after rebuilding as 0.9.5): nordend 5.12 MiB (4.25 stripped, 4.245; 0.9.1: 5.03 /
+4.17), nordend-preview 1.24 / 1.11, nordend-portal 0.44 / 0.35; `readelf -d | grep -c NEEDED`
+17, 8, 8; about 66 700 lines of C++ and 26 300 of tests, 630 test cases (629 passed and one
+skipped here); memory: no new rss log line since 14:59 (Nordend closed), 24.0-24.6 MB earlier
+today, "about 25 MB" kept.
+
+---
+
+## 2026-11-20 — Toward 0.9.5: fixes and small comforts from the #28 issues
+
+**Done**
+- Decided with the author: two releases gathering issues, so he tests twice rather than once an
+  issue. 0.9.5 = fixes and small comforts (the scripts folder of #26 moved in, at his choice);
+  0.10.0 = links, Ctrl+L, selecting by a pattern, the sidebar tree; network shares to 0.11.0.
+- 0rgl's pull requests merged (rebase; closing keywords taken out, the issues stay open until the
+  release), each read, the four builds green with the others alongside:
+  - #43: the helpers test stops a read once its first bytes are in a pipe nobody reads, not after
+    200 ms (Fedora's zlib-ng inflated the 4 GiB before the stop).
+  - #42 (#41): a drive udisks2 will not power off says udisks2's reason.
+  - #44: a file's head read for its type with `O_NOATIME` (again without it on EPERM).
+  - #45 (#36): Ctrl+Shift+I inverts the selection, in the three views and Ctrl+K.
+  - #47 (#39): completions for bash, zsh and fish, installed by CMake (and in the RPM).
+  - #48 (#40): back and forward before the path when the compositor keeps the title bar.
+  - #49 (#38): Ctrl+Shift+T brings back the tab closed last (ten kept), with its view, zoom and
+    history. Ours on top: `note_location(Pane&)` static (clang-tidy).
+- "memory report" on Fedora's RPM builds: forcing the stores before the measurement (`asm`
+  barrier) did not help: the next red run printed the process's anonymous memory the same to the
+  byte before and after the 64 MB vector, swap 0. Most likely malloc handed out pages an earlier
+  test had freed and kept (*to be verified*). Now the process is checked with a 64 MB mmap of the
+  test's own; malloc's count stays checked with the vector, and a failure prints its arena and
+  mmapped figures.
+
+**Tested by the author** (2026-11-20): Ctrl+Shift+I, Ctrl+Shift+T with history, the access time
+of a file typed by its content left at 2000-01-01, back and forward under Umbriel's title bar
+(`--config` with `title_bar = "compositor"`), fish completing `nordend --ch` (checked with
+`complete -C`; his first try ran the line with Enter). #42 covered by its tests only (no disk with
+an unlocked LUKS partition at hand).
+
+---
+
+## 2026-11-20 — Scripts of your own (0.9.5, issue #26)
 
 **Done**
 - `fs/scripts`: `find_scripts(folder)` (worker) reads `$XDG_DATA_HOME/nordend/scripts` through

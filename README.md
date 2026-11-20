@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.1"><img src="https://img.shields.io/badge/release-v0.9.1-2a6a9e" alt="release v0.9.1"></a>
+  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.5"><img src="https://img.shields.io/badge/release-v0.9.5-2a6a9e" alt="release v0.9.5"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Wayland-native-FFBC00?logo=wayland&logoColor=black" alt="Wayland native">
-  <img src="https://img.shields.io/badge/tests-605%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="605 tests, ASan, TSan">
+  <img src="https://img.shields.io/badge/tests-630%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="630 tests, ASan, TSan">
   <a href="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-3DA639" alt="MIT license">
 </p>
@@ -24,13 +24,12 @@
 </p>
 
 > [!NOTE]
-> **Latest update · Nordend 0.9.1**
+> **Latest update · Nordend 0.9.5**
 >
-> **Fixes from your issues.** Find Files ranks names first (the shallower path first), takes
-> several terms in any order, and keeps Space for Quick Look once you are in the list. AppImages
-> with the static runtime start with Enter. Every text field copies, cuts and selects with the
-> mouse. Pasting into a folder reached through a link works. From stradus64, Evergaster and
-> slutsaint; the last two fixes are 0rgl's pull requests. [Install it](#install).
+> **Small comforts, from your issues.** Scripts of your own in the context menu, as in Nautilus
+> (theirs work as they are). Ctrl+Shift+I inverts the selection, Ctrl+Shift+T reopens the tab
+> you closed. Nordend's options complete in bash, zsh and fish. Browsing no longer changes your
+> files' access times. From HOkket's and 0rgl's issues, most of it 0rgl's pull requests. [Install it](#install).
 
 ## Contents
 
@@ -141,7 +140,7 @@ openSUSE Tumbleweed. Ubuntu 24.04 and Linux Mint 22 cannot build Nordend (their 
 Download it, read it, run it:
 
 ```sh
-curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.9.1/scripts/nordend-setup
+curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.9.5/scripts/nordend-setup
 less nordend-setup
 sh nordend-setup           # asks what to do; or: sh nordend-setup install
 ```
@@ -172,7 +171,7 @@ cp -r /tmp/nordend-fm/packaging/void/nordend srcpkgs/
 sudo xbps-install -R hostdir/binpkgs nordend
 ```
 
-The package is the latest release, **0.9.1**. What `main` gains after it comes with the next
+The package is the latest release, **0.9.5**. What `main` gains after it comes with the next
 release; to have it at once, build from source.
 
 </details>
@@ -244,7 +243,7 @@ command and it shows where things stand and asks what to do, or name the command
 A new release, for example:
 
 ```sh
-nordend-setup check     # ✓ Nordend 0.9.1 is out: nordend-setup update
+nordend-setup check     # ✓ Nordend 0.9.5 is out: nordend-setup update
 nordend-setup update    # builds and installs it; your settings stay
 ```
 
@@ -328,9 +327,9 @@ report), and `--set-file-chooser` / `--unset-file-chooser`.
 
 | | |
 |---|---|
-| Binary | **5.03 MB** (4.17 MB stripped), x86-64; the decoders and the text and archive readers in `nordend-preview`, 1.24 MB (1.11 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
+| Binary | **5.12 MB** (4.25 MB stripped), x86-64; the decoders and the text and archive readers in `nordend-preview`, 1.24 MB (1.11 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
 | Libraries | 17 direct (the helper and the service: 8 each); no GTK, no Qt, no GLib |
-| Code | about 65 900 lines of C++20, 25 600 of tests (605 test cases, under ASan and TSan too) |
+| Code | about 66 700 lines of C++20, 26 300 of tests (630 test cases, under ASan and TSan too) |
 | Memory | **25 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
 | Idle | **0 CPU**: nothing is drawn while nothing moves |
 
@@ -372,9 +371,9 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 | Version | What it brought |
 |---|---|
+| [0.9.5](https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.5), 2026-11-20 | Scripts of your own in the context menu, as in Nautilus, from HOkket's issue #26; Ctrl+Shift+I inverts the selection, Ctrl+Shift+T reopens a closed tab, completions for bash, zsh and fish, back and forward under the compositor's title bar, access times left alone, a disk not powered off says why: 0rgl's issues and pull requests |
 | [0.9.1](https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.1), 2026-11-20 | Find Files ranks names first, the shallower path first, takes terms in any order and keeps Space for Quick Look in the list, from stradus64's issue #25; AppImages with the static runtime start, Evergaster's issue #23; copy, cut and mouse selection in every text field, slutsaint's issue #24; pasting into a folder reached through a link, issue #27; the last two from 0rgl's pull requests |
 | [0.9.0](https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.0), 2026-11-16 | Archives: zip, tar and tar.gz browsed like folders by Nordend's own caged reader, Quick Look on them and inside them, extracted safely (Ctrl+C/Ctrl+V, "Extract Here", Enter on a file) and made from the menu; `.iso` images mounted through udisks2; from veinhusk's issue. An RPM spec for Fedora, from 0rgl |
-| [0.8.1](https://github.com/pankaspe/nordend-fm/releases/tag/v0.8.1), 2026-11-15 | A name with room to spare is drawn whole at any text size and scale (it was cut in the middle, `Dow…oads`), from 0rgl's pull request |
 
 ## What's next
 
@@ -382,6 +381,8 @@ Nordend stays what it is: a native C++ file manager, at home on any Wayland desk
 or Qt; very light, safe and fast. Everything else is a feature on
 top, added only when it keeps those three. Coming, roughly in this order:
 
+- **Moving and organising**: symbolic links, typing a path, selecting by a name pattern, a
+  folder tree in the sidebar
 - **Network shares** in the sidebar (Samba, SFTP, FTP, WebDAV, through gvfs when it runs)
 - **Previews, one family at a time**: other common formats one by one (SVG, AVIF, fonts, audio
   tags); more archive formats (7z, xz, zstd)

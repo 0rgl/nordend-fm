@@ -11,7 +11,7 @@
 %bcond check 1
 
 Name:           nordend
-Version:        0.9.1
+Version:        0.9.5
 Release:        1%{?dist}
 Summary:        Native Wayland file manager
 
@@ -126,6 +126,10 @@ test -x %{_vpath_builddir}/tests/nordend-tests
 %{zsh_completions_dir}/_nordend
 
 %changelog
+* Fri Nov 20 2026 pankaspe <7622507+pankaspe@users.noreply.github.com> - 0.9.5-1
+- Scripts of your own in the context menu; Ctrl+Shift+I and Ctrl+Shift+T; completions for
+  bash, zsh and fish; access times left alone; a disk not powered off says why
+
 * Fri Nov 20 2026 pankaspe <7622507+pankaspe@users.noreply.github.com> - 0.9.1-1
 - AppImages run; Find Files ranks names first and takes terms; text fields copy, cut and
   select; pasting into a folder reached through a link

@@ -40,7 +40,8 @@ README's [What's next](../README.md#whats-next).
 - **Tabs** (Ctrl+T): each with its own folder, view and back/forward history. The bar above the
   path shows them when there are two or more: a click shows a tab, its × or a middle click
   closes it, + opens one. Ctrl+Tab and Ctrl+Shift+Tab go round them, Alt+1…9 picks one, Ctrl+W
-  closes the one shown (never the last). Each tab keeps its own zoom too. A middle click on a folder, or the context menu's Open in
+  closes the one shown (never the last), and Ctrl+Shift+T brings back the one closed last, where
+  it was, with its view, zoom and history (the last ten; 0rgl's issue #38). Each tab keeps its own zoom too. A middle click on a folder, or the context menu's Open in
   New Tab (Tabs, for several folders), opens it in a tab behind the one shown; a middle click on
   a selected folder opens every selected folder. The order, hidden files, the sidebar and the info pane
   are the window's, the same in every tab.
@@ -66,7 +67,8 @@ README's [What's next](../README.md#whats-next).
   only what you see, and the status bar says how many there are ("12 items, 3 hidden"). A hidden
   folder you open (from a bookmark, say) stays in sight on the way to it.
 - **Selection as you expect it:** click, Ctrl+click and Shift+click; Shift+arrows for a range,
-  Ctrl+arrows and Ctrl+Space to pick here and there, Ctrl+A for all, Escape for one again.
+  Ctrl+arrows and Ctrl+Space to pick here and there, Ctrl+A for all, Ctrl+Shift+I for the others
+  (the selection inverted, hidden files left out; 0rgl's issue #36), Escape for one again.
 - **Rubber band:** a drag from empty space (below the entries, a row away from its icon and
   name, a cell away from them in the grid) draws a rectangle that selects what it touches; with
   Ctrl it adds to the selection. Past the top or bottom of the list it scrolls, faster the
@@ -389,7 +391,9 @@ README's [What's next](../README.md#whats-next).
   mounting itself (encrypted ones come later); a click mounts it and opens it, and a disk that
   mounts read-only says why (an NTFS disk not closed properly) and what fixes it. The eject icon of
   an external disk unmounts every partition on it and powers it off, taking the view home first if
-  it shows that disk; "in use" says to close what is open there. The right click mounts, unmounts
+  it shows that disk; "in use" says to close what is open there, and when udisks2 still will not
+  power it off (an encrypted partition left unlocked, a file system Nordend does not list) its
+  reason is said (0rgl's issue #41). The right click mounts, unmounts
   and ejects. The list follows disks coming and going; nothing waits on udisks2.
 - **Archives:** Enter (or a double click) on a zip, tar, tar.gz or .gz opens it like a folder, read
   by Nordend's own code in the sandboxed engine; folders inside open the same way, and Quick Look
@@ -519,8 +523,9 @@ README's [What's next](../README.md#whats-next).
 - **Live folders:** files created, removed, changed or renamed by any program show up at once
   (inotify). A thousand-file copy arrives in a few smooth updates, not a thousand.
 - **File types exactly as GTK sees them:** the freedesktop shared-mime-info database, read by
-  name first and by content only when needed (and only for what is on screen). 0 differences from
-  `gio` on about 4 750 files.
+  name first and by content only when needed (and only for what is on screen), without changing
+  the file's access time (`O_NOATIME`, as GLib, for your own files). 0 differences from `gio` on
+  about 4 750 files.
 - **Live theme:** change the palette in Noctalia and Nordend follows instantly (with the
   `nordend` template enabled in Noctalia); elsewhere, switch
   the desktop between light and dark or pick another accent colour and Nordend follows too.
@@ -558,7 +563,8 @@ README's [What's next](../README.md#whats-next).
   With two tabs or more, the tabs come under it. The window's edges and corners resize it, with
   the matching arrows (not when maximized, nor on an edge tiled against the screen). No "Nordend"
   title: the path says where you are. `[window] title_bar = "compositor"` keeps the compositor's
-  title bar (the path back in its own row, at the next start); a compositor that insists on its
+  title bar (the path back in its own row, back and forward first, at the next start; 0rgl's
+  issue #40); a compositor that insists on its
   own bar has the last word, and one that draws none always gets Nordend's header.
 - **Rounded corners and a shadow** around Nordend's own header, as GTK draws them (radius 12 px,
   `[window] corner_radius` from 0, square, to 24, live; a lighter shadow when the window is in the
@@ -599,6 +605,7 @@ second (binary measured 2026-11-14, memory 2026-11-13).
 - `~/.config/nordend/config.toml`: font family, monospace font, text size, double-click time and distance,
   the icon in the accent ([example](config.example.toml)). `nordend --check-config` reports every problem with its
   line.
+- Its options complete in bash, zsh and fish (installed with it; 0rgl's issue #39).
 - No settings window: the defaults are the system's fonts (fontconfig's `sans-serif` and
   `monospace`) and the desktop's colours, and the few settings live in the file.
   `config.toml` is followed while Nordend runs: the double click, the text size and the icon change at once,
@@ -638,7 +645,7 @@ FileChooser and portals.conf; org.freedesktop.FileManager1.
 
 ## Next
 
-0.9.1 is out (Find Files ranks names first and takes terms in any order, from stradus64's issue #25; AppImages with the static runtime start, Evergaster's issue #23; copy, cut and mouse selection in every text field, slutsaint's issue #24; pasting into a folder reached through a link, issue #27; the last two with 0rgl's pull requests), after 0.9.0 (archives: zip, tar and tar.gz browsed like folders by Nordend's own caged reader, looked at with Quick Look, extracted safely and made from the menu; `.iso` images mounted; from veinhusk's issue #13; an RPM spec from 0rgl), after 0.8.1 (a name with room drawn whole at any text size, from 0rgl's pull request), after 0.8.0 (copying about twice as fast: a folder's files on eight threads, close to fcp and
+0.9.5 is out (scripts of your own in the context menu, from HOkket's issue #26; Ctrl+Shift+I, Ctrl+Shift+T, shell completions, back and forward under the compositor's title bar, access times left alone, from 0rgl's issues and pull requests), after 0.9.1 (Find Files ranks names first and takes terms in any order, from stradus64's issue #25; AppImages with the static runtime start, Evergaster's issue #23; copy, cut and mouse selection in every text field, slutsaint's issue #24; pasting into a folder reached through a link, issue #27; the last two with 0rgl's pull requests), after 0.9.0 (archives: zip, tar and tar.gz browsed like folders by Nordend's own caged reader, looked at with Quick Look, extracted safely and made from the menu; `.iso` images mounted; from veinhusk's issue #13; an RPM spec from 0rgl), after 0.8.1 (a name with room drawn whole at any text size, from 0rgl's pull request), after 0.8.0 (copying about twice as fast: a folder's files on eight threads, close to fcp and
 ahead of `cp`; merging folders asks about each taken file, and Ctrl+Z after a merge takes away
 only what was copied; Shift+Escape stops a transfer), after 0.7.6 (programs and AppImages started with Enter, safely, "Allow Running as Program" and
 a dot on what can run, from Evergaster's issue #17; "Show in Folder" opening Nordend, from 0rgl's

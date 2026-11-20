@@ -344,8 +344,18 @@ public:
     void open_tab(const std::filesystem::path& directory, bool show);
     // "Open in New Tab(s)": folders behind the tab shown, in their order.
     void open_tabs(const std::vector<std::filesystem::path>& folders);
-    // Ctrl+W, a tab's ×, a middle click on it: the tab closes; the last one stays.
+    // Ctrl+W, a tab's ×, a middle click on it: the tab closes; the last one stays. The tab closed
+    // is kept for reopen_tab(), the last kMaxClosedTabs of them, while the window is open.
     void close_tab(std::size_t index);
+    // Ctrl+Shift+T: the tab closed last comes back where it was, shown, with its view, zoom and
+    // history. If its folder is gone by then, the status bar says so and the tab is dropped.
+    void reopen_tab();
+
+    static constexpr std::size_t kMaxClosedTabs = 10;
+
+    // Tabs reopen_tab() can bring back (tests).
+    [[nodiscard]] std::size_t closed_tab_count() const noexcept { return closed_tabs_.size(); }
+
     // A click on a tab, Ctrl+Tab, Ctrl+Shift+Tab, Alt+1…9.
     void select_tab(std::size_t index);
 
@@ -710,6 +720,28 @@ private:
     void stop_auto_scroll();
     // The folder shown into the history: a new step when it changed, else its cursor.
     void note_location();
+
+    // A tab closed, as reopen_tab() brings it back: what state.toml keeps of a tab, its history
+    // and where it was in the bar.
+    struct ClosedTab {
+        State::Tab tab;
+        std::vector<HistoryStep> history;
+        std::size_t here{0};
+        std::size_t index{0};
+        bool off_disk{false};  // the trash, or inside an archive: no folder on disk to look for
+    };
+
+    // What state.toml keeps of pane (state(), close_tab()).
+    [[nodiscard]] static State::Tab tab_of(const Pane& pane);
+    // The pane shown takes tab's folder, view, cursor and zoom (restore_tabs(), reopen_tab());
+    // window_list and window_grid for a tab written before tabs had a zoom of their own.
+    void restore_tab(const State::Tab& tab, std::size_t window_list, std::size_t window_grid);
+    // The folder pane shows into its history: a new step when it changed, else its cursor.
+    void note_location(Pane& pane);
+    // Before the pane at index goes: a ClosedTab for reopen_tab(), the oldest dropped past
+    // kMaxClosedTabs.
+    void remember_closed(std::size_t index);
+
     // Goes through the history by direction (-1 back, 1 forward).
     void travel(int direction);
     void trash_done(const fs::TransferResult& result);
@@ -887,6 +919,7 @@ private:
     // Here, before the window's parts and the transfers: destroyed after them, as the views were.
     std::vector<std::unique_ptr<Pane>> panes_;
     std::size_t active_{0};
+    std::vector<ClosedTab> closed_tabs_;  // the last closed at the back
     QuickLook quick_look_;
     Sidebar sidebar_;
     Breadcrumb breadcrumb_;

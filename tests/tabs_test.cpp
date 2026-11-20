@@ -20,6 +20,7 @@
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
+#include "nordend/fs/trash.hpp"
 #include "nordend/theme/palette.hpp"
 #include "nordend/ui/icons.hpp"
 #include "nordend/ui/offscreen.hpp"
@@ -564,4 +565,167 @@ TEST_CASE("show items: each folder in a tab, the items selected; a folder in its
     CHECK(selected().second == std::vector<std::string>{"sub"});
     CHECK(f.browser.info_visible());
     CHECK(f.browser.info_pane().expanded());
+}
+
+TEST_CASE("tabs: Ctrl+Shift+T brings back the tab closed last, where it was and as it was") {
+    Fixture f;
+    CHECK(f.press(key(XKB_KEY_t, kCtrl)));
+    f.browser.set_mode(Browser::Mode::grid);
+    f.browser.open(f.b);
+    REQUIRE(f.settle());
+    f.browser.open(f.a / "sub");
+    REQUIRE(f.settle());
+    f.browser.set_grid_size(1);
+    const std::size_t steps = f.browser.history().size();
+    const std::size_t here = f.browser.history_index();
+    CHECK(f.press(key(XKB_KEY_t, kCtrl)));
+    CHECK(f.browser.tab_count() == 3);
+    f.browser.close_tab(1);  // the middle one, as its × does
+    CHECK(f.browser.tab_count() == 2);
+    CHECK(f.browser.closed_tab_count() == 1);
+
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    CHECK(f.browser.tab_count() == 3);
+    CHECK(f.browser.active_tab() == 1);
+    CHECK(f.browser.mode() == Browser::Mode::grid);
+    CHECK(f.browser.grid().folder()->path() == f.a / "sub");
+    CHECK(f.browser.grid().size_index() == 1);
+    CHECK(f.browser.history().size() == steps);
+    CHECK(f.browser.history_index() == here);
+    CHECK(f.browser.closed_tab_count() == 0);
+    f.browser.back();
+    REQUIRE(f.settle());
+    CHECK(f.browser.grid().folder()->path() == f.b);
+}
+
+TEST_CASE("tabs: closed tabs come back newest first; ten are kept") {
+    Fixture f;
+    for (int i = 0; i < 11; ++i) {
+        fs::create_directories(f.dir.path / std::format("d{}", i));
+        f.browser.open_tab(f.dir.path / std::format("d{}", i), true);
+        REQUIRE(f.settle());
+    }
+    CHECK(f.browser.tab_count() == 12);
+    for (int i = 0; i < 11; ++i) {
+        f.browser.close_tab(1);
+    }
+    CHECK(f.browser.tab_count() == 1);
+    CHECK(f.browser.closed_tab_count() == Browser::kMaxClosedTabs);
+    std::vector<std::string> back;
+    for (std::size_t i = 0; i < Browser::kMaxClosedTabs; ++i) {
+        CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+        REQUIRE(f.browser.columns().focused_folder() != nullptr);
+        back.push_back(f.browser.columns().focused_folder()->path().filename().string());
+    }
+    CHECK(f.browser.tab_count() == 11);
+    CHECK(back ==
+          std::vector<std::string>{"d10", "d9", "d8", "d7", "d6", "d5", "d4", "d3", "d2", "d1"});
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    CHECK(f.browser.tab_count() == 11);
+    CHECK(f.browser.status_bar().message() == "No closed tab to reopen");
+}
+
+TEST_CASE("tabs: a closed tab whose folder is gone is dropped, with a message") {
+    Fixture f;
+    f.browser.open_tab(f.b, true);
+    REQUIRE(f.settle());
+    f.browser.close_tab(1);
+    fs::remove_all(f.b);
+    REQUIRE(f.settle());
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    CHECK(f.browser.tab_count() == 1);
+    CHECK(f.browser.status_bar().message() == "b no longer exists");
+    CHECK(f.browser.closed_tab_count() == 0);
+
+    // Two closed, the newer one gone: the next Ctrl+Shift+T takes the one before it.
+    fs::create_directories(f.b);
+    f.browser.open_tab(f.b, true);
+    REQUIRE(f.settle());
+    f.browser.open_tab(f.a / "sub", true);
+    REQUIRE(f.settle());
+    f.browser.close_tab(1);  // b
+    f.browser.close_tab(1);  // sub
+    fs::remove_all(f.a / "sub");
+    REQUIRE(f.settle());
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    CHECK(f.browser.tab_count() == 1);
+    CHECK(f.browser.status_bar().message() == "sub no longer exists");
+    CHECK(f.browser.closed_tab_count() == 1);
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    CHECK(f.browser.tab_count() == 2);
+    REQUIRE(f.browser.columns().focused_folder() != nullptr);
+    CHECK(f.browser.columns().focused_folder()->path() == f.b);
+}
+
+TEST_CASE("tabs: a tab closed by its × while another is shown keeps its last cursor") {
+    Fixture f;
+    CHECK(f.press(key(XKB_KEY_t, kCtrl)));
+    CHECK(f.press(key(XKB_KEY_Down)));  // sub
+    CHECK(f.press(key(XKB_KEY_Down)));  // one.txt
+    REQUIRE(f.browser.columns().focused_folder()->cursor_entry() != nullptr);
+    CHECK(f.browser.columns().focused_folder()->cursor_entry()->name == "one.txt");
+    f.browser.select_tab(0);
+    f.browser.close_tab(1);
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    REQUIRE(f.browser.columns().focused_folder() != nullptr);
+    CHECK(f.browser.columns().focused_folder()->path() == f.a);
+    REQUIRE(f.browser.columns().focused_folder()->cursor_entry() != nullptr);
+    CHECK(f.browser.columns().focused_folder()->cursor_entry()->name == "one.txt");
+}
+
+TEST_CASE("tabs: Ctrl+Shift+T in a name being edited is the field's") {
+    Fixture f;
+    f.browser.open_tab(f.b, true);
+    REQUIRE(f.settle());
+    f.browser.close_tab(1);
+    CHECK(f.press(key(XKB_KEY_Down)));
+    CHECK(f.press(key(XKB_KEY_F2)));
+    REQUIRE(f.browser.name_editor().active());
+    f.browser.key(key(XKB_KEY_T, kCtrlShift), Browser::Clock::now());
+    CHECK(f.browser.tab_count() == 1);
+    CHECK(f.browser.name_editor().active());
+}
+
+TEST_CASE("tabs: columns come back unfolded from their first folder") {
+    Fixture f;
+    fs::create_directories(f.a / "sub" / "deep");
+    CHECK(f.press(key(XKB_KEY_t, kCtrl)));
+    CHECK(f.press(key(XKB_KEY_Down)));   // sub
+    CHECK(f.press(key(XKB_KEY_Right)));  // into sub
+    CHECK(f.press(key(XKB_KEY_Down)));   // deep
+    REQUIRE(f.browser.columns().focused_folder() != nullptr);
+    const fs::path shown = f.browser.columns().focused_folder()->path();
+    CHECK(f.press(key(XKB_KEY_w, kCtrl)));
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    CHECK(f.browser.columns().column(0).folder().path() == f.a);
+    CHECK(f.browser.columns().focused_folder()->path() == shown);
+}
+
+TEST_CASE("tabs: a tab on the trash comes back to the trash") {
+    Fixture f;
+    f.browser.open_tab(nordend::fs::trash_path(), true);
+    REQUIRE(f.settle());
+    REQUIRE(f.browser.columns().focused_folder() != nullptr);
+    CHECK(f.browser.columns().focused_folder()->is_trash());
+    f.browser.close_tab(1);
+    CHECK(f.browser.closed_tab_count() == 1);
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    CHECK(f.browser.tab_count() == 2);
+    REQUIRE(f.browser.columns().focused_folder() != nullptr);
+    CHECK(f.browser.columns().focused_folder()->is_trash());
+    CHECK(f.browser.status_bar().message() != "trash:/// no longer exists");
+    CHECK(f.browser.closed_tab_count() == 0);
+}
+
+TEST_CASE("tabs: a tab closed before its folder loaded comes back") {
+    Fixture f;
+    CHECK(f.browser.key(key(XKB_KEY_t, kCtrl), Browser::Clock::now()));
+    CHECK(f.browser.key(key(XKB_KEY_w, kCtrl), Browser::Clock::now()));
+    REQUIRE(f.settle());
+    CHECK(f.browser.tab_count() == 1);
+    CHECK(f.browser.closed_tab_count() == 1);
+    CHECK(f.press(key(XKB_KEY_T, kCtrlShift)));
+    CHECK(f.browser.tab_count() == 2);
+    REQUIRE(f.browser.columns().focused_folder() != nullptr);
+    CHECK(f.browser.columns().focused_folder()->path() == f.a);
 }

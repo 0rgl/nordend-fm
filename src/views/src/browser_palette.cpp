@@ -229,6 +229,9 @@ std::vector<PaletteItem> Browser::palette_items() {
 
     // Tabs.
     command(Command::new_tab, "new_tab", "New Tab");
+    if (!closed_tabs_.empty()) {
+        command(Command::reopen_tab, "reopen_tab", "Reopen Closed Tab");
+    }
     if (panes_.size() > 1) {
         command(Command::close_tab, "close_tab", "Close Tab");
         command(Command::next_tab, "next_tab", "Next Tab");

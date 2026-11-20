@@ -55,6 +55,7 @@ enum class Command : std::uint8_t {
     open_terminal,
     new_tab,
     close_tab,
+    reopen_tab,
     next_tab,
     previous_tab,
     select_tab,  // Alt+1…9: the digit says which

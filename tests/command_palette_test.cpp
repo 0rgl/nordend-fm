@@ -434,7 +434,8 @@ TEST_CASE("palette in the browser: every command is offered where it can be used
     f.browser.set_mode(Browser::Mode::grid);
     f.browser.open(f.b);
     REQUIRE(f.settle());
-    seen.merge(f.ids());  // back
+    CHECK_FALSE(f.ids().contains("command:reopen_tab"));  // nothing closed yet
+    seen.merge(f.ids());                                  // back
     f.browser.back();
     REQUIRE(f.settle());
     seen.merge(f.ids());
@@ -443,6 +444,8 @@ TEST_CASE("palette in the browser: every command is offered where it can be used
     REQUIRE(f.settle());
     f.press(key(XKB_KEY_Down));
     f.press(key(XKB_KEY_c, kCtrl));
+    seen.merge(f.ids());
+    f.browser.close_tab(0);
     seen.merge(f.ids());
 
     // Every command of the shortcuts but those the palette has no use for (or offers only
@@ -473,6 +476,7 @@ TEST_CASE("palette in the browser: every command is offered where it can be used
         {Command::add_bookmark, "add_bookmark"},
         {Command::new_tab, "new_tab"},
         {Command::close_tab, "close_tab"},
+        {Command::reopen_tab, "reopen_tab"},
         {Command::next_tab, "next_tab"},
         {Command::previous_tab, "previous_tab"},
         {Command::find_files, "find_files"},

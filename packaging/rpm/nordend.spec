@@ -11,7 +11,7 @@
 %bcond check 1
 
 Name:           nordend
-Version:        0.9.0
+Version:        0.9.1
 Release:        1%{?dist}
 Summary:        Native Wayland file manager
 
@@ -123,6 +123,10 @@ test -x %{_vpath_builddir}/tests/nordend-tests
 %{_datadir}/dbus-1/services/org.freedesktop.impl.portal.desktop.nordend.service
 
 %changelog
+* Fri Nov 20 2026 pankaspe <7622507+pankaspe@users.noreply.github.com> - 0.9.1-1
+- AppImages run; Find Files ranks names first and takes terms; text fields copy, cut and
+  select; pasting into a folder reached through a link
+
 * Mon Nov 16 2026 pankaspe <7622507+pankaspe@users.noreply.github.com> - 0.9.0-1
 - Archives: zip, tar and tar.gz browsed, extracted and made; .iso images mounted
 

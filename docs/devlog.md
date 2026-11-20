@@ -4,6 +4,21 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-20 — Nordend 0.9.1
+
+**Done**
+- Release commit: CMake 0.9.1, `setup_version` 0.9.1, the RPM spec's `Version` 0.9.1 and a
+  `%changelog` line, README (badges, note, Install, Numbers, Versions), CHANGELOG, features.md
+  Next. A patch of fixes from issues: #23, #24 (1, 2), #25, #27.
+- No long fuzz run: no parser changed since 0.9.0's (the hour per target on 2026-11-16).
+
+**Measured** (after rebuilding as 0.9.1): nordend 5.03 MiB (4.17 stripped; 0.9.0: 5.00 /
+4.14), nordend-preview 1.24 / 1.11, nordend-portal 0.44 / 0.35; `readelf -d | grep -c NEEDED`
+17, 8, 8; about 65 900 lines of C++ and 25 600 of tests, 605 test cases; memory the rss log's
+Anonymous, 24.0-24.6 MB (2026-11-20 14:39-14:59).
+
+---
+
 ## 2026-11-20 — Toward 0.9.1: pull requests, AppImages
 
 **Done**

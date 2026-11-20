@@ -164,6 +164,20 @@ TEST_CASE("volumes: ejecting a drive unmounts every mounted file system on it") 
     CHECK(nordend::platform::on_same_drive(volumes, "/nothing").empty());
 }
 
+TEST_CASE("volumes: a drive not powered off says why, not that it is in use") {
+    using nordend::platform::power_off_refusal;
+    CHECK(power_off_refusal("The drive in use: Encrypted device /dev/sdb2 is unlocked") ==
+          "encrypted device /dev/sdb2 is unlocked");
+    CHECK(power_off_refusal("The drive in use: Device /dev/sdb2 is mounted") ==
+          "device /dev/sdb2 is mounted");
+    CHECK(power_off_refusal(
+              "A drive that is part of the same device is in use: Device /dev/sdc1 is mounted") ==
+          "device /dev/sdc1 is mounted");
+    CHECK(power_off_refusal("Cannot eject drive in use: Device /dev/sr0 is mounted") ==
+          "device /dev/sr0 is mounted");
+    CHECK(power_off_refusal("") == "in use");
+}
+
 TEST_CASE("volumes: a disc image on a loop device is shown as a disc that ejects") {
     UdisksObject named = partition("/org/freedesktop/UDisks2/block_devices/loop0", "/",
                                    "nixos-minimal", {"/run/media/me/nixos-minimal"});
@@ -294,6 +308,10 @@ TEST_CASE("devices: unmounting and ejecting leave the disk first, and say how it
     CHECK(f.calls == std::vector<std::string>{"eject /dev/sdb1"});
     CHECK(f.shown() != f.disk / "FOTOGRAFIA");  // gone home before
     CHECK(f.message() == "“kinetic” is in use: close the files open from it");
+    f.answer = "encrypted device /dev/sdb2 is unlocked";
+    f.browser.eject_place(f.place(true));
+    REQUIRE(f.settle());
+    CHECK(f.message() == "“kinetic” could not be ejected: encrypted device /dev/sdb2 is unlocked");
 
     f.answer.clear();
     f.browser.eject_place(f.place(true));

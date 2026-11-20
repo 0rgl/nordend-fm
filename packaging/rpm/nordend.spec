@@ -121,6 +121,9 @@ test -x %{_vpath_builddir}/tests/nordend-tests
 %dir %{_datadir}/dbus-1
 %dir %{_datadir}/dbus-1/services
 %{_datadir}/dbus-1/services/org.freedesktop.impl.portal.desktop.nordend.service
+%{bash_completions_dir}/nordend.bash
+%{fish_completions_dir}/nordend.fish
+%{zsh_completions_dir}/_nordend
 
 %changelog
 * Mon Nov 16 2026 pankaspe <7622507+pankaspe@users.noreply.github.com> - 0.9.0-1

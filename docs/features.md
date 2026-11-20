@@ -10,7 +10,7 @@ README's [What's next](../README.md#whats-next).
 - A file manager written from scratch in C++20 for Wayland: its own OpenGL ES renderer for
   boxes, text, icons and images. **No GTK, no Qt, no GLib.**
 - Its own project, at home on any Wayland desktop. It follows the desktop's theme by itself (GTK
-  colours, the portal, Noctalia's palette) and has its own line icons. Its window
+  colours, the portal, Noctalia's palette), with Tabler's line icons in its colours. Its window
   has one header of its own everywhere, as a modern file manager (`[window] title_bar` keeps the
   compositor's title bar instead).
 - One window thread, a pool of workers for everything that touches the disk, and **zero CPU when

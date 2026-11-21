@@ -137,6 +137,7 @@ Browser::Browser(core::EventLoop& loop, core::WorkerPool& pool, fs::DirectoryWat
         }
     });
     palette_.set_close_handler([this] {
+        palette_use_ = PaletteUse::commands;
         if (finder_) {
             finder_.reset();  // its paths go, and the memory they took back to the system
             core::give_back_free_memory();
@@ -4195,14 +4196,17 @@ bool Browser::take_key(const ui::KeyEvent& event, Clock::time_point now) {
     found_after_.reset();  // a key while a file found is on its way: it stays shown, no more
     if (palette_.is_open()) {
         const Command command = command_for(event);
-        if (command == Command::command_palette || command == Command::find_files) {
-            // The same key closes it; the other switches.
-            const bool files = palette_.external();
+        if (command == Command::command_palette || command == Command::find_files ||
+            command == Command::select_pattern) {
+            // The same key closes it; another switches.
+            const PaletteUse was = palette_use_;
             palette_.close();
-            if (command == Command::find_files && !files) {
+            if (command == Command::find_files && was != PaletteUse::files) {
                 open_finder();
-            } else if (command == Command::command_palette && files) {
+            } else if (command == Command::command_palette && was != PaletteUse::commands) {
                 open_palette();
+            } else if (command == Command::select_pattern && was != PaletteUse::pattern) {
+                open_pattern();
             }
         } else if (!text_field_key(event)) {
             palette_.key(event);  // every key is the palette's meanwhile
@@ -4479,6 +4483,9 @@ void Browser::run(Command command, Clock::time_point now) {
             break;
         case Command::find_files:
             open_finder();
+            break;
+        case Command::select_pattern:
+            open_pattern();
             break;
     }
 }

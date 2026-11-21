@@ -36,6 +36,7 @@ std::string first_chord(Command command) {
 void Browser::open_palette() {
     menu_.close();
     shortcuts_.close();
+    palette_use_ = PaletteUse::commands;
     palette_.open(palette_items(), palette_recent_, "Type a command, a place or a tab");
 }
 
@@ -167,6 +168,9 @@ std::vector<PaletteItem> Browser::palette_items() {
         view_command("select_all", "Select All", "Ctrl+A", XKB_KEY_a, {.ctrl = true});
         view_command("invert_selection", "Invert Selection", "Ctrl+Shift+I", XKB_KEY_I,
                      {.ctrl = true, .shift = true});
+    }
+    if (folder && !(pick_ && pick_->save)) {
+        command(Command::select_pattern, "select_pattern", "Select by Pattern…");
     }
     if (editable) {
         command(Command::add_bookmark, "add_bookmark", "Add to Sidebar");
@@ -344,6 +348,7 @@ void Browser::open_finder() {
     menu_.close();
     shortcuts_.close();
     palette_.close();
+    palette_use_ = PaletteUse::files;
     finder_ = std::make_unique<FileFinder>(pool_, [this] { refresh_found(); });
     const std::filesystem::path root = folder->path();
     std::string name = root.filename().string();
@@ -357,6 +362,75 @@ void Browser::open_finder() {
     });
     finder_->start(root, show_hidden_);
     refresh_found();
+}
+
+void Browser::open_pattern() {
+    const std::shared_ptr<Folder> folder = current_folder();
+    if (!folder) {
+        return;
+    }
+    if (pick_ && pick_->save) {
+        show_message("Nothing is selected by name while saving", false);
+        return;
+    }
+    quick_look_.close();  // the cursor may move: Quick Look would no longer show it
+    menu_.close();
+    shortcuts_.close();
+    palette_.close();
+    palette_use_ = PaletteUse::pattern;
+    palette_.open_external("Select by name: *.ORF, IMG_00??.*",
+                           [this](const std::string& typed) { refresh_pattern(typed); });
+    refresh_pattern({});
+}
+
+void Browser::refresh_pattern(const std::string& typed) {
+    const std::shared_ptr<Folder> folder = current_folder();
+    if (!folder || palette_use_ != PaletteUse::pattern) {
+        return;
+    }
+    const std::string glob = name_glob(typed);
+    if (glob.empty()) {
+        palette_.set_results({}, "* any text, ? one character, [abc] one of them");
+        return;
+    }
+    const std::vector<std::size_t> rows = folder->matching(glob);
+    const std::size_t shown = folder->entries().size();
+    if (rows.empty()) {
+        palette_.set_results({}, std::format("None of {} match", shown));
+        return;
+    }
+    std::vector<PaletteItem> items;
+    const auto row = [&](std::string id, std::string label, bool add) {
+        items.push_back({.id = std::move(id),
+                         .label = std::move(label),
+                         .keys = {},
+                         .remember = false,
+                         .action = [this, glob, add] { select_pattern(glob, add); },
+                         .path = false,
+                         .quick_look = {},
+                         .open = {}});
+    };
+    const std::size_t count = rows.size();
+    row("pattern:select", std::format("Select {} {}", count, count == 1 ? "Item" : "Items"), false);
+    // Adding differs from selecting only when something else is selected.
+    const auto selected_in = std::ranges::count_if(
+        rows, [&](std::size_t i) { return folder->is_selected(folder->entries()[i].name); });
+    if (folder->selected_count() > static_cast<std::size_t>(selected_in)) {
+        row("pattern:add", std::format("Add {} to the Selection", count), true);
+    }
+    palette_.set_results(std::move(items), std::format("{} of {} match", count, shown));
+}
+
+void Browser::select_pattern(const std::string& glob, bool add) {
+    if (const std::shared_ptr<Folder> folder = current_folder()) {
+        // Matched again: the folder may have changed since the last key.
+        const std::vector<std::size_t> rows = folder->matching(glob);
+        if (rows.empty()) {
+            show_message("Nothing matches any more", false);
+            return;
+        }
+        folder->select_rows(rows, add);
+    }
 }
 
 void Browser::refresh_found() {

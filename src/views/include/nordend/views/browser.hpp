@@ -550,6 +550,12 @@ public:
     // Ctrl+F (ROADMAP 8b): the palette finds files under the folder shown, matched by their paths.
     void open_finder();
 
+    // Ctrl+S: the palette's card takes a name pattern ("*.ORF", "IMG_00??.*", or text found
+    // anywhere in a name) and counts the entries shown that match as it is typed; Enter selects
+    // them, "Add … to the Selection" keeps what was selected too. Not while saving in the file
+    // chooser, where the cursor's file gives the name.
+    void open_pattern();
+
     // While finding files: the finder (tests); nullptr otherwise.
     [[nodiscard]] FileFinder* file_finder() noexcept { return finder_.get(); }
 
@@ -814,6 +820,8 @@ private:
     void open_with_palette();
     // The palette's list from the finder's results.
     void refresh_found();
+    void refresh_pattern(const std::string& typed);
+    void select_pattern(const std::string& glob, bool add);
     void erase_done(const fs::TransferRequest& request, const fs::TransferResult& result);
     // Opens the card for request (erase or empty_trash), adds up what it removes on a worker and
     // submits it once confirmed and added up; after runs when it is confirmed.
@@ -956,6 +964,10 @@ private:
     CommandPalette palette_;
     std::vector<std::string> palette_recent_;
     std::unique_ptr<FileFinder> finder_;  // while finding files
+    // What the palette's card is open for: commands (Ctrl+K), finding files (Ctrl+F), a name
+    // pattern (Ctrl+S).
+    enum class PaletteUse : std::uint8_t { commands, files, pattern };
+    PaletteUse palette_use_{PaletteUse::commands};
 
     struct FoundAfter {
         std::filesystem::path folder;

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <fnmatch.h>
+#include <format>
 #include <iterator>
 #include <string_view>
 #include <sys/stat.h>
@@ -343,6 +345,51 @@ void Folder::invert_selection() {
     selection_changed();
 }
 
+std::vector<std::size_t> Folder::matching(const std::string& glob) const {
+    std::vector<std::size_t> rows;
+    if (glob.empty()) {
+        return rows;
+    }
+    const std::vector<fs::Entry>& list = entries();
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        if (fnmatch(glob.c_str(), list[i].name.c_str(), FNM_CASEFOLD) == 0) {
+            rows.push_back(i);
+        }
+    }
+    return rows;
+}
+
+void Folder::select_rows(std::span<const std::size_t> rows, bool add) {
+    const std::vector<fs::Entry>& list = entries();
+    std::unordered_set<std::string> chosen;
+    if (add) {
+        chosen = selected_;
+    }
+    std::optional<std::size_t> first;
+    bool cursor_in = false;
+    for (const std::size_t row : rows) {
+        if (row >= list.size()) {
+            continue;
+        }
+        chosen.insert(list[row].name);
+        first = first.value_or(row);
+        cursor_in = cursor_in || row == cursor_index_;
+    }
+    if (!first) {
+        return;  // nothing matched: the selection stays
+    }
+    press_pending_ = false;
+    selected_ = std::move(chosen);
+    if (!cursor_in) {
+        cursor_expected_ = false;
+        cursor_index_ = first;
+        cursor_name_ = list[*first].name;
+        reveal_ = Reveal::jump;
+    }
+    anchor_ = cursor_name_;
+    selection_changed();
+}
+
 void Folder::set_show_hidden(bool show, bool keep_cursor) {
     if (show == shows_hidden()) {
         return;
@@ -482,6 +529,16 @@ void Folder::sniff(std::size_t first, std::size_t last) {
             }
             redraw_();
         });
+}
+
+std::string name_glob(std::string_view typed) {
+    if (typed.empty()) {
+        return {};
+    }
+    if (typed.find_first_of("*?[") != std::string_view::npos) {
+        return std::string{typed};
+    }
+    return std::format("*{}*", typed);
 }
 
 }  // namespace nordend::views

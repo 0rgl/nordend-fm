@@ -32,6 +32,7 @@
 #include "nordend/ui/seat.hpp"
 #include "nordend/ui/text.hpp"
 #include "nordend/views/browser.hpp"
+#include "nordend/views/command_palette.hpp"
 #include "nordend/views/folder.hpp"
 #include "nordend/views/pick_bar.hpp"
 #include "nordend/views/status_bar.hpp"
@@ -559,4 +560,31 @@ TEST_CASE("pick: saving, a drag in the name ends when an overlay takes the butto
         f.type("q");
         CHECK(f.browser.pick_bar().name() == "qholiday.jpg");
     }
+}
+
+TEST_CASE("pick: selecting by name works when opening, not while saving") {
+    Fixture f;
+    Browser::Pick options;
+    options.multiple = true;
+    f.pick(options);
+    f.press(XKB_KEY_s, {.ctrl = true});
+    REQUIRE(f.browser.command_palette().is_open());
+    f.type("*.jpg");
+    f.press(XKB_KEY_Return);
+    CHECK(f.shown()->selected_names() == std::vector<std::string>{"a.jpg", "B.JPG"});
+
+    Fixture g;
+    Browser::Pick saving;
+    saving.save = true;
+    saving.name = "new.txt";
+    g.pick(saving);
+    g.press(XKB_KEY_Tab);  // the keyboard to the view
+    g.press(XKB_KEY_s, {.ctrl = true});
+    CHECK_FALSE(g.browser.command_palette().is_open());
+    CHECK(g.browser.status_bar().message() == "Nothing is selected by name while saving");
+    CHECK(g.browser.pick_bar().name() == "new.txt");
+    const std::vector<nordend::views::PaletteItem> items = g.browser.palette_items();
+    CHECK(std::ranges::none_of(items, [](const nordend::views::PaletteItem& item) {
+        return item.id == "command:select_pattern";
+    }));
 }

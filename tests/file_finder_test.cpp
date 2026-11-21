@@ -408,6 +408,14 @@ TEST_CASE("find files: Ctrl+F again closes, Ctrl+K switches, the palette offers 
     CHECK(f.browser.command_palette().external());
     f.press(key(XKB_KEY_f, kCtrl));
     CHECK_FALSE(f.browser.command_palette().is_open());
+    // Ctrl+S switches to a name pattern and back; the paths found go.
+    f.press(key(XKB_KEY_f, kCtrl));
+    f.press(key(XKB_KEY_s, kCtrl));
+    CHECK(f.browser.command_palette().external());
+    CHECK(f.browser.file_finder() == nullptr);
+    f.press(key(XKB_KEY_f, kCtrl));
+    CHECK(f.browser.file_finder() != nullptr);
+    f.press(key(XKB_KEY_Escape));
     // From the command palette, "Find Files…".
     f.browser.open_palette();
     f.browser.command_palette().set_query("find files");

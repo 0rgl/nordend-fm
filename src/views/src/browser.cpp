@@ -4710,6 +4710,21 @@ void Browser::run(Command command, Clock::time_point now) {
 bool Browser::open_selection() {
     const std::shared_ptr<Folder> folder = current_folder();
     const fs::Entry* const cursor = folder ? folder->cursor_entry() : nullptr;
+    if (cursor == nullptr && folder && pick_ && !pick_->save && !pick_->folders) {
+        // The cursor lost its file (gone from the folder meanwhile) but the selection is still
+        // there: the chooser takes what is selected.
+        std::vector<std::filesystem::path> paths;
+        for (const fs::Entry& entry : folder->entries()) {
+            if (!entry.is_directory() && folder->is_selected(entry.name)) {
+                paths.push_back(folder->path() / entry.name);
+            }
+        }
+        if (paths.empty()) {
+            return false;
+        }
+        choose(std::move(paths));
+        return true;
+    }
     if (cursor == nullptr || cursor->is_directory()) {
         return false;
     }
@@ -4993,7 +5008,10 @@ void Browser::accept_pick() {
         return;
     }
     if (cursor == nullptr) {
-        show_message(pick_->multiple ? "Choose files" : "Choose a file", false);
+        const bool several = pick_->multiple;
+        if (!open_selection()) {
+            show_message(several ? "Choose files" : "Choose a file", false);
+        }
         return;
     }
     if (cursor->is_directory()) {

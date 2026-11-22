@@ -275,6 +275,29 @@ TEST_CASE("pick: several files with --multiple; no filter, every file and no fil
     CHECK_FALSE(f.filters[0].has_value());
 }
 
+TEST_CASE("pick: a selection is chosen even when the cursor's file went away") {
+    Fixture f;
+    Browser::Pick options;
+    options.multiple = true;
+    f.pick(options);
+    f.cursor_on("a.jpg");
+    f.press(XKB_KEY_Down, {.shift = true});
+    f.press(XKB_KEY_Down, {.shift = true});  // a.jpg, B.JPG, data-0001
+    REQUIRE(f.shown()->selected_count() == 3);
+    const std::string under_cursor = f.shown()->cursor_entry()->name;
+    stdfs::remove(f.root / under_cursor);  // an application tidying the folder meanwhile
+    REQUIRE(run_until(f.loop, [&f] { return f.shown()->entries().size() == 5; }));
+    REQUIRE(f.shown()->cursor_entry() == nullptr);  // the cursor lost its file, the rest stays
+    REQUIRE(f.shown()->selected_count() == 2);
+
+    f.browser.accept_pick();
+    REQUIRE(f.chosen.size() == 1);
+    CHECK(f.chosen[0].size() == 2);
+    f.press(XKB_KEY_Return);  // Enter does the same
+    REQUIRE(f.chosen.size() == 2);
+    CHECK(f.chosen[1] == f.chosen[0]);
+}
+
 TEST_CASE("pick: folders, the one under the cursor or else the one shown") {
     Fixture f;
     Browser::Pick options;

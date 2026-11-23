@@ -2108,14 +2108,18 @@ std::vector<MenuItem> Browser::entry_menu(const std::shared_ptr<Folder>& folder)
         add("running", stop ? "Stop Running as Program" : "Allow Running as Program", "",
             [this, stop] { set_running(!stop); });
     }
-    add("compress_zip", "Compress to .zip", "", [this] { compress(false); }, true);
-    add("compress_tar", "Compress to .tar.gz", "", [this] { compress(true); });
+    if (!folder->is_archive()) {  // nothing is written into an archive
+        add("compress_zip", "Compress to .zip", "", [this] { compress(false); }, true);
+        add("compress_tar", "Compress to .tar.gz", "", [this] { compress(true); });
+    }
     add("copy", "Copy", keys_for(Command::copy), [this] { take_selection(false); }, true);
     add("cut", "Cut", keys_for(Command::cut), [this] { take_selection(true); });
     add(
         "paste", "Paste", keys_for(Command::paste), [this] { paste(); }, false,
         !clipboard_.names.empty());
-    add("create_link", "Create Link", "", [this] { create_links(); });
+    if (!folder->is_archive()) {
+        add("create_link", "Create Link", "", [this] { create_links(); });
+    }
     add(
         "rename", "Rename…", keys_for(Command::rename), [this] { start_rename(); }, true,
         count == 1);
@@ -5010,7 +5014,16 @@ void Browser::accept_pick() {
     if (cursor == nullptr) {
         const bool several = pick_->multiple;
         if (!open_selection()) {
-            show_message(several ? "Choose files" : "Choose a file", false);
+            bool only_folders = false;
+            for (const fs::Entry& entry : folder->entries()) {
+                only_folders =
+                    only_folders || (entry.is_directory() && folder->is_selected(entry.name));
+            }
+            std::string message = several ? "Choose files" : "Choose a file";
+            if (only_folders) {
+                message = "Folders cannot be chosen here, only files";
+            }
+            show_message(message, false);
         }
         return;
     }

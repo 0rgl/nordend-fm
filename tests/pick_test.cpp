@@ -298,6 +298,23 @@ TEST_CASE("pick: a selection is chosen even when the cursor's file went away") {
     CHECK(f.chosen[1] == f.chosen[0]);
 }
 
+TEST_CASE("pick: only folders selected without --folders says so") {
+    Fixture f;
+    stdfs::create_directory(f.root / "zeta");
+    Browser::Pick options;
+    options.multiple = true;
+    f.pick(options);
+    f.cursor_on("photos");
+    f.press(XKB_KEY_Down, {.shift = true});  // photos, zeta
+    REQUIRE(f.shown()->selected_count() == 2);
+    stdfs::remove(f.root / f.shown()->cursor_entry()->name);  // the cursor loses its entry
+    REQUIRE(run_until(f.loop, [&f] { return f.shown()->cursor_entry() == nullptr; }));
+    REQUIRE(f.shown()->selected_count() == 1);
+    f.browser.accept_pick();
+    CHECK(f.chosen.empty());
+    CHECK(f.browser.status_bar().message() == "Folders cannot be chosen here, only files");
+}
+
 TEST_CASE("pick: folders, the one under the cursor or else the one shown") {
     Fixture f;
     Browser::Pick options;

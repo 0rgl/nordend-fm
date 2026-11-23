@@ -55,8 +55,12 @@ std::vector<Crumb> crumbs_of(const std::filesystem::path& folder,
     return crumbs;
 }
 
-Breadcrumb::Breadcrumb(std::function<void()> redraw, Go go, std::filesystem::path home)
-    : redraw_{std::move(redraw)}, go_{std::move(go)}, home_{std::move(home)} {}
+Breadcrumb::Breadcrumb(std::function<void()> redraw, Go go, std::function<void()> edit,
+                       std::filesystem::path home)
+    : redraw_{std::move(redraw)},
+      go_{std::move(go)},
+      edit_{std::move(edit)},
+      home_{std::move(home)} {}
 
 void Breadcrumb::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::Palette& palette,
                       ui::IconSet& icons, const Folder& folder) {
@@ -218,6 +222,11 @@ bool Breadcrumb::clickable_at(float x, float y) const {
     return crumb && *crumb + 1 < crumbs_.size();
 }
 
+bool Breadcrumb::editable_at(float x, float y) const {
+    const std::optional<std::size_t> crumb = crumb_at(x, y);
+    return crumb && *crumb + 1 == crumbs_.size();
+}
+
 bool Breadcrumb::claims(float x, float y) const {
     return !bounds_.empty() && x >= bounds_.x && x < bounds_.right() && y >= bounds_.y &&
            y < bounds_.bottom();
@@ -233,9 +242,14 @@ void Breadcrumb::pointer(const ui::PointerEvent& event) {
         hovered_ = over;
         redraw_();
     }
-    if (event.kind != Kind::press || event.button != ui::PointerButton::left || !over ||
-        *over + 1 >= crumbs_.size()) {
-        return;  // the last step is the folder shown
+    if (event.kind != Kind::press || event.button != ui::PointerButton::left || !over) {
+        return;
+    }
+    if (*over + 1 >= crumbs_.size()) {
+        if (edit_) {
+            edit_();  // the last step is the folder shown: its path is typed instead
+        }
+        return;
     }
     const std::filesystem::path path = crumbs_[*over].path;
     const std::string child = crumbs_[*over + 1].path.filename().string();

@@ -400,8 +400,9 @@ public:
     [[nodiscard]] NameEditor& name_editor() noexcept { return editor_; }
 
     // Ctrl+L: the breadcrumb becomes a field with the folder's path in it, ready to be typed
-    // over (Enter goes to the path typed, Escape gives the breadcrumb back).
-    void open_path_entry();
+    // over (Enter goes to the path typed, Escape gives the breadcrumb back). A click on the
+    // folder shown opens it with the caret at the end instead.
+    void open_path_entry(PathEntry::Opening opening = PathEntry::Opening::selected);
 
     // F2: edits the name of the entry under the cursor (nothing without one).
     void start_rename();

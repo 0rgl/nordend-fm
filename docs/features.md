@@ -203,6 +203,13 @@ README's [What's next](../README.md#whats-next).
   With the pointer, a drag or Shift+click selects and a double click selects the whole name. The
   same goes for every text field: a bookmark's label, Ctrl+K and the file chooser's name.
 - **New folder** (Ctrl+Shift+N): "New Folder" (or "New Folder 2"...), ready to be named.
+- **Symbolic links** ("Create Link" in the menu and in Ctrl+K): a link to each selected item next
+  to it, "Link to P1.ORF" ("Link to P1 2.ORF" when taken; a folder or a name starting with a dot
+  takes its number at the end: "Link to Trip.2023 2"), pointing to the item's absolute path and
+  selected when it appears, ready to rename or drag away. Every link is made relative to the
+  folder Nordend opened, never over anything (a name taken meanwhile takes the next number); the
+  items are never opened or followed, their sidecars left alone. Ctrl+Z moves the new links to the
+  trash, never what they lead to (0rgl's issue #32 and pull request).
 - **Never overwrites:** renames use `RENAME_NOREPLACE`, so an existing file is never replaced,
   even one that appears in the meantime. A taken or invalid name is refused with a message and
   the field stays open for another try.
@@ -282,8 +289,8 @@ README's [What's next](../README.md#whats-next).
   - nothing is made, renamed or pasted there, and files are not opened from the trash.
 - **Context menu**: a right click (or a two-finger tap on the touchpad) in any of the three views
   or on the info pane, the Menu key or Shift+F10:
-  - on files and folders: Open, Open With, Copy, Cut, Paste, Rename (one entry), Move to Trash,
-    Delete Permanently; on a folder also Open in Terminal and Add to Sidebar;
+  - on files and folders: Open, Open With, Copy, Cut, Paste, Create Link, Rename (one entry), Move
+    to Trash, Delete Permanently; on a folder also Open in Terminal and Add to Sidebar;
     **Allow Running as Program** on files of a type that runs (programs, AppImages, scripts, or
     a type not known yet), or **Stop Running as Program** when every selected file may run
     already (any file with an execute bit, such as photos from a FAT stick): `u+x` only to
@@ -387,6 +394,15 @@ README's [What's next](../README.md#whats-next).
   `user-dirs.dirs`), the file system, your GTK bookmarks (shared with other file managers) and
   the mounted disks. A disk appears as soon as it is mounted and disappears when it is unmounted.
   Ctrl+B hides the sidebar, and F6 moves the keyboard into it and back.
+  **Folder tree** (`[sidebar] tree = true` in `config.toml`, off by default, read live): each
+  folder place gets a chevron that shows its subfolders, indented, one level at a time; a click
+  on a name opens the folder. With the keyboard in the sidebar, → unfolds and goes into the first
+  subfolder, ← folds or goes back to the parent, Enter opens, and F6 lands on the deepest row
+  holding the folder shown. Each level is read on a worker in one pass (the file system's types;
+  only links and unknown types looked at), at most 2048 names with a quiet "12 more folders" row
+  past them, and follows changes on disk while unfolded; hidden folders only with Ctrl+H. A link
+  back to a folder above it, or a folder that cannot be read, loses its chevron and says why.
+  Levels on a disk are let go before it is unmounted (0rgl's issue #33 and pull request).
 - **Disks:** through udisks2, a disk plugged in appears among the devices, quieter, without
   mounting itself (encrypted ones come later); a click mounts it and opens it, and a disk that
   mounts read-only says why (an NTFS disk not closed properly) and what fixes it. The eject icon of
@@ -436,6 +452,19 @@ README's [What's next](../README.md#whats-next).
   a folder already there is not added twice. Dragging to reorder comes later.
 - **Breadcrumb:** the folder's path as a row of clickable steps, starting from your home. A long
   path is shortened from the left.
+- **Typing a path** (Ctrl+L, or "Go to Path…" in Ctrl+K): the breadcrumb becomes a field holding
+  the folder's path, all selected. Tab completes the folder name after the last `/` (with several
+  matches their common start, then each in turn; Shift+Tab goes back; the status bar says how
+  many), from a listing made on a worker once per folder typed, so no key waits on the disk.
+  `~`, relative paths, a pasted `file://` URI and `trash:///` work; inside an archive it completes
+  like anywhere else. The field turns red when nothing starts with what is typed; Enter goes only
+  to a path that exists, and a file's path opens its folder with the cursor on it. Escape, a click
+  elsewhere or another tab gives the breadcrumb back (0rgl's issue #35 and pull request).
+- **Select by pattern** (Ctrl+S, or "Select by Pattern…" in Ctrl+K): the card of Ctrl+F's mode; as a
+  pattern such as `*.ORF` is typed, a line says how many of the entries shown match, and one row
+  selects them ("Add N to the Selection" appears when something outside the matches is already
+  selected). Case is ignored, text without `*`, `?` or `[` matches anywhere in a name. Not while the
+  file chooser saves: the status bar says why (0rgl's pull request for issue #37).
 - **Status bar:** item count, selection, free space on the disk (updated after a copy into the
   folder), the three view buttons and "?". Messages appear here for a few seconds.
 
@@ -603,7 +632,7 @@ second (binary measured 2026-11-14, memory 2026-11-13).
 ## Settings
 
 - `~/.config/nordend/config.toml`: font family, monospace font, text size, double-click time and distance,
-  the icon in the accent ([example](config.example.toml)). `nordend --check-config` reports every problem with its
+  the icon in the accent, the sidebar's folder tree ([example](config.example.toml)). `nordend --check-config` reports every problem with its
   line.
 - Its options complete in bash, zsh and fish (installed with it; 0rgl's issue #39).
 - No settings window: the defaults are the system's fonts (fontconfig's `sans-serif` and

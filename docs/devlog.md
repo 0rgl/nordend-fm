@@ -4,6 +4,94 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-23 — Chooser and menu slips
+
+**Done**
+- 0rgl's #53 (Ctrl+S, select by pattern, for #37) merged by rebase: four builds green, the author
+  has not tried it by hand yet.
+- #52 (slutsaint, the chooser's Open doing nothing at random): when the cursor's file vanishes
+  from the folder the cursor is dropped but the selection stays; Open and Enter looked at the
+  cursor and gave up. `open_selection` now takes the selected files when there is no cursor
+  (`f3250bf`; the test removes the cursor's file and fails without the fix).
+- #52, the promised follow-up: selected folders only, without `--folders`, now say "Folders cannot
+  be chosen here, only files" instead of "Choose files" (`5882e91`, with a test).
+- The menu no longer offers Compress and Create Link inside an archive (the commands did nothing
+  there). Read-only folders left alone on purpose: knowing needs an `access()` on the main thread
+  at each menu, which a stuck network mount could hang; with #7.
+- Answers on 0rgl's #54 (sidebar hide/reorder: keys read from `config.toml` first, the menu later
+  and into a state file, never writing `config.toml`) and #55 (click on the breadcrumb's last step
+  opens the path field, caret at the end).
+
+---
+
+## 2026-11-20 — Toward 0.10.0: links, typing a path, the sidebar tree
+
+**Done**
+- 0rgl's three pull requests for 0.10.0 read one at a time, safety first, then put together on a
+  local branch (`release/0.10.0`) over today's `main`: none was based on it.
+  - #46 (#32), symbolic links: "Create Link" in the menu and Ctrl+K, `fs::run_link` on the
+    transfer queue. Read for safety: the destination opened once and everything relative to its
+    descriptor; free names through `symlinkat()`, which never replaces (a name taken meanwhile
+    takes the next number, at most 10 000 tries); Replace only from the conflict card, through a
+    hidden temporary and an atomic `renameat`, never over a folder, nothing left on failure (not
+    reachable yet: it is for Link Here); the items never opened, one `stat()` to number a link to
+    a folder as a folder; undo trashes the links through `lstat`/`rename`, never following them.
+    Conflict with `main`: one list in `command_palette_test.cpp`.
+  - #51 (#35), Ctrl+L: `PathEntry` over a `ui::TextField` in the breadcrumb's place; listings on
+    a worker once per folder typed (archives through the engine, as `DirectoryModel`), so no key
+    waits on the disk; `file://` from another host refused (`path_from_uri`). Conflict with
+    `main` in `Browser::draw` (since 633958e back and forward sit in the path row in both header
+    modes): the row from `forward_` and `path_rect`, the field or the breadcrumb in it.
+  - #50 (#33), the sidebar tree: `fs::read_subfolders` (one `readdir` pass, `d_type`, stat only
+    for links and unknown types, 2048 names), `views::FolderTree` (levels by place and folder,
+    watched from before they are read, changes stat'ed after a 30 ms settle, loops caught by
+    device and inode against the levels above). Unwatching from inside a watcher callback is
+    safe: the watcher copies its subscribers before calling them. Applied cleanly.
+- Comments on the three pull requests: rebase on `main` (with the resolutions above), clang-tidy
+  to clean (#51: redundant member initializers in `PathEntry::Listing`, a static member through
+  an instance; #50: `*row.place` unchecked in `Sidebar::toggle` and `choose(const Row&)`). #50's
+  "Closes #33" made "For #33".
+- #37 (selecting by a name pattern) settled with the author and answered on the issue: Ctrl+S,
+  except while the file chooser saves (nothing there, the status bar says why, no Ctrl+K entry);
+  the palette's card in Ctrl+F's mode; case always ignored (`FNM_CASEFOLD`, as the filters);
+  replace by default, "Add N to the Selection" second; the C locale's limits kept, as the
+  filters'. 0rgl's pull request to come.
+- README reorganised (the author's choice among four drafts, "A with D's diagram"): under the film
+  a "Fast and safe, measured" table (five measured numbers against five guarantees) replaces "Why
+  Nordend"; "Numbers" became "Speed" (`<a id="numbers">` kept for old links); a new "Safety"
+  section with a mermaid diagram of the process split (files → caged `nordend-preview` → sealed
+  memory → `nordend`; the portal beside) and how each guarantee is kept; "Setting it up" after
+  it; a "fuzzed · 7 parsers" badge. The CI claim checked against `ci.yml` (GCC, clang, ASan +
+  UBSan; TSan and clang-tidy by hand).
+- 0.11.0 planned with the author (ROADMAP): never block the window first, then our own D-Bus
+  client (sdbus-c++ and basu out: 17 → 15 libraries for nordend, 8 → 6 for the portal), then
+  network bookmarks, then mounting through gvfs; no thumbnails on network shares by default, F5
+  reloads a folder, the Samba server in the Void VM. dMopp's `network-shares` branch fetched as
+  `refs/remotes/dmopp/network-shares`, read as a checklist only.
+- Docs: features.md (links under "Working with files", the tree under the sidebar, typing a path
+  after the breadcrumb, Create Link in the menu list, the tree in Settings), README's Features.
+
+**Measured**: the three together on `main`: 691 test cases, Release and clang 690 passed and one
+skipped, ASan and TSan 689 and two skipped, no sanitizer report; clang-format clean.
+
+**Open**
+- Wait for 0rgl's rebases, compare them with `release/0.10.0`, merge #46 → #51 → #50.
+- "Create Link" and Compress show in the menu inside an archive or a read-only folder, where they
+  do nothing (Ctrl+K hides them): to fix for both, ours.
+- Before 0.11.0 (network): `FolderTree::unfold()` adds the inotify watch on the loop thread, as
+  `DirectoryModel` does; a stuck network mount could block it. A level's read already running is
+  not stopped by an unmount.
+- Small: Enter on a text ending in `..` does nothing in the path field; a third copy of a UTF-8
+  check (`path_entry.cpp`, besides `state.cpp` and the archive code) could live in `core`.
+
+**Tested by the author** (2026-11-20, `release/0.10.0` installed in `~/.local`): links made twice
+on a file and on a folder, Ctrl+Z; Ctrl+L with Tab, the cycle and its count, red on a missing
+name, a file's path, a hidden folder after a dot; the tree with `[sidebar] tree = true` (a link
+back to a parent, an unreadable folder, a folder made from a terminal, a click and F6); Ctrl+L
+again with `title_bar = "compositor"`. "Works, everything."
+
+---
+
 ## 2026-11-20 — Nordend 0.9.5
 
 **Done**

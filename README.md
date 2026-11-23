@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Wayland-native-FFBC00?logo=wayland&logoColor=black" alt="Wayland native">
   <img src="https://img.shields.io/badge/tests-630%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="630 tests, ASan, TSan">
+  <img src="https://img.shields.io/badge/fuzzed-7%20parsers-c0392b" alt="7 parsers fuzzed">
   <a href="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-3DA639" alt="MIT license">
 </p>
@@ -31,32 +32,32 @@
 > you closed. Nordend's options complete in bash, zsh and fish. Browsing no longer changes your
 > files' access times. From HOkket's and 0rgl's issues, most of it 0rgl's pull requests. [Install it](#install).
 
+## Fast and safe, measured
+
+| Fast | Safe |
+|---|---|
+| **76 ms** to the first frame (warm start) | Files from outside are read in a **caged helper**: seccomp and landlock, no files, no network, no programs |
+| A 10 000-file folder: first entries in **0.8 ms**, all in **19 ms** | A broken or hostile file costs **at most its preview** |
+| A raw photo in Quick Look in about **100 ms** | **Nothing is ever overwritten** without asking, nothing half-copied under a real name |
+| Copies **nearly twice as fast as `cp`**, on eight threads | **7 parsers fuzzed**; every change tested under ASan and TSan |
+| **4.2 MB**, **25 MB** of memory, **0 CPU** while nothing moves | Never goes online by itself; never runs a program you did not allow |
+
+Nordend talks to the compositor directly, with **no toolkit at all**: text, icons, scrolling and
+animations come from its own renderer. It follows your desktop's theme by itself, live, and can
+be the Open and Save dialog of other applications. Every number comes with its tool and method:
+[Speed](#speed). Every guarantee with how it is kept: [Safety](#safety).
+
 ## Contents
 
-- [Why Nordend](#why-nordend)
 - [Features](#features)
 - [Install](#install) and [keep it current](#nordend-setup)
+- [Speed](#speed) · [Safety](#safety)
 - [Setting it up](#setting-it-up): [folders and a key](#folders-and-a-key),
   [the file chooser](#as-the-file-chooser-of-other-applications), [colours](#colours),
   [configuration](#configuration)
-- [Numbers](#numbers)
 - [Versions](#versions)
 - [What's next](#whats-next)
 - [Documentation](#documentation) · [Development](#development) · [License](#license)
-
-## Why Nordend
-
-Nordend talks to the compositor directly, with **no toolkit at all**: text, icons, scrolling and
-animations come from its own renderer.
-
-- **At home on your desktop.** It follows your theme by itself, as GTK apps do, live; it can be
-  the Open and Save dialog of other applications; every action has a key and a click.
-- **Fast.** The first frame in about 75 ms; a raw photo in Quick Look at once, sharp in about
-  100 ms. Every figure is measured, with the tool to measure it again ([Numbers](#numbers)).
-- **Light.** A 4.2 MB binary, about 25 MB of memory, no CPU at all while nothing moves.
-- **Safe.** Files that come from outside are read in a small helper process caged by Nordend
-  (seccomp and landlock: no files, no network, no programs): a broken or hostile file costs at
-  most its preview. Nothing is overwritten without asking, nothing half-copied under a real name.
 
 ## Features
 
@@ -71,7 +72,10 @@ animations come from its own renderer.
 - Find files (<kbd>Ctrl</kbd>+<kbd>F</kbd>): fuzzy search of every file under the folder, first
   results in milliseconds even among 270 000
 - Sidebar: places, GTK bookmarks (renamed, pointed elsewhere and reordered in place), disks
-  through udisks2 (mount, unmount, eject)
+  through udisks2 (mount, unmount, eject), and a folder tree if you want one
+  (`[sidebar] tree = true`)
+- Type a path (<kbd>Ctrl</kbd>+<kbd>L</kbd>): <kbd>Tab</kbd> completes folder names, red when
+  nothing matches
 - Info pane beside every view: preview, dates, EXIF, and a folder's size added up on a worker
   as you stop on it (or several selected)
 - Folders follow changes on disk (inotify); history with <kbd>Alt</kbd>+<kbd>←</kbd>
@@ -96,6 +100,8 @@ animations come from its own renderer.
   folder or file from templates, undo and redo (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), a real
   freedesktop trash with restore, delete permanently
 - Drag and drop within Nordend and with other apps; rubber-band selection; the system clipboard
+- Symbolic links from the menu ("Create Link"), never made over anything; undo sends them to the
+  trash, never what they lead to
 - Actions of your own in the context menu (`[[action]]` in `config.toml`, like Thunar's custom
   actions): a name, a command, and which files they fit
 - Archives: zip, tar, tar.gz and .gz open like folders (read by Nordend's own code in the caged
@@ -257,6 +263,83 @@ opened folders before, in `~/.local/state/nordend-setup/settings`; nothing else.
 `~/.cache/nordend-setup` and empties it afterwards. A Nordend installed by a package manager or
 Nix is left to it: nordend-setup stops rather than install a second copy.
 
+<a id="numbers"></a>
+
+## Speed
+
+| | |
+|---|---|
+| Binary | **5.12 MB** (4.25 MB stripped), x86-64; the decoders and the text and archive readers in `nordend-preview`, 1.24 MB (1.11 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
+| Libraries | 17 direct (the helper and the service: 8 each); no GTK, no Qt, no GLib |
+| Code | about 66 700 lines of C++20, 26 300 of tests (630 test cases, under ASan and TSan too) |
+| Memory | **25 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
+| Idle | **0 CPU**: nothing is drawn while nothing moves |
+
+The design's four targets (Ryzen 7 5700G, RX 6650 XT, SATA SSD), measured again on 2026-11-13
+where the date says so:
+
+| Target | Measured |
+|--------|---------:|
+| Cold start to the first frame on screen: < 150 ms | **128 ms** (2026-11-01); warm **76 ms** (2026-11-13) |
+| A 10 000-file folder: first frame < 50 ms | first entries in **0.8 ms**, all in **19 ms** (2026-11-13) |
+| Quick Look of an ORF raw photo: < 100 ms | **110 ms** for a portrait shot, median **about 102** over 18 photos (2026-11-14, from 144 ms): **nearly met**; the thumbnail shows in 20 ms |
+| Scrolling with no dropped frame | worst frame **3.7 ms** of 13.3 (75 Hz) (2026-11-01) |
+
+Against other tools, on the same machine. Copying since 0.8.0: eight threads copy a folder's
+files while one walks the tree ahead of them; folders keep their dates,
+and a cancelled copy leaves nothing behind.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/chart-copy-dark.svg">
+  <img alt="Copying 10 000 small files from the disk: Nordend 1.26 s, fcp 1.09, xcp 1.63, cp 2.04. A 4.3 GB tree already in the page cache: Nordend 3.49 s, fcp 3.40, xcp 4.00, cp 6.6." src="docs/images/chart-copy-light.svg" width="760">
+</picture>
+
+Raw photos are read by Nordend's own code, in a caged helper; exiv2 stays as the reference in
+the tests, which check the same previews on every sample.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/chart-raw-dark.svg">
+  <img alt="Finding a raw photo's thumbnail, exiv2 against Nordend: OM System ORF 3.45 against 0.03 ms, Nikon NEF 2.46 against 0.14, Sony ARW 3.31 against 0.21, Fujifilm RAF 3.56 against 0.38, Panasonic RW2 2.21 against 0.04, DJI DNG 1.87 against 0.03." src="docs/images/chart-raw-light.svg" width="760">
+</picture>
+
+Every measurement and its method is in [docs/benchmarks.md](docs/benchmarks.md).
+
+## Safety
+
+How Nordend keeps your files and your machine safe, and how we check it.
+
+```mermaid
+flowchart LR
+  files([Files from outside]) -->|an open file, nothing else| cage
+  subgraph cage [nordend-preview, caged]
+    readers[Nordend's own readers<br>raws, TIFF, DNG, archives, text]
+  end
+  cage -->|sealed memory: pixels, text| ui
+  subgraph ui [nordend]
+    renderer[Its own renderer<br>Wayland + OpenGL ES] --- workers[Workers<br>listing, copying, thumbnails]
+  end
+  apps([Other applications]) -->|desktop portal| portal[nordend-portal<br>file chooser]
+  portal --> ui
+```
+
+- **Untrusted files never reach the main program.** Photos, raw files, texts and archives are read
+  by `nordend-preview`, a separate helper caged by Nordend: seccomp lets through only the system
+  calls it needs (opening a file is refused), landlock closes the file system, rlimits cap its
+  memory. It gets an open file and gives back sealed memory. If a file breaks it, the helper dies;
+  Nordend shows no preview and goes on.
+- **Our own readers, fuzzed.** TIFF, DNG, the raw containers, lossless JPEG, archives and text are
+  Nordend's own code, run under libFuzzer for an hour per target before a release that changes
+  them; real findings stay in the tests. PNG, JPEG and GIF go through
+  [wuffs](https://github.com/google/wuffs), memory-safe by construction.
+- **Nothing is overwritten.** Renames use `RENAME_NOREPLACE`; copies are written under a hidden
+  name and appear only when complete; extracting an archive can never write outside the folder you
+  chose, and archive bombs are asked about.
+- **Nothing runs by surprise.** Enter on a script opens it as text; a program that may not run yet
+  is asked about first.
+- **Nothing goes online.** Nordend makes no network connection of its own.
+- **Checked on every change:** the tests run in CI with GCC, clang and ASan + UBSan; TSan and
+  clang-tidy before every step; the parsers under the fuzzer before a release.
+
 ## Setting it up
 
 With nordend-setup, `nordend-setup configure` does the first two for you.
@@ -322,45 +405,6 @@ Every key, with its default, is in [docs/config.example.toml](docs/config.exampl
 to `~/.config/nordend/config.toml`; `nordend --check-config` reports any problem. The command
 line: `nordend [DIR]`, `--config FILE`, `--version`, `--about` (what Nordend runs on, for a bug
 report), and `--set-file-chooser` / `--unset-file-chooser`.
-
-## Numbers
-
-| | |
-|---|---|
-| Binary | **5.12 MB** (4.25 MB stripped), x86-64; the decoders and the text and archive readers in `nordend-preview`, 1.24 MB (1.11 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
-| Libraries | 17 direct (the helper and the service: 8 each); no GTK, no Qt, no GLib |
-| Code | about 66 700 lines of C++20, 26 300 of tests (630 test cases, under ASan and TSan too) |
-| Memory | **25 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
-| Idle | **0 CPU**: nothing is drawn while nothing moves |
-
-The design's four targets (Ryzen 7 5700G, RX 6650 XT, SATA SSD), measured again on 2026-11-13
-where the date says so:
-
-| Target | Measured |
-|--------|---------:|
-| Cold start to the first frame on screen: < 150 ms | **128 ms** (2026-11-01); warm **76 ms** (2026-11-13) |
-| A 10 000-file folder: first frame < 50 ms | first entries in **0.8 ms**, all in **19 ms** (2026-11-13) |
-| Quick Look of an ORF raw photo: < 100 ms | **110 ms** for a portrait shot, median **about 102** over 18 photos (2026-11-14, from 144 ms): **nearly met**; the thumbnail shows in 20 ms |
-| Scrolling with no dropped frame | worst frame **3.7 ms** of 13.3 (75 Hz) (2026-11-01) |
-
-Against other tools, on the same machine. Copying since 0.8.0: eight threads copy a folder's
-files while one walks the tree ahead of them; folders keep their dates,
-and a cancelled copy leaves nothing behind.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/chart-copy-dark.svg">
-  <img alt="Copying 10 000 small files from the disk: Nordend 1.26 s, fcp 1.09, xcp 1.63, cp 2.04. A 4.3 GB tree already in the page cache: Nordend 3.49 s, fcp 3.40, xcp 4.00, cp 6.6." src="docs/images/chart-copy-light.svg" width="760">
-</picture>
-
-Raw photos are read by Nordend's own code, in a caged helper; exiv2 stays as the reference in
-the tests, which check the same previews on every sample.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/chart-raw-dark.svg">
-  <img alt="Finding a raw photo's thumbnail, exiv2 against Nordend: OM System ORF 3.45 against 0.03 ms, Nikon NEF 2.46 against 0.14, Sony ARW 3.31 against 0.21, Fujifilm RAF 3.56 against 0.38, Panasonic RW2 2.21 against 0.04, DJI DNG 1.87 against 0.03." src="docs/images/chart-raw-light.svg" width="760">
-</picture>
-
-Every measurement and its method is in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Versions
 

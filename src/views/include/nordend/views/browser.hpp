@@ -723,6 +723,12 @@ private:
     // moves), or another program's with the action agreed.
     void drop_paths(const std::filesystem::path& folder, std::vector<std::filesystem::path> paths,
                     bool own, bool move);
+    // Alt held at a drop of Nordend's own drag: a menu at the drop point asks whether to move,
+    // copy or link paths into folder.
+    void drop_menu(const std::filesystem::path& folder, std::vector<std::filesystem::path> paths);
+    // A link in destination to each of paths, as one operation for Ctrl+Z.
+    void link_paths(const std::filesystem::path& destination,
+                    const std::vector<std::filesystem::path>& paths);
     // Copies or moves paths into destination as one operation.
     void transfer_paths(const std::filesystem::path& destination,
                         const std::vector<std::filesystem::path>& paths, bool move,

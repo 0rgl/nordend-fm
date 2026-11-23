@@ -33,6 +33,22 @@
 namespace nordend::views {
 namespace {
 
+// paths grouped by the folder they are in, in the order met: one transfer for each folder.
+std::vector<std::pair<std::filesystem::path, std::vector<std::string>>> by_folder(
+    const std::vector<std::filesystem::path>& paths) {
+    std::vector<std::pair<std::filesystem::path, std::vector<std::string>>> folders;
+    for (const std::filesystem::path& path : paths) {
+        const std::filesystem::path parent = path.parent_path();
+        auto it = std::ranges::find(folders, parent, [](const auto& f) { return f.first; });
+        if (it == folders.end()) {
+            folders.emplace_back(parent, std::vector<std::string>{});
+            it = std::prev(folders.end());
+        }
+        it->second.push_back(path.filename().string());
+    }
+    return folders;
+}
+
 // What a transfer does, in its words: "extract", "move" or "copy"; "Extracting"...; "Extracted"...
 std::string_view doing(bool extract, bool move) {
     if (extract) {
@@ -659,17 +675,7 @@ void Browser::transfer_paths(const std::filesystem::path& destination,
     // One transfer per folder the files are in, one operation for Ctrl+Z.
     const std::uint64_t batch =
         open_batch(Purpose::user, move ? FileOperation::Kind::move : FileOperation::Kind::copy);
-    std::vector<std::pair<std::filesystem::path, std::vector<std::string>>> folders;
-    for (const std::filesystem::path& path : paths) {
-        const std::filesystem::path parent = path.parent_path();
-        auto it = std::ranges::find(folders, parent, [](const auto& f) { return f.first; });
-        if (it == folders.end()) {
-            folders.emplace_back(parent, std::vector<std::string>{});
-            it = std::prev(folders.end());
-        }
-        it->second.push_back(path.filename().string());
-    }
-    for (auto& [source, names] : folders) {
+    for (auto& [source, names] : by_folder(paths)) {
         submit({.kind = move ? fs::TransferKind::move : fs::TransferKind::copy,
                 .source = source,
                 .names = std::move(names),
@@ -1450,6 +1456,26 @@ void Browser::create_links() {
     if (!status_bar_.transfer()) {
         status_bar_.set_transfer(TransferStatus{
             .text = std::format("Making {} {}…", count, count == 1 ? "link" : "links"),
+            .fraction = -1.0F});
+    }
+    redraw_();
+}
+
+void Browser::link_paths(const std::filesystem::path& destination,
+                         const std::vector<std::filesystem::path>& paths) {
+    // Recorded as a copy, as Create Link is: Ctrl+Z moves the new links to the trash.
+    const std::uint64_t batch = open_batch(Purpose::user, FileOperation::Kind::copy);
+    for (auto& [source, names] : by_folder(paths)) {
+        submit({.kind = fs::TransferKind::link,
+                .source = source,
+                .names = std::move(names),
+                .destination = destination},
+               batch);
+    }
+    if (!status_bar_.transfer()) {
+        status_bar_.set_transfer(TransferStatus{
+            .text =
+                std::format("Making {} {}…", paths.size(), paths.size() == 1 ? "link" : "links"),
             .fraction = -1.0F});
     }
     redraw_();
@@ -3902,6 +3928,10 @@ void Browser::drop_paths(const std::filesystem::path& folder,
         return;
     }
     const ui::Modifiers modifiers = dnd_.modifiers ? dnd_.modifiers() : ui::Modifiers{};
+    if (modifiers.alt) {
+        drop_menu(folder, std::move(paths));
+        return;
+    }
     if (modifiers.ctrl || modifiers.shift) {
         transfer_paths(folder, paths, modifiers.shift && !modifiers.ctrl, std::nullopt);
         return;
@@ -3924,6 +3954,30 @@ void Browser::drop_paths(const std::filesystem::path& folder,
             --operations_;
             transfer_paths(folder, paths, same_disk, std::nullopt);
         });
+}
+
+void Browser::drop_menu(const std::filesystem::path& folder,
+                        std::vector<std::filesystem::path> paths) {
+    ++menu_generation_;
+    menu_loaders_.clear();
+    // Each item keeps its own copy of the paths: the drag is gone once the menu shows.
+    MenuItem move;
+    move.id = "move_here";
+    move.label = "Move Here";
+    move.action = [this, folder, paths] { transfer_paths(folder, paths, true, std::nullopt); };
+    MenuItem copy;
+    copy.id = "copy_here";
+    copy.label = "Copy Here";
+    copy.action = [this, folder, paths] { transfer_paths(folder, paths, false, std::nullopt); };
+    MenuItem link;
+    link.id = "link_here";
+    link.label = "Link Here";
+    link.action = [this, folder, paths = std::move(paths)] { link_paths(folder, paths); };
+    std::vector<MenuItem> items;
+    items.push_back(std::move(move));
+    items.push_back(std::move(copy));
+    items.push_back(std::move(link));
+    menu_.open(drop_x_, drop_y_, std::move(items), false);
 }
 
 void Browser::add_to_sidebar(std::vector<std::filesystem::path> folders) {

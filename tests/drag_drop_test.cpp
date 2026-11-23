@@ -314,6 +314,29 @@ struct Fixture {
         REQUIRE(browser.dragging());
     }
 
+    // The menu's items, by id.
+    [[nodiscard]] Names menu_ids() {
+        Names ids;
+        for (const nordend::views::MenuItem& item : browser.context_menu().items()) {
+            ids.push_back(item.id);
+        }
+        return ids;
+    }
+
+    // Down until the item called id of the open menu is highlighted, then Enter.
+    void choose(const std::string& id) {
+        for (int i = 0; i < 10; ++i) {
+            const std::optional<std::size_t> at = browser.context_menu().highlighted();
+            if (at && browser.context_menu().items()[*at].id == id) {
+                CHECK(browser.key(key(XKB_KEY_Return), Browser::Clock::now()));
+                REQUIRE(settle());
+                return;
+            }
+            browser.key(key(XKB_KEY_Down), Browser::Clock::now());
+        }
+        FAIL("no item " << id);
+    }
+
     // Moves a drag over the point and drops it there.
     void drop_at(std::pair<float, float> at) {
         browser.drop_event({.kind = DropEvent::Kind::enter, .x = at.first, .y = at.second});
@@ -525,6 +548,92 @@ TEST_CASE("drop: not into itself, nor where they already are") {
     CHECK(f.browser.drop_mark().directory.empty());
     f.drop_at(sub);  // dropped there all the same: nothing happens
     CHECK(listing(f.root / "sub") == Names{"inner"});
+}
+
+TEST_CASE("drop: Alt asks to move, copy or link here; a link is relative, Ctrl+Z trashes it") {
+    Fixture f;
+    if (!f.gl) {
+        return;
+    }
+    f.show(f.root, Browser::Mode::columns);
+    f.browser.columns().focused_folder()->select_name("photos");
+    REQUIRE(f.settle());
+
+    // Alt held at the drop: a menu, and nothing has moved yet.
+    f.dnd.modifiers = {.alt = true};
+    f.drag(f.photos, "P2.ORF");
+    f.drop_at(f.point_of(f.root, "album"));
+    CHECK(f.dnd.finished == 1);
+    REQUIRE(f.browser.context_menu().is_open());
+    CHECK(f.menu_ids() == Names{"move_here", "copy_here", "link_here"});
+    CHECK(listing(f.album).empty());
+    CHECK(listing(f.photos) == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF"});
+
+    f.choose("link_here");
+    REQUIRE(run_until(f.loop, [&] { return fs::is_symlink(f.album / "P2.ORF"); }));
+    CHECK(fs::read_symlink(f.album / "P2.ORF") == fs::path{"../photos/P2.ORF"});
+    CHECK(fs::is_regular_file(fs::symlink_status(f.photos / "P2.ORF")));
+
+    // Ctrl+Z moves the link to the trash, never what it leads to; Ctrl+Shift+Z makes it again.
+    CHECK(f.browser.key(key(XKB_KEY_z, {.ctrl = true}), Browser::Clock::now()));
+    REQUIRE(run_until(f.loop, [&] { return listing(f.album).empty(); }));
+    CHECK(fs::is_regular_file(fs::symlink_status(f.photos / "P2.ORF")));
+    CHECK(f.browser.key(key(XKB_KEY_Z, {.ctrl = true, .shift = true}), Browser::Clock::now()));
+    REQUIRE(run_until(f.loop, [&] { return fs::is_symlink(f.album / "P2.ORF"); }));
+
+    // Escape: nothing happens.
+    f.drag(f.photos, "P1.ORF");
+    f.drop_at(f.point_of(f.root, "album"));
+    REQUIRE(f.browser.context_menu().is_open());
+    CHECK(f.browser.key(key(XKB_KEY_Escape), Browser::Clock::now()));
+    CHECK_FALSE(f.browser.context_menu().is_open());
+    REQUIRE(f.settle());
+    CHECK(listing(f.album) == Names{"P2.ORF"});
+
+    // Copy Here copies, with Ctrl held too: Alt asks first.
+    f.dnd.modifiers = {.ctrl = true, .alt = true};
+    f.drag(f.photos, "P1.ORF");
+    f.drop_at(f.point_of(f.root, "album"));
+    REQUIRE(f.browser.context_menu().is_open());
+    f.choose("copy_here");
+    REQUIRE(run_until(f.loop, [&] { return listing(f.album).size() == 3; }));
+    CHECK(listing(f.album) == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF"});
+    CHECK(listing(f.photos) == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF"});
+
+    // Move Here moves.
+    f.dnd.modifiers = {.alt = true};
+    f.drag(f.photos, "P2.ORF");
+    f.drop_at(f.point_of(f.root, "sub"));
+    REQUIRE(f.browser.context_menu().is_open());
+    f.choose("move_here");
+    REQUIRE(run_until(f.loop, [&] { return fs::exists(f.root / "sub" / "P2.ORF"); }));
+    CHECK(listing(f.photos) == Names{"P1.ORF", "P1.ORF.xmp"});
+}
+
+TEST_CASE("drop: Alt asks nothing where they already are, and the trash still trashes") {
+    Fixture f;
+    if (!f.gl) {
+        return;
+    }
+    f.show(f.photos, Browser::Mode::details);
+    f.dnd.modifiers = {.alt = true};
+    f.drag(f.photos, "P2.ORF");
+    f.drop_at(f.point_of(f.photos, ""));  // where it already is
+    CHECK_FALSE(f.browser.context_menu().is_open());
+    CHECK(listing(f.photos) == Names{"P1.ORF", "P1.ORF.xmp", "P2.ORF"});
+
+    std::optional<std::pair<float, float>> trash;
+    for (float y = 0.0F; y < kHeight && !trash; y += 3.0F) {
+        if (const nordend::fs::Place* found = f.browser.sidebar().place_under(40.0F, y);
+            found != nullptr && found->path == nordend::fs::trash_path()) {
+            trash = std::pair{40.0F, y};
+        }
+    }
+    REQUIRE(trash);
+    f.drag(f.photos, "P2.ORF");
+    f.drop_at(trash.value_or(std::pair{0.0F, 0.0F}));
+    CHECK_FALSE(f.browser.context_menu().is_open());
+    CHECK(listing(f.trash / "files") == Names{"P2.ORF"});
 }
 
 TEST_CASE("drop: from another program, its files are copied; web addresses are not files") {

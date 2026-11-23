@@ -6,8 +6,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <format>
+#include <iterator>
 #include <optional>
 #include <poll.h>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <unistd.h>
@@ -25,16 +28,17 @@ struct UserDirKind {
     std::string_view key;
     std::string_view name;  // its usual name in the home, without user-dirs.dirs
     std::string_view icon;
+    std::string_view place;  // Place::key
 };
 
 // The user dirs the sidebar shows, in its order (templates and public share are left out).
 constexpr std::array<UserDirKind, 6> kUserDirs{{
-    {.key = "DESKTOP", .name = "Desktop", .icon = "device-desktop"},
-    {.key = "DOCUMENTS", .name = "Documents", .icon = "file-text"},
-    {.key = "DOWNLOAD", .name = "Downloads", .icon = "download"},
-    {.key = "MUSIC", .name = "Music", .icon = "music"},
-    {.key = "PICTURES", .name = "Pictures", .icon = "photo"},
-    {.key = "VIDEOS", .name = "Videos", .icon = "movie"},
+    {.key = "DESKTOP", .name = "Desktop", .icon = "device-desktop", .place = "desktop"},
+    {.key = "DOCUMENTS", .name = "Documents", .icon = "file-text", .place = "documents"},
+    {.key = "DOWNLOAD", .name = "Downloads", .icon = "download", .place = "downloads"},
+    {.key = "MUSIC", .name = "Music", .icon = "music", .place = "music"},
+    {.key = "PICTURES", .name = "Pictures", .icon = "photo", .place = "pictures"},
+    {.key = "VIDEOS", .name = "Videos", .icon = "movie", .place = "videos"},
 }};
 
 constexpr std::array<std::string_view, 3> kMountRoots{"/run/media/", "/media/", "/mnt/"};
@@ -446,7 +450,8 @@ std::vector<Place> load_places(const PlaceSources& sources) {
                       .label = "Home",
                       .path = sources.home,
                       .icon = "home",
-                      .disk = {}});
+                      .disk = {},
+                      .key = "home"});
 
     const core::TextFile user_dirs = core::read_text_file(sources.config_home / "user-dirs.dirs");
     const std::vector<UserDir> dirs = parse_user_dirs(user_dirs.text, sources.home);
@@ -466,25 +471,160 @@ std::vector<Place> load_places(const PlaceSources& sources) {
                               .label = label_of(path),
                               .path = path,
                               .icon = kind.icon,
-                              .disk = {}});
+                              .disk = {},
+                              .key = std::string{kind.place}});
         }
     }
     places.push_back({.section = Place::Section::places,
                       .label = "File system",
                       .path = "/",
                       .icon = "server",
-                      .disk = {}});
+                      .disk = {},
+                      .key = "filesystem"});
     places.push_back({.section = Place::Section::places,
                       .label = "Trash",
                       .path = trash_path(),
                       .icon = "trash",
-                      .disk = {}});
+                      .disk = {},
+                      .key = "trash"});
 
     std::ranges::move(
         parse_bookmarks(core::read_text_file(sources.config_home / "gtk-3.0" / "bookmarks").text),
         std::back_inserter(places));
     std::ranges::move(parse_mounts(read_proc_file(sources.mountinfo)), std::back_inserter(places));
     return places;
+}
+
+namespace {
+
+bool same_ignoring_case(std::string_view a, std::string_view b) {
+    return std::ranges::equal(a, b, [](char x, char y) {
+        const auto lower = [](char c) {
+            return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+        };
+        return lower(x) == lower(y);
+    });
+}
+
+// "/mnt/data/" and "/mnt/data" alike.
+std::filesystem::path without_end_slash(const std::filesystem::path& path) {
+    std::filesystem::path normal = path.lexically_normal();
+    if (normal.has_relative_path() && !normal.has_filename()) {
+        normal = normal.parent_path();
+    }
+    return normal;
+}
+
+// A device named by a mount point (it starts with '/') or by its file system's UUID.
+bool device_named(const Place& place, std::string_view name) {
+    if (name.starts_with('/')) {
+        return !place.path.empty() && without_end_slash(place.path) == without_end_slash(name);
+    }
+    return !place.disk.uuid.empty() && same_ignoring_case(place.disk.uuid, name);
+}
+
+bool named(const Place& place, std::string_view name) {
+    return place.section == Place::Section::devices ? device_named(place, name) : place.key == name;
+}
+
+bool named_in(const Place& place, const std::vector<std::string>& names) {
+    return std::ranges::any_of(names,
+                               [&place](const std::string& name) { return named(place, name); });
+}
+
+}  // namespace
+
+std::vector<Place> arrange_places(std::vector<Place> places, const SidebarRules& rules) {
+    if (rules == SidebarRules{}) {
+        return places;
+    }
+    std::vector<Place> out;
+    out.reserve(places.size());
+    auto first = places.begin();
+    while (first != places.end()) {
+        const Place::Section section = first->section;
+        const auto last = std::find_if(first, places.end(), [section](const Place& place) {
+            return place.section != section;
+        });
+        if (section == Place::Section::bookmarks) {
+            std::move(first, last, std::back_inserter(out));
+            first = last;
+            continue;
+        }
+        const bool devices = section == Place::Section::devices;
+        const std::vector<std::string>& order = devices ? rules.devices_order : rules.places_order;
+        const std::vector<std::string>& hidden =
+            devices ? rules.devices_hidden : rules.places_hidden;
+        std::vector<Place> run(std::make_move_iterator(first), std::make_move_iterator(last));
+        std::erase_if(run, [&](const Place& place) {
+            return named_in(place, hidden) && !named_in(place, order);
+        });
+        for (const std::string& name : order) {
+            // The ones it names to the end, each part in its order, then out.
+            const auto named_here = std::ranges::stable_partition(
+                run, [&name](const Place& place) { return !named(place, name); });
+            std::ranges::move(named_here, std::back_inserter(out));
+            run.erase(named_here.begin(), run.end());
+        }
+        std::ranges::move(run, std::back_inserter(out));
+        first = last;
+    }
+    return out;
+}
+
+std::vector<std::string> sidebar_rule_notes(const SidebarRules& rules, const PlaceSources& sources,
+                                            const std::filesystem::path& uuid_dir) {
+    std::vector<std::string> notes;
+    if (rules == SidebarRules{}) {
+        return notes;
+    }
+    const std::vector<Place> places = load_places(sources);
+    const auto place_notes = [&](std::string_view key, const std::vector<std::string>& names) {
+        for (const std::string& name : names) {
+            if (std::ranges::find(places, name, &Place::key) == places.end()) {
+                notes.push_back(std::format("sidebar.{}: '{}' is not a folder here", key, name));
+            }
+        }
+    };
+    place_notes("places_order", rules.places_order);
+    place_notes("places_hidden", rules.places_hidden);
+
+    std::vector<std::string> uuids;
+    std::error_code error;
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator{uuid_dir, error}) {
+        uuids.push_back(entry.path().filename().string());
+    }
+    const auto device_notes = [&](std::string_view key, const std::vector<std::string>& names) {
+        for (const std::string& name : names) {
+            if (!name.starts_with('/')) {
+                if (std::ranges::none_of(uuids, [&name](const std::string& uuid) {
+                        return same_ignoring_case(uuid, name);
+                    })) {
+                    notes.push_back(
+                        std::format("sidebar.{}: '{}' is the UUID of no disk here now", key, name));
+                }
+                continue;
+            }
+            const std::string mount = without_end_slash(name).string() + '/';
+            if (std::ranges::none_of(kMountRoots, [&mount](std::string_view root) {
+                    return mount.starts_with(root);
+                })) {
+                notes.push_back(std::format(
+                    "sidebar.{}: '{}' is not under /run/media, /media or /mnt, where the sidebar "
+                    "lists mounts",
+                    key, name));
+            } else if (std::ranges::none_of(places, [&name](const Place& place) {
+                           return place.section == Place::Section::devices &&
+                                  device_named(place, name);
+                       })) {
+                notes.push_back(std::format("sidebar.{}: '{}' is not mounted now", key, name));
+            }
+        }
+    };
+    device_notes("devices_order", rules.devices_order);
+    device_notes("devices_hidden", rules.devices_hidden);
+    return notes;
 }
 
 PlacesWatcher::PlacesWatcher(core::EventLoop& loop, PlaceSources sources,

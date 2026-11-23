@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -10,6 +11,11 @@
 // value (wrong type, out of range) is reported and keeps its default, an unknown key is reported
 // and ignored, and a file that does not parse is ignored as a whole. Reading a config never fails.
 namespace nordend::core {
+
+// The places [sidebar] places_order and places_hidden name, in the sidebar's usual order.
+inline constexpr std::array<std::string_view, 9> kPlaceNames{"home",      "desktop",    "documents",
+                                                             "downloads", "music",      "pictures",
+                                                             "videos",    "filesystem", "trash"};
 
 struct Config {
     struct Font {
@@ -65,6 +71,13 @@ struct Config {
         // A folder tree under the places: a chevron unfolds a folder's subfolders, read on a
         // worker one level at a time. Followed live.
         bool tree{false};
+        // Places by name (kPlaceNames, kept in lower case) and devices by file system UUID or
+        // mount point: the listed ones first, in this order, the hidden ones left out. A name in
+        // both lists stays visible. Followed live.
+        std::vector<std::string> places_order;
+        std::vector<std::string> places_hidden;
+        std::vector<std::string> devices_order;
+        std::vector<std::string> devices_hidden;
     };
 
     // A custom entry of the context menu ([[action]]): a program run on the selected entries,

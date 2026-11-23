@@ -1150,7 +1150,14 @@ void Browser::show_places() {
             place.icon = trash_full_ ? "trash-filled" : "trash";
         }
     }
-    sidebar_.set_places(std::move(places));
+    sidebar_.set_places(fs::arrange_places(std::move(places), sidebar_rules_));
+}
+
+void Browser::set_sidebar_rules(fs::SidebarRules rules) {
+    if (rules != sidebar_rules_) {
+        sidebar_rules_ = std::move(rules);
+        show_places();
+    }
 }
 
 void Browser::cancel_transfer() {

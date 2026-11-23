@@ -69,7 +69,8 @@ std::vector<Volume> volumes_from(const std::vector<UdisksObject>& objects) {
              .drive = object.drive,
              .external = external,
              .mount_point = mounted ? std::optional{object.mount_points.front()} : std::nullopt,
-             .image = image ? object.backing_file : std::filesystem::path{}});
+             .image = image ? object.backing_file : std::filesystem::path{},
+             .uuid = object.id_uuid});
     }
     std::ranges::sort(volumes, {}, &Volume::name);
     return volumes;
@@ -89,7 +90,8 @@ std::vector<fs::Place> with_volumes(std::vector<fs::Place> places,
             place.disk = {.volume = volume->object,
                           .mounted = true,
                           .ejectable = volume->external,
-                          .image = image};
+                          .image = image,
+                          .uuid = volume->uuid};
             if (image) {
                 place.icon = "disc";
             } else if (volume->external) {
@@ -112,7 +114,8 @@ std::vector<fs::Place> with_volumes(std::vector<fs::Place> places,
                           .disk = {.volume = volume.object,
                                    .mounted = false,
                                    .ejectable = volume.external,
-                                   .image = !volume.image.empty()}});
+                                   .image = !volume.image.empty(),
+                                   .uuid = volume.uuid}});
     }
     return places;
 }

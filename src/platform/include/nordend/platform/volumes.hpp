@@ -23,6 +23,7 @@ struct UdisksObject {
     std::uint64_t size{0};
     std::string id_usage;  // "filesystem", "crypto", "other"...
     std::string id_label;
+    std::string id_uuid;  // the file system's UUID; empty when it has none
     bool hint_ignore{false};
     bool hint_system{false};
     std::string drive;  // the Drive's object path; "/" for none
@@ -53,6 +54,8 @@ struct Volume {
     bool external{false};  // the drive can be unplugged (removable, USB, SD, FireWire)
     std::optional<std::filesystem::path> mount_point;  // the first one
     std::filesystem::path image;  // a disc image's file, on a loop device; empty for a disk
+    std::string uuid{};           // NOLINT(readability-redundant-member-init): GCC wants one
+                                  // for designated initializers that leave it out
 };
 
 // "466 GB Volume", "1.0 TB Volume" (decimal units, as GNOME names a disk without a label).

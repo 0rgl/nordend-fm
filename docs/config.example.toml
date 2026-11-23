@@ -65,6 +65,15 @@ programs = true
 [sidebar]
 # A folder tree under the places: a chevron unfolds a folder's subfolders. Read live.
 tree = false
+# Places and Devices to put first, in this order, and to hide. Places go by name: home, desktop,
+# documents, downloads, music, pictures, videos, filesystem, trash. Devices go by the file
+# system's UUID (lsblk -o NAME,UUID), or by mount point. The others follow in their usual order,
+# and a name in both lists stays visible. The palette's "Go to" still offers hidden places. Read
+# live.
+# places_order = ["home", "downloads", "documents", "pictures", "videos", "trash", "filesystem"]
+# places_hidden = ["desktop", "music"]
+# devices_order = ["/mnt/data", "0f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f"]
+# devices_hidden = ["/mnt/backup"]
 
 # Actions: entries of your own in the context menu, each running a program on the selected files.
 # None by default. An action shows only when every selected entry fits it: its kinds ("file",

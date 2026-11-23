@@ -30,11 +30,17 @@ struct Place {
         bool mounted{true};     // false: listed by udisks2, not mounted (path empty)
         bool ejectable{false};  // an external drive, which can be powered off
         bool image{false};      // a disc image (.iso) on a loop device: ejecting lets it go
+        // Its file system's UUID (udisks2's IdUUID); empty when it has none.
+        std::string uuid{};  // NOLINT(readability-redundant-member-init): as Place::key
 
         bool operator==(const Disk&) const = default;
     };
 
     Disk disk{};
+    // Its name in [sidebar] places_order and places_hidden (core::kPlaceNames): "home",
+    // "downloads"...; empty for a bookmark or a mount.
+    std::string key{};  // NOLINT(readability-redundant-member-init): GCC wants one for
+                        // designated initializers that leave it out
 
     bool operator==(const Place&) const = default;
 };
@@ -114,6 +120,32 @@ struct UserDir {
 // Documents, Downloads, Music, Pictures, Videos; without user-dirs.dirs, the folders with those
 // names in the home), the file system, the bookmarks, the mounts.
 [[nodiscard]] std::vector<Place> load_places(const PlaceSources& sources);
+
+// The sidebar's own rules from config.toml ([sidebar] places_order ... devices_hidden).
+struct SidebarRules {
+    // NOLINTBEGIN(readability-redundant-member-init): GCC's -Wmissing-field-initializers
+    std::vector<std::string> places_order{};   // Place::key
+    std::vector<std::string> places_hidden{};  // Place::key
+    std::vector<std::string> devices_order{};  // a file system's UUID, or a mount point
+    std::vector<std::string> devices_hidden{};
+    // NOLINTEND(readability-redundant-member-init)
+
+    bool operator==(const SidebarRules&) const = default;
+};
+
+// places with the listed places and devices first, in the order given, and the hidden ones left
+// out; a place named in both lists stays. A device's UUID matches in any case and every mount of
+// it; a mount point matches that mount only. The bookmarks stay as they are, and every section
+// stays in one piece.
+[[nodiscard]] std::vector<Place> arrange_places(std::vector<Place> places,
+                                                const SidebarRules& rules);
+
+// What the rules name that is not there now, one line each ("sidebar.devices_hidden: ..."), for
+// --check-config: a place that is no folder here, a mount point outside where mounts are listed
+// or not mounted, a UUID no disk has (uuid_dir holds a link for each one udev knows).
+[[nodiscard]] std::vector<std::string> sidebar_rule_notes(
+    const SidebarRules& rules, const PlaceSources& sources,
+    const std::filesystem::path& uuid_dir = "/dev/disk/by-uuid");
 
 // The places, kept current: reloaded when something is mounted or unmounted (the mount table
 // polls as a priority event) and when user-dirs.dirs or the bookmarks change.

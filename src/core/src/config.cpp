@@ -7,6 +7,7 @@
 #include <format>
 #include <functional>
 #include <initializer_list>
+#include <span>
 #include <string>
 #include <toml++/toml.hpp>
 #include <utility>
@@ -45,6 +46,16 @@ const char* type_name(const toml::node& node) {
 }
 
 // Walks the parsed document, filling the config and collecting problems.
+std::string lower_case(std::string_view text) {
+    std::string out{text};
+    for (char& c : out) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    return out;
+}
+
 class Reader {
 public:
     // A key inside a section and how to read its value.
@@ -149,6 +160,47 @@ public:
             strings.push_back(value->get());
         }
         out = std::move(strings);
+    }
+
+    // A list of names: a bad one is reported and left out, the others kept. With allowed, a
+    // name must be one of them, in any case, and is kept in lower case.
+    void read_names(const toml::node& node, const std::string& path,
+                    std::span<const std::string_view> allowed, std::vector<std::string>& out) {
+        const toml::array* array = node.as_array();
+        if (array == nullptr) {
+            report(node.source(), std::format("'{}' must be a list of strings, got {}; ignored",
+                                              path, type_name(node)));
+            return;
+        }
+        std::vector<std::string> names;
+        for (const toml::node& item : *array) {
+            const auto* value = item.as_string();
+            if (value == nullptr) {
+                report(item.source(), std::format("'{}' must hold strings, got {}; ignored", path,
+                                                  type_name(item)));
+                continue;
+            }
+            std::string name = value->get();
+            if (name.empty()) {
+                report(item.source(),
+                       std::format("'{}' must not hold an empty name; ignored", path));
+                continue;
+            }
+            if (!allowed.empty()) {
+                name = lower_case(name);
+                if (std::ranges::find(allowed, name) == allowed.end()) {
+                    std::string names_known;
+                    for (const std::string_view known : allowed) {
+                        names_known += std::format("{}{}", names_known.empty() ? "" : ", ", known);
+                    }
+                    report(item.source(), std::format("unknown place '{}' in '{}'; ignored ({})",
+                                                      value->get(), path, names_known));
+                    continue;
+                }
+            }
+            names.push_back(std::move(name));
+        }
+        out = std::move(names);
     }
 
     void read_bool(const toml::node& node, const std::string& path, bool& out) {
@@ -417,6 +469,42 @@ bool read_action(const toml::node& node, std::size_t number, Reader& reader, Con
     return true;
 }
 
+// A name in both [sidebar] <kind>_order and <kind>_hidden stays visible: said where the order
+// has it. Places in any case, devices too (a UUID is the same in either), but a mount point as
+// written.
+void report_both(Reader& reader, const toml::node& sidebar, std::string_view kind) {
+    const toml::table* table = sidebar.as_table();
+    if (table == nullptr) {
+        return;
+    }
+    const std::string order_key = std::format("{}_order", kind);
+    const std::string hidden_key = std::format("{}_hidden", kind);
+    const toml::array* order = table->get_as<toml::array>(order_key);
+    const toml::array* hidden = table->get_as<toml::array>(hidden_key);
+    if (order == nullptr || hidden == nullptr) {
+        return;
+    }
+    const auto same = [](std::string_view a, std::string_view b) {
+        return a.starts_with('/') ? a == b : lower_case(a) == lower_case(b);
+    };
+    for (const toml::node& item : *order) {
+        const auto* name = item.as_string();
+        if (name == nullptr || name->get().empty()) {
+            continue;
+        }
+        const bool both = std::ranges::any_of(*hidden, [&](const toml::node& other) {
+            const auto* hidden_name = other.as_string();
+            return hidden_name != nullptr && same(name->get(), hidden_name->get());
+        });
+        if (both) {
+            reader.report(item.source(),
+                          std::format("'{}' is in both 'sidebar.{}' and 'sidebar.{}'; it stays "
+                                      "visible",
+                                      name->get(), order_key, hidden_key));
+        }
+    }
+}
+
 void read_document(const toml::table& root, Reader& reader, Config& config) {
     for (const auto& [key, node] : root) {
         if (key.str() == "font") {
@@ -482,10 +570,24 @@ void read_document(const toml::table& root, Reader& reader, Config& config) {
                                     reader.read_bool(value, path, config.open.programs);
                                 }}});
         } else if (key.str() == "sidebar") {
+            Config::Sidebar& sidebar = config.sidebar;
+            const auto names = [&](std::span<const std::string_view> allowed,
+                                   std::vector<std::string>& out) {
+                return [&reader, allowed, &out](const toml::node& value, const std::string& path) {
+                    reader.read_names(value, path, allowed, out);
+                };
+            };
             reader.read_section(node, "sidebar",
-                                {{"tree", [&](const toml::node& value, const std::string& path) {
-                                      reader.read_bool(value, path, config.sidebar.tree);
-                                  }}});
+                                {{"tree",
+                                  [&](const toml::node& value, const std::string& path) {
+                                      reader.read_bool(value, path, sidebar.tree);
+                                  }},
+                                 {"places_order", names(kPlaceNames, sidebar.places_order)},
+                                 {"places_hidden", names(kPlaceNames, sidebar.places_hidden)},
+                                 {"devices_order", names({}, sidebar.devices_order)},
+                                 {"devices_hidden", names({}, sidebar.devices_hidden)}});
+            report_both(reader, node, "places");
+            report_both(reader, node, "devices");
         } else if (key.str() == "action") {
             const toml::array* actions = node.as_array();
             if (actions == nullptr) {

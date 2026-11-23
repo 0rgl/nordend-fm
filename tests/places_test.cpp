@@ -12,6 +12,7 @@
 
 #include <doctest/doctest.h>
 
+#include "nordend/core/config.hpp"
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/file.hpp"
 #include "nordend/core/worker_pool.hpp"
@@ -272,6 +273,105 @@ TEST_CASE("places: load, with user-dirs.dirs") {
           std::vector<std::string>{"Home", "Immagini", "File system", "Trash"});
 }
 
+TEST_CASE("places: each place has its name for [sidebar], whatever its folder is called") {
+    Home home;
+    for (const char* name : {"Desktop", "Documents", "Music", "Videos"}) {
+        fs::create_directories(home.sources.home / name);
+    }
+    std::vector<std::string> keys;
+    for (const Place& place : nordend::fs::load_places(home.sources)) {
+        keys.push_back(place.key);
+    }
+    // Every name config.toml takes, and only those.
+    CHECK(keys == std::vector<std::string>(nordend::core::kPlaceNames.begin(),
+                                           nordend::core::kPlaceNames.end()));
+
+    fs::create_directories(home.sources.home / "Pobrane");
+    std::ofstream{home.sources.config_home / "user-dirs.dirs"}
+        << "XDG_DOWNLOAD_DIR=\"$HOME/Pobrane\"\n";
+    std::ofstream{home.sources.mountinfo} << "38 27 8:0 / /mnt/data rw - ext4 /dev/sda rw\n";
+    const std::vector<Place> places = nordend::fs::load_places(home.sources);
+    REQUIRE(places.size() == 5);
+    CHECK(places[1].label == "Pobrane");
+    CHECK(places[1].key == "downloads");
+    CHECK(places[4].path == "/mnt/data");
+    CHECK(places[4].key.empty());  // a mount goes by its UUID or mount point
+}
+
+TEST_CASE("places: [sidebar]'s order first, its hidden ones left out, sections kept whole") {
+    const auto place = [](std::string label, std::string key) {
+        return Place{.section = Place::Section::places,
+                     .label = label,
+                     .path = "/home/me/" + label,
+                     .icon = "folder",
+                     .disk = {},
+                     .key = std::move(key)};
+    };
+    const auto device = [](std::string label, std::string path, std::string uuid) {
+        return Place{.section = Place::Section::devices,
+                     .label = std::move(label),
+                     .path = std::move(path),
+                     .icon = "database",
+                     .disk = {.volume = {},
+                              .mounted = true,
+                              .ejectable = false,
+                              .image = false,
+                              .uuid = std::move(uuid)}};
+    };
+    const std::vector<Place> places{
+        place("Home", "home"),
+        place("Downloads", "downloads"),
+        place("Music", "music"),
+        place("File system", "filesystem"),
+        place("Trash", "trash"),
+        {.section = Place::Section::bookmarks,
+         .label = "work",
+         .path = "/srv/work",
+         .icon = "folder"},
+        {.section = Place::Section::bookmarks,
+         .label = "notes",
+         .path = "/srv/notes",
+         .icon = "folder"},
+        device("data", "/mnt/data", "aaaa-1111"),
+        device("backup", "/mnt/backup", ""),
+        device("pen", "", "bbbb-2222"),  // not mounted
+        device("root a", "/mnt/a", "cccc"),
+        device("root b", "/mnt/b", "cccc"),  // the same file system, mounted twice
+    };
+    CHECK(nordend::fs::arrange_places(places, {}) == places);
+
+    const std::vector<Place> arranged = nordend::fs::arrange_places(
+        places, {.places_order = {"trash", "music", "trash"},
+                 .places_hidden = {"downloads"},
+                 // A UUID in any case, a mount point with its end slash or not.
+                 .devices_order = {"BBBB-2222", "/mnt/backup/", "/mnt/data"},
+                 // data is hidden by its UUID, but put first by its mount point: it stays.
+                 .devices_hidden = {"CCCC", "aaaa-1111"}});
+    CHECK(labels(arranged) == std::vector<std::string>{"Trash", "Music", "Home", "File system",
+                                                       "work", "notes", "pen", "backup", "data"});
+}
+
+TEST_CASE("places: --check-config says what [sidebar] names that is not there now") {
+    Home home;  // Pictures and Downloads
+    std::ofstream{home.sources.mountinfo} << "38 27 8:0 / /mnt/data rw - ext4 /dev/sda rw\n";
+    const fs::path uuids = home.dir.path / "by-uuid";
+    fs::create_directories(uuids);
+    std::ofstream{uuids / "AAAA-1111"} << "";
+    const nordend::fs::SidebarRules rules{.places_order = {"pictures", "desktop"},
+                                          .places_hidden = {"music"},
+                                          .devices_order = {"/mnt/data/", "/data", "aaaa-1111"},
+                                          .devices_hidden = {"/mnt/gone", "dead-beef"}};
+    CHECK(nordend::fs::sidebar_rule_notes(rules, home.sources, uuids) ==
+          std::vector<std::string>{
+              "sidebar.places_order: 'desktop' is not a folder here",
+              "sidebar.places_hidden: 'music' is not a folder here",
+              "sidebar.devices_order: '/data' is not under /run/media, /media or /mnt, where the "
+              "sidebar lists mounts",
+              "sidebar.devices_hidden: '/mnt/gone' is not mounted now",
+              "sidebar.devices_hidden: 'dead-beef' is the UUID of no disk here now"});
+    CHECK(nordend::fs::sidebar_rule_notes({}, home.sources, uuids).empty());
+}
+
 TEST_CASE("places: the watcher follows the bookmarks") {
     Home home;
     fs::create_directories(home.sources.config_home / "gtk-3.0");
@@ -320,6 +420,24 @@ TEST_CASE("places: the place holding a folder") {
     CHECK(place_holding(places, "/home/me") == 0U);
     CHECK(place_holding(places, "/etc") == 2U);
     CHECK_FALSE(place_holding(std::vector<Place>{places[1]}, "/etc").has_value());
+}
+
+TEST_CASE("places: the sidebar follows [sidebar] as it changes; the places stay whole") {
+    EventLoop loop;
+    nordend::core::WorkerPool pool{loop, 2};
+    nordend::fs::DirectoryWatcher watcher{loop};
+    Browser browser{loop,    pool,
+                    watcher, nordend::fs::MimeDatabase::load(),
+                    [] {},   [](nordend::ui::CursorShape /*shape*/) {}};
+    browser.set_places(
+        {{.label = "Home", .path = "/home/me", .icon = "home", .key = "home"},
+         {.label = "Music", .path = "/home/me/Music", .icon = "music", .key = "music"},
+         {.label = "File system", .path = "/", .icon = "server", .key = "filesystem"}});
+    browser.set_sidebar_rules({.places_order = {"filesystem"}, .places_hidden = {"music"}});
+    CHECK(labels(browser.sidebar().places()) == std::vector<std::string>{"File system", "Home"});
+    browser.set_sidebar_rules({});
+    CHECK(labels(browser.sidebar().places()) ==
+          std::vector<std::string>{"Home", "Music", "File system"});
 }
 
 TEST_CASE("places: the sidebar opens a place from the keyboard") {

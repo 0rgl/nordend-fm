@@ -249,6 +249,10 @@ public:
     // A folder tree under the sidebar's places ([sidebar] tree); off lets every level go.
     void set_sidebar_tree(bool on);
 
+    // The places and devices the sidebar hides and puts first ([sidebar] places_order...). The
+    // palette's "Go to" still offers the hidden ones.
+    void set_sidebar_rules(fs::SidebarRules rules);
+
     // Opens files (directory's entries, never folders, types filled in where known). Without
     // one, Enter on a file does nothing.
     using OpenHandler =
@@ -1098,6 +1102,7 @@ private:
     std::size_t undo_replaced_{0};       // the undo on its way left these replaced files
     std::filesystem::path home_trash_;
     std::vector<fs::Place> places_;
+    fs::SidebarRules sidebar_rules_;
     fs::DirectoryModel trash_model_;  // every trash, for the sidebar's icon
     bool trash_full_{false};
     CutMarks cut_marks_;

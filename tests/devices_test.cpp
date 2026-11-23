@@ -123,7 +123,15 @@ TEST_CASE("volumes: the disks worth showing, named and told apart") {
 }
 
 TEST_CASE("volumes: the sidebar's devices learn their disks; a disk not mounted is added") {
-    const std::vector<Volume> volumes = nordend::platform::volumes_from(machine());
+    std::vector<UdisksObject> objects = machine();
+    for (UdisksObject& object : objects) {
+        if (object.path.ends_with("/sda")) {
+            object.id_uuid = "6df6a1c2-0000-4000-8000-000000000001";
+        } else if (object.path.ends_with("/sdb1")) {
+            object.id_uuid = "0F1E-2D3C";
+        }
+    }
+    const std::vector<Volume> volumes = nordend::platform::volumes_from(objects);
     std::vector<Place> places{
         {.section = Place::Section::places,
          .label = "Home",
@@ -147,6 +155,10 @@ TEST_CASE("volumes: the sidebar's devices learn their disks; a disk not mounted 
     CHECK(places[2].icon == "usb");
     CHECK_FALSE(places[2].disk.mounted);
     CHECK(places[2].disk.ejectable);
+    // The file system's UUID, for [sidebar] devices_order and devices_hidden.
+    CHECK(places[0].disk.uuid.empty());
+    CHECK(places[1].disk.uuid == "6df6a1c2-0000-4000-8000-000000000001");
+    CHECK(places[2].disk.uuid == "0F1E-2D3C");
 }
 
 TEST_CASE("volumes: ejecting a drive unmounts every mounted file system on it") {

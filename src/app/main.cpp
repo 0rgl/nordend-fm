@@ -460,14 +460,26 @@ bool print_choice(const views::Browser::Picked& picked) {
     return true;
 }
 
+fs::SidebarRules sidebar_rules(const core::Config::Sidebar& sidebar) {
+    return {.places_order = sidebar.places_order,
+            .places_hidden = sidebar.places_hidden,
+            .devices_order = sidebar.devices_order,
+            .devices_hidden = sidebar.devices_hidden};
+}
+
 // --check-config: every problem on stderr, a one-line verdict on stdout; the scripts folder's
-// problems (issue #26) said too, without changing the verdict on the file.
+// problems (issue #26) and what [sidebar] names that is not there now (a disk unplugged is no
+// mistake in the file) said too, without changing the verdict on the file.
 int check_config(const std::filesystem::path& path, const core::ConfigResult& result) {
     for (const std::string& problem : result.problems) {
         std::fprintf(stderr, "%s\n", problem.c_str());
     }
     for (const std::string& problem : fs::find_scripts(fs::default_scripts_folder()).problems) {
         std::fprintf(stderr, "%s\n", problem.c_str());
+    }
+    for (const std::string& note : fs::sidebar_rule_notes(sidebar_rules(result.config.sidebar),
+                                                          fs::PlaceSources::from_environment())) {
+        std::fprintf(stderr, "%s: %s\n", path.c_str(), note.c_str());
     }
     if (!result.problems.empty()) {
         std::printf("%s: %zu problem(s)\n", path.c_str(), result.problems.size());
@@ -783,6 +795,7 @@ int main(int argc, char** argv) {
             }
             if (columns) {
                 columns->set_sidebar_tree(fresh.sidebar.tree);
+                columns->set_sidebar_rules(sidebar_rules(fresh.sidebar));
             }
             give_actions(fresh);
         };
@@ -824,6 +837,7 @@ int main(int argc, char** argv) {
                 });
             opener->set_programs(config.open.programs);
             columns->set_sidebar_tree(config.sidebar.tree);
+            columns->set_sidebar_rules(sidebar_rules(config.sidebar));
             // A program without its execute bit: Nordend's card asks before it runs.
             opener->set_ask_to_run(
                 [&](const std::filesystem::path& program, std::function<void()> allow_and_run) {

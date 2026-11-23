@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -9,6 +10,7 @@
 
 #include <doctest/doctest.h>
 
+#include "nordend/core/file.hpp"
 #include "temp_dir.hpp"
 
 using nordend::core::Config;
@@ -37,6 +39,10 @@ void check_defaults(const Config& config) {
     CHECK(config.terminal.args.empty());
     CHECK(config.open.programs);
     CHECK_FALSE(config.sidebar.tree);
+    CHECK(config.sidebar.places_order.empty());
+    CHECK(config.sidebar.places_hidden.empty());
+    CHECK(config.sidebar.devices_order.empty());
+    CHECK(config.sidebar.devices_hidden.empty());
     CHECK(config.actions.empty());
 }
 
@@ -109,6 +115,10 @@ args = ["--gtk-single-instance=false"]
 
 [sidebar]
 tree = true
+places_order = ["downloads", "home"]
+places_hidden = ["music"]
+devices_order = ["/mnt/data"]
+devices_hidden = ["0F1E-2D3C"]
 )");
     CHECK(result.problems.empty());
     CHECK(result.config.font.family == "Inter:weight=medium");
@@ -122,6 +132,10 @@ tree = true
     CHECK(result.config.terminal.program == "ghostty");
     CHECK(result.config.terminal.args == std::vector<std::string>{"--gtk-single-instance=false"});
     CHECK(result.config.sidebar.tree);
+    CHECK(result.config.sidebar.places_order == std::vector<std::string>{"downloads", "home"});
+    CHECK(result.config.sidebar.places_hidden == std::vector<std::string>{"music"});
+    CHECK(result.config.sidebar.devices_order == std::vector<std::string>{"/mnt/data"});
+    CHECK(result.config.sidebar.devices_hidden == std::vector<std::string>{"0F1E-2D3C"});
 }
 
 TEST_CASE("dotted keys work like sections") {
@@ -242,6 +256,19 @@ TEST_CASE("the example config parses clean and matches the defaults") {
     CHECK(result.from_file);
     CHECK(result.problems.empty());
     check_defaults(result.config);
+
+    // Its [sidebar] examples, written in, parse clean too.
+    std::string text = nordend::core::read_text_file(NORDEND_EXAMPLE_CONFIG).text;
+    for (const std::string_view key :
+         {"places_order", "places_hidden", "devices_order", "devices_hidden"}) {
+        const std::size_t at = text.find(std::format("# {} = ", key));
+        REQUIRE(at != std::string::npos);
+        text.erase(at, 2);
+    }
+    const ConfigResult written_in = parse(text);
+    CHECK(written_in.problems.empty());
+    CHECK(written_in.config.sidebar.places_hidden == std::vector<std::string>{"desktop", "music"});
+    CHECK(written_in.config.sidebar.devices_hidden == std::vector<std::string>{"/mnt/backup"});
 }
 
 TEST_CASE("default_config_path follows XDG_CONFIG_HOME, then HOME") {
@@ -353,6 +380,52 @@ TEST_CASE("sidebar: the tree may be turned on; anything but a boolean is reporte
     REQUIRE(wrong.problems.size() == 1);
     CHECK(contains(wrong.problems[0], "'sidebar.tree'"));
     CHECK_FALSE(wrong.config.sidebar.tree);
+}
+
+TEST_CASE("sidebar: places by name in any case, devices as written; a bad name is said alone") {
+    const auto result = parse(R"([sidebar]
+places_order = ["Home", "downloadz", "DOWNLOADS"]
+places_hidden = ["music", 3, ""]
+devices_order = ["/mnt/data", "0f1e-2d3c"]
+devices_hidden = "music"
+)");
+    REQUIRE(result.problems.size() == 4);
+    CHECK(
+        result.problems[0].starts_with("test.toml:2:25: unknown place 'downloadz' in "
+                                       "'sidebar.places_order'; ignored (home, desktop,"));
+    CHECK(
+        result.problems[1].starts_with("test.toml:3:27: 'sidebar.places_hidden' must hold "
+                                       "strings, got an integer"));
+    CHECK(
+        result.problems[2].starts_with("test.toml:3:30: 'sidebar.places_hidden' must not hold "
+                                       "an empty name"));
+    CHECK(result.problems[3].starts_with(
+        "test.toml:5:18: 'sidebar.devices_hidden' must be a list of strings, got a string"));
+    // The good names stay: a typo does not bring the usual order back.
+    CHECK(result.config.sidebar.places_order == std::vector<std::string>{"home", "downloads"});
+    CHECK(result.config.sidebar.places_hidden == std::vector<std::string>{"music"});
+    CHECK(result.config.sidebar.devices_order ==
+          std::vector<std::string>{"/mnt/data", "0f1e-2d3c"});
+    CHECK(result.config.sidebar.devices_hidden.empty());
+}
+
+TEST_CASE("sidebar: a name in both the order and the hidden ones is said where the order has it") {
+    const auto result = parse(R"([sidebar]
+places_order = ["home", "Downloads"]
+places_hidden = ["downloads", "music"]
+devices_order = ["0F1E-2D3C", "/mnt/Data"]
+devices_hidden = ["0f1e-2d3c", "/mnt/data"]
+)");
+    REQUIRE(result.problems.size() == 2);
+    CHECK(
+        result.problems[0].starts_with("test.toml:2:25: 'Downloads' is in both "
+                                       "'sidebar.places_order' and 'sidebar.places_hidden'; it "
+                                       "stays visible"));
+    CHECK(
+        result.problems[1].starts_with("test.toml:4:18: '0F1E-2D3C' is in both "
+                                       "'sidebar.devices_order' and 'sidebar.devices_hidden'"));
+    // Both lists keep it: the sidebar shows it.
+    CHECK(result.config.sidebar.places_hidden == std::vector<std::string>{"downloads", "music"});
 }
 
 TEST_CASE("actions: every key, the defaults, a line or a list, in the file's order") {

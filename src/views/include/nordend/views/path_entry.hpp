@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -72,9 +73,14 @@ public:
     PathEntry(std::function<void()> redraw, List list, Go go,
               std::function<void(std::string problem)> message, std::filesystem::path home);
 
-    // The field on the folder shown, its whole path typed in, selected, so writing replaces it.
-    // Once open, only the selection is taken again, as in a browser.
-    void open(const std::filesystem::path& shown, bool show_hidden);
+    // How the text starts: all of it selected, so writing replaces it (Ctrl+L), or the caret at
+    // its end, so a name is typed after the folder's path (a click on the breadcrumb).
+    enum class Opening : std::uint8_t { selected, at_end };
+
+    // The field on the folder shown, its whole path typed in. Once open, only the selection is
+    // taken again, as in a browser.
+    void open(const std::filesystem::path& shown, bool show_hidden,
+              Opening opening = Opening::selected);
     void close();  // cancels the listing and frees it, the breadcrumb back
 
     [[nodiscard]] bool active() const noexcept { return !shown_.empty(); }

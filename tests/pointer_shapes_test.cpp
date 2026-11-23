@@ -171,8 +171,10 @@ TEST_CASE("pointer shapes: a hand on every kind of button, an arrow elsewhere") 
     // The status bar's buttons are hands; its text is not.
     CHECK(f.find(CursorShape::pointer, [&](float x, float y) { return status.claims(x, y); }));
     CHECK(f.find(CursorShape::standard, [&](float x, float y) { return status.claims(x, y); }));
-    // The crumbs that open a folder are hands; the folder shown and the bar around are not.
+    // The crumbs that open a folder are hands, the folder shown (it opens the path field) a text
+    // cursor, the bar around an arrow.
     CHECK(f.find(CursorShape::pointer, [&](float x, float y) { return path.claims(x, y); }));
+    CHECK(f.find(CursorShape::text, [&](float x, float y) { return path.editable_at(x, y); }));
     CHECK(f.find(CursorShape::standard, [&](float x, float y) { return path.claims(x, y); }));
     // The disk's eject icon is a hand; the places themselves are arrows.
     CHECK(f.find(CursorShape::pointer, [&](float x, float y) { return sidebar.claims(x, y); }));
@@ -185,7 +187,9 @@ TEST_CASE("pointer shapes: a hand on every kind of button, an arrow elsewhere") 
         f.draw();
         return f.find(CursorShape::pointer, in_view).has_value();
     }));
-    CHECK_FALSE(f.find(CursorShape::text));  // no field open
+    // No field open: the text cursor is only over the folder shown.
+    CHECK_FALSE(
+        f.find(CursorShape::text, [&](float x, float y) { return !path.editable_at(x, y); }));
 }
 
 TEST_CASE("pointer shapes: the text cursor over a name being edited") {

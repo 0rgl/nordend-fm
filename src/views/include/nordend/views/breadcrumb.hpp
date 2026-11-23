@@ -32,8 +32,9 @@ struct Crumb {
 
 // The bar above the view: the folder's path as clickable steps, cut from the left with "…" when
 // it does not fit (the first step and the last ones stay). A click on a step asks to go there,
-// with the cursor on the step after it, the folder we came from. Inside an archive (0.9.0) its
-// step has an archive's icon, and a quiet "read-only" follows the last step.
+// with the cursor on the step after it, the folder we came from; a click on the last step, the
+// folder shown, asks for the path field. Inside an archive (0.9.0) its step has an archive's
+// icon, and a quiet "read-only" follows the last step.
 //
 // Loop thread only.
 class Breadcrumb {
@@ -42,7 +43,9 @@ public:
     // (empty for the last).
     using Go = std::function<void(const std::filesystem::path& path, const std::string& child)>;
 
-    Breadcrumb(std::function<void()> redraw, Go go, std::filesystem::path home);
+    // edit(): the last step, the folder shown, was clicked.
+    Breadcrumb(std::function<void()> redraw, Go go, std::function<void()> edit,
+               std::filesystem::path home);
 
     void draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme::Palette& palette,
               ui::IconSet& icons, const Folder& folder);
@@ -52,6 +55,9 @@ public:
 
     // A crumb that opens its folder is there (not the last: the folder shown).
     [[nodiscard]] bool clickable_at(float x, float y) const;
+
+    // The last step, the folder shown, is there: a text cursor, and a click opens the path field.
+    [[nodiscard]] bool editable_at(float x, float y) const;
 
     void pointer(const ui::PointerEvent& event);
 
@@ -83,6 +89,7 @@ private:
 
     std::function<void()> redraw_;
     Go go_;
+    std::function<void()> edit_;
     std::filesystem::path home_;
     std::vector<Crumb> crumbs_;      // as last drawn
     std::filesystem::path archive_;  // the folder shown is inside it (empty: not in one)

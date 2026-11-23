@@ -156,7 +156,7 @@ PathEntry::PathEntry(std::function<void()> redraw, List list, Go go,
       message_{std::move(message)},
       home_{std::move(home)} {}
 
-void PathEntry::open(const std::filesystem::path& shown, bool show_hidden) {
+void PathEntry::open(const std::filesystem::path& shown, bool show_hidden, Opening opening) {
     if (active()) {
         field_.select_all();  // already open: the whole text is taken again
         redraw_();
@@ -179,8 +179,10 @@ void PathEntry::open(const std::filesystem::path& shown, bool show_hidden) {
     if (shown != shown.root_path() && !fs::is_trash(shown)) {
         text += '/';
     }
-    field_.set_text(std::move(text));
-    field_.select_all();
+    field_.set_text(std::move(text));  // the caret at the end, nothing selected
+    if (opening == Opening::selected) {
+        field_.select_all();
+    }
     text_changed();
     redraw_();
 }

@@ -91,7 +91,7 @@ Browser::Browser(core::EventLoop& loop, core::WorkerPool& pool, fs::DirectoryWat
                   [this](const std::filesystem::path& folder, const std::string& child) {
                       go_to(folder, child);
                   },
-                  home_directory()},
+                  [this] { open_path_entry(PathEntry::Opening::at_end); }, home_directory()},
       path_entry_{
           redraw,
           [this](const std::filesystem::path& folder,
@@ -3050,6 +3050,9 @@ ui::CursorShape Browser::cursor_at(float x, float y) const {
         if (path_entry_.active()) {
             return path_entry_.claims(x, y) ? Shape::text : Shape::standard;
         }
+        if (breadcrumb_.editable_at(x, y)) {
+            return Shape::text;  // the folder shown: a click opens the path field
+        }
         return hand(breadcrumb_.clickable_at(x, y));
     }
     if (status_bar_.claims(x, y)) {
@@ -3462,6 +3465,7 @@ bool Browser::window_drag_at(float x, float y) const {
         return true;
     }
     return header_.contains(x, y) && navigation_at(x, y) == 0 && !breadcrumb_.clickable_at(x, y) &&
+           !breadcrumb_.editable_at(x, y) &&  // the folder shown opens the path field
            // The path field's row is the field's, the margin beside it included.
            !(path_entry_.active() && breadcrumb_.claims(x, y));
 }
@@ -3540,7 +3544,7 @@ void Browser::go_to(const std::filesystem::path& folder, const std::string& chil
     note_location();
 }
 
-void Browser::open_path_entry() {
+void Browser::open_path_entry(PathEntry::Opening opening) {
     const std::shared_ptr<Folder> folder = current_folder();
     if (!folder) {
         return;
@@ -3549,7 +3553,7 @@ void Browser::open_path_entry() {
     shortcuts_.close();
     sidebar_.set_focused(false);
     pick_bar_.set_name_focused(false);  // saving: the path field has the keyboard now
-    path_entry_.open(folder->path(), show_hidden_);
+    path_entry_.open(folder->path(), show_hidden_, opening);
 }
 
 core::CancelToken Browser::list_for_entry(const std::filesystem::path& folder,

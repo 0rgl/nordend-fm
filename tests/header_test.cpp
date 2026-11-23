@@ -151,18 +151,26 @@ TEST_CASE("header: the sidebar to the top, the path on top, the buttons' room ke
     // The sidebar's top and the header's free space move the window; below them, nothing does.
     CHECK(f.browser.window_drag_at(10.0F, kRow));
     CHECK(f.browser.window_drag_at(kWidth - kReserve - 2.0F, kRow) ==
-          !f.browser.breadcrumb().clickable_at(kWidth - kReserve - 2.0F, kRow));
+          !(f.browser.breadcrumb().clickable_at(kWidth - kReserve - 2.0F, kRow) ||
+            f.browser.breadcrumb().editable_at(kWidth - kReserve - 2.0F, kRow)));
     CHECK_FALSE(f.browser.window_drag_at(kWidth / 2.0F, TitleBar::kIntegratedHeight + 30.0F));
     // The path is in the header, never under the window's buttons.
     bool crumb = false;
+    bool last = false;
     for (float x = 0.0F; x < kWidth; x += 2.0F) {
         if (f.browser.breadcrumb().clickable_at(x, kRow)) {
             crumb = true;
             CHECK_FALSE(f.browser.window_drag_at(x, kRow));  // a step is a step, not a handle
             CHECK(x < kWidth - kReserve);
         }
+        if (f.browser.breadcrumb().editable_at(x, kRow)) {
+            last = true;
+            CHECK_FALSE(f.browser.window_drag_at(x, kRow));  // the folder shown opens the field
+            CHECK(x < kWidth - kReserve);
+        }
     }
     CHECK(crumb);
+    CHECK(last);
     CHECK_FALSE(f.browser.breadcrumb().clickable_at(kWidth / 2.0F, kRow + kRow));
 
     // Without it: the path row as before, nothing moves the window.

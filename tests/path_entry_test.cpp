@@ -880,6 +880,60 @@ TEST_CASE("path entry: a click outside the field, another tab or a sidebar place
     CHECK_FALSE(f.browser.path_entry().active());
 }
 
+TEST_CASE("path entry: a click on the folder shown opens the field, the caret at its end") {
+    DrawnFixture f;
+    if (!f.gl) {
+        return;
+    }
+    REQUIRE(f.show(f.alpha));
+    // The last step, alpha, opens the field; the one before it, root, goes there.
+    std::optional<float> last_x;
+    std::optional<float> before_x;
+    for (float x = 0.0F; x < kWidth; x += 1.0F) {
+        if (!last_x && f.browser.breadcrumb().editable_at(x, kRow)) {
+            last_x = x;
+        }
+        if (f.browser.breadcrumb().path_at(x, kRow) == f.root) {
+            before_x = x;
+        }
+    }
+    REQUIRE(last_x);
+    REQUIRE(before_x);
+    CHECK_FALSE(f.browser.breadcrumb().clickable_at(*last_x, kRow));
+    CHECK(f.browser.cursor_at(*last_x, kRow) == nordend::ui::CursorShape::text);
+
+    // Another button does nothing there.
+    f.browser.breadcrumb().pointer({.kind = Kind::press,
+                                    .x = *last_x,
+                                    .y = kRow,
+                                    .button = PointerButton::right,
+                                    .click_count = 1});
+    CHECK_FALSE(f.browser.path_entry().active());
+
+    f.click(*last_x, kRow);
+    REQUIRE(f.browser.path_entry().active());
+    const nordend::ui::TextField& field = f.browser.path_entry().field();
+    CHECK(field.text() == f.alpha.string() + "/");
+    CHECK(field.caret() == field.text().size());
+    CHECK(field.selection().first == field.selection().second);  // nothing selected
+    CHECK(f.shown()->path() == f.alpha);
+
+    // Ctrl+L still takes the whole path.
+    CHECK(f.press(chord(XKB_KEY_Escape)));
+    REQUIRE_FALSE(f.browser.path_entry().active());
+    REQUIRE(f.press(chord(XKB_KEY_l, {.ctrl = true})));
+    REQUIRE(f.browser.path_entry().active());
+    CHECK(f.browser.path_entry().field().selection() ==
+          std::pair<std::size_t, std::size_t>{0, f.browser.path_entry().field().text().size()});
+    CHECK(f.press(chord(XKB_KEY_Escape)));
+    f.draw();
+
+    // An earlier step goes to its folder, and the field stays closed.
+    f.click(*before_x, kRow);
+    REQUIRE(run_until(f.loop, [&] { return f.shown()->path() == f.root; }));
+    CHECK_FALSE(f.browser.path_entry().active());
+}
+
 TEST_CASE("path entry: while it is open, files dragged over the header drop nowhere") {
     DrawnFixture f;
     if (!f.gl) {
@@ -913,6 +967,14 @@ TEST_CASE("path entry: in the integrated header the field's row does not move th
     REQUIRE(f.show(f.root));
     // The breadcrumb's row, before the field: the free ends of the header still move it.
     CHECK(f.browser.window_drag_at(10.0F, kRow));  // the sidebar's top
+    bool last = false;
+    for (float x = 0.0F; x < kWidth; x += 2.0F) {
+        if (f.browser.breadcrumb().editable_at(x, kRow)) {
+            last = true;
+            CHECK_FALSE(f.browser.window_drag_at(x, kRow));  // the folder shown opens the field
+        }
+    }
+    CHECK(last);
     CHECK(f.browser.window_drag_at(kWidth - (kReserve / 2.0F), kRow));
     REQUIRE(f.press(chord(XKB_KEY_l, {.ctrl = true})));
     REQUIRE(f.browser.path_entry().active());

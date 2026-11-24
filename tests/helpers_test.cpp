@@ -167,7 +167,7 @@ TEST_CASE("helpers: an idle helper is closed and waited for, then replaced unsee
 }
 
 TEST_CASE("helpers: a helper that crashes, hangs or talks nonsense is let go of") {
-    for (const char* mode : {"crash", "hang", "garbage", "big-lie"}) {
+    for (const char* mode : {"crash", "hang", "garbage", "big-lie", "too-wide", "unsealed"}) {
         INFO(mode);
         isolate::Helpers helpers{fake(mode)};
         const auto start = std::chrono::steady_clock::now();
@@ -178,6 +178,20 @@ TEST_CASE("helpers: a helper that crashes, hangs or talks nonsense is let go of"
         CHECK(loaded.image.empty());
         CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds{2});
         CHECK(helpers.running() == 0);  // killed and waited for
+    }
+}
+
+TEST_CASE("helpers: a picture whose size wraps is refused before anything is copied") {
+    // 2^31 x (2^31 + 2) pixels: 2^64 + 2^34 bytes, 16 GiB once wrapped, in a sparse memfd.
+    for (const std::uint32_t side : {std::uint32_t{128}, std::uint32_t{0}}) {  // 0: any size
+        INFO(side);
+        isolate::Helpers helpers{fake("wrap")};
+        const auto start = std::chrono::steady_clock::now();
+        const picture::Loaded loaded = helpers.load(request(kData / "blocks.png", side));
+        CHECK(loaded.failure == Failure::unavailable);
+        CHECK(loaded.image.empty());
+        CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds{2});
+        CHECK(helpers.running() == 0);
     }
 }
 

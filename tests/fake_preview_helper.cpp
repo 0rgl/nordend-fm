@@ -3,6 +3,9 @@
 // big-lie (claims a picture larger than the memfd it sends), goodbye (says goodbye instead of
 // answering, as a helper leaving after its idle time would), no-sandbox (exits as a helper that
 // could not build its cage).
+// Sizes that do not hold: too-wide (a picture wider than asked for), wrap (2^31 x (2^31 + 2)
+// pixels, a size that wraps in 64 bits to a sparse 16 GiB memfd), unsealed (pixels that can
+// still be written to).
 #include <array>
 #include <csignal>
 #include <cstdint>
@@ -16,6 +19,27 @@
 #include "protocol.hpp"
 
 namespace protocol = nordend::isolate::protocol;
+
+namespace {
+
+// A picture of width x height in a memfd of size bytes with seals: false when it cannot be made.
+bool send_pixels(std::uint32_t width, std::uint32_t height, off_t size, int seals) {
+    const int memfd = ::memfd_create("lie", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    if (memfd < 0 || ::ftruncate(memfd, size) != 0) {
+        return false;
+    }
+    ::fcntl(memfd, F_ADD_SEALS, seals);
+    protocol::Response response;
+    response.width = width;
+    response.height = height;
+    const std::array<int, 1> fds{memfd};
+    static_cast<void>(
+        protocol::send_packet(protocol::kSocketFd, std::as_bytes(std::span{&response, 1}), fds));
+    ::close(memfd);
+    return true;
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -65,6 +89,25 @@ int main(int argc, char** argv) {
             static_cast<void>(protocol::send_packet(protocol::kSocketFd,
                                                     std::as_bytes(std::span{&response, 1}), fds));
             ::close(memfd);
+            continue;
+        }
+        constexpr int all_seals = F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE;
+        if (mode == "too-wide") {
+            if (!send_pixels(200, 1, 800, all_seals)) {
+                return 1;
+            }
+            continue;
+        }
+        if (mode == "wrap") {
+            if (!send_pixels(1U << 31U, (1U << 31U) + 2, off_t{1} << 34, all_seals)) {
+                return 1;
+            }
+            continue;
+        }
+        if (mode == "unsealed") {
+            if (!send_pixels(1, 1, 4, F_SEAL_SHRINK | F_SEAL_GROW)) {
+                return 1;
+            }
             continue;
         }
         // big-lie: 4 bytes of pixels for a 1000x1000 picture.

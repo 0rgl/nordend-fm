@@ -399,6 +399,7 @@ private:
         std::unordered_map<std::string, std::string> made;  // inner path -> out path, files
         std::vector<const Item*> folder_items;
         std::vector<const Item*> links;
+        std::vector<const Item*> written;
         for (const Item& item : items_) {
             if (token_.cancelled()) {
                 return;
@@ -412,6 +413,11 @@ private:
                 }
                 continue;
             }
+            if (entry->type != archive::Type::file && sequence) {
+                // Every file is written (they come before the links): the engine goes first.
+                sequence.reset();
+                drop_files_changed(folders, written, made);
+            }
             const auto [parent, name] = split(item.out);
             const int dir = folders.open(parent);
             if (dir < 0) {
@@ -422,6 +428,7 @@ private:
                 case archive::Type::file:
                     if (write_file(item, dir, name, *sequence)) {
                         made.emplace(item.inner, item.out);
+                        written.push_back(&item);
                     }
                     break;
                 case archive::Type::symlink:
@@ -454,6 +461,10 @@ private:
                     fail(item, "not a file, left out");
                     break;
             }
+        }
+        if (sequence) {  // nothing but files
+            sequence.reset();
+            drop_files_changed(folders, written, made);
         }
         // Before the folders' times: removing a link changes its folder's.
         drop_links_not_inside(folders, links);
@@ -503,6 +514,34 @@ private:
                 fail(*item, error == EXDEV ? "a link leading outside, left out"
                                            : "a link to nothing extracted, left out");
             }
+        }
+    }
+
+    // The files written, looked at again once the engine that wrote them is gone: it was given
+    // each file's descriptor and could keep a copy, to write after its answer was checked. One
+    // that is no longer its entry's size is removed.
+    void drop_files_changed(Folders& folders, const std::vector<const Item*>& written,
+                            std::unordered_map<std::string, std::string>& made) {
+        for (const Item* const item : written) {
+            const auto [parent, name] = split(item->out);
+            const int dir = folders.open(parent);
+            struct stat info{};
+            if (dir >= 0 && ::fstatat(dir, name.c_str(), &info, AT_SYMLINK_NOFOLLOW) == 0 &&
+                S_ISREG(info.st_mode) && std::cmp_equal(info.st_size, item->entry->size)) {
+                continue;
+            }
+            if (dir >= 0) {
+                ::unlinkat(dir, name.c_str(), 0);
+            }
+            made.erase(item->inner);
+            result_.bytes_done -= item->entry->size;
+            --result_.files_done;
+            progress_.bytes_done -= item->entry->size;
+            --progress_.files_done;
+            fail(*item, "not the size the archive says, left out");
+        }
+        if (callbacks_.progress) {
+            callbacks_.progress(progress_);
         }
     }
 

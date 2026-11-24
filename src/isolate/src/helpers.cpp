@@ -666,8 +666,10 @@ public:
     Sequence& operator=(Sequence&&) = delete;
 
     ~Sequence() override {
+        // Ended, not given back: it was handed every file's descriptor to write to, and a copy it
+        // kept would let it write to them later. The files are looked at once it is gone.
         if (helper_) {
-            helpers_->give_back(*helper_);
+            helpers_->discard(*helper_);
         }
         if (file_ >= 0) {
             ::close(file_);
@@ -719,7 +721,7 @@ private:
     archive::Format format_;
     int file_;
     std::string error_;
-    std::optional<Helper> helper_;  // taken at the first read, given back at the end
+    std::optional<Helper> helper_;  // taken at the first read, ended with the sequence
 };
 
 std::unique_ptr<archive::EntrySequence> Helpers::open_sequence(std::shared_ptr<Helpers> helpers,

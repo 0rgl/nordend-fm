@@ -69,8 +69,9 @@ public:
                                                    const archive::Entry& entry, int out,
                                                    std::uint64_t max_bytes);
 
-    // Reads of path's entries in a row, all by one helper, taken until the sequence goes (a
-    // tar.gz is inflated once when the entries come in its order). helpers stays alive as long.
+    // Reads of path's entries in a row, all by one helper, taken until the sequence goes and
+    // ended with it (a tar.gz is inflated once when the entries come in its order). helpers
+    // stays alive as long.
     // stopped, when set, is asked every kStopCheck while a read waits: true stops the helper.
     [[nodiscard]] static std::unique_ptr<archive::EntrySequence> open_sequence(
         std::shared_ptr<Helpers> helpers, const std::filesystem::path& path, archive::Format format,

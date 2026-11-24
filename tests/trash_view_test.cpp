@@ -368,4 +368,30 @@ TEST_CASE("trash folder: the disks' trashes are found from the mount table") {
     const std::vector<fs::path> points =
         nordend::fs::mount_points(nordend::fs::read_proc_file("/proc/self/mountinfo"));
     CHECK(std::ranges::find(points, fs::path{"/"}) != points.end());
+    CHECK(std::ranges::find(points, fs::path{"/proc"}) == points.end());
+}
+
+TEST_CASE("trash folder: system, unmounted automount and network mounts are not looked into") {
+    const std::vector<fs::path> points = nordend::fs::mount_points(
+        "22 1 0:21 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw\n"
+        "23 22 0:22 / /proc rw,nosuid shared:13 - proc proc rw\n"
+        "24 22 0:23 / /sys rw,nosuid shared:2 - sysfs sysfs rw,seclabel\n"
+        "25 24 0:24 / /sys/fs/cgroup rw shared:4 - cgroup2 cgroup2 rw\n"
+        "26 22 0:5 / /dev rw,nosuid shared:8 - devtmpfs devtmpfs rw\n"
+        "27 22 0:25 / /dev/shm rw shared:9 - tmpfs tmpfs rw\n"
+        "28 24 0:26 / /sys/fs/selinux rw shared:3 - selinuxfs selinuxfs rw\n"
+        // Automounts: one never used (autofs alone), one mounted (a second line, kept).
+        "29 23 0:37 / /proc/sys/fs/binfmt_misc rw - autofs systemd-1 rw,fd=44\n"
+        "30 22 0:38 / /efi rw - autofs systemd-1 rw,fd=45\n"
+        "31 30 259:1 / /efi rw - vfat /dev/nvme0n1p1 rw\n"
+        "32 22 0:40 / /mnt/backup rw - autofs systemd-1 rw,fd=46\n"
+        "39 22 0:45 / /mnt/share rw - nfs4 server:/export rw\n"
+        "33 22 0:41 / /run/user/1000/doc rw - fuse.portal portal rw\n"
+        "34 22 0:42 / /home/me/remote rw - fuse.sshfs me@host:/ rw\n"
+        "35 22 0:43 / /mnt/smb rw - cifs //host/share rw\n"
+        "37 22 8:17 / /run/media/me/My\\040Disk rw - ext4 /dev/sdb1 rw\n"
+        "38 22 0:44 / /var/lib/containers/overlay rw - overlay overlay rw\n");
+    // tmpfs and overlay can hold a trash: Nordend trashes there.
+    CHECK(points == std::vector<fs::path>{"/", "/dev/shm", "/efi", "/run/media/me/My Disk",
+                                          "/var/lib/containers/overlay"});
 }

@@ -525,7 +525,8 @@ TEST_CASE("helpers: a sequence reads a tar.gz's entries in one helper, as this p
         CHECK(helpers->running() == 1);  // one helper, taken for the whole sequence
     }
     ::close(fd);
-    // Given back: the next request finds it idle.
+    // Ended with the sequence, not given back: it held the files' descriptors.
+    CHECK(helpers->running() == 0);
     CHECK(helpers->list_archive(archive, {}).failure == nordend::archive::Failure::none);
     CHECK(helpers->running() == 1);
 }
@@ -538,6 +539,18 @@ TEST_CASE("helpers: an extracted file is checked as it is, not by the count its 
     CHECK(files_under(dir.path) == 0);
     CHECK(result.files_done == 0);
     CHECK(result.errors == std::vector<std::string>(4, "not the size the archive says, left out"));
+}
+
+TEST_CASE("helpers: an extracted file is checked again once its helper is gone") {
+    const TempDir dir;
+    auto helpers = std::make_shared<isolate::Helpers>(fake("entry-later"));
+    const nordend::fs::TransferResult result = extract_through(helpers, dir.path);
+    CHECK(helpers->running() == 0);  // ended with the sequence
+    // Each file grew at the next request, through the copy of its descriptor the helper kept;
+    // the last one was never written to again.
+    CHECK(files_under(dir.path) == 1);
+    CHECK(result.files_done == 1);
+    CHECK(result.errors == std::vector<std::string>(3, "not the size the archive says, left out"));
 }
 
 TEST_CASE("helpers: a sequence's read is stopped mid-entry, the helper with it") {

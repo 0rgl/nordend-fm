@@ -1,5 +1,6 @@
 #include "nordend/isolate/helpers.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -8,6 +9,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <ios>
 #include <memory>
@@ -26,10 +28,14 @@
 #include <doctest/doctest.h>
 
 #include "nordend/archive/archive.hpp"
+#include "nordend/core/worker_pool.hpp"
 #include "nordend/formats/archive/archive.hpp"
 #include "nordend/formats/image/load.hpp"
 #include "nordend/formats/image/photo.hpp"
 #include "nordend/formats/text/read.hpp"
+#include "nordend/fs/archive_folder.hpp"
+#include "nordend/fs/extract.hpp"
+#include "nordend/fs/transfer.hpp"
 #include "nordend/picture/load.hpp"
 #include "nordend/text/text.hpp"
 #include "protocol.hpp"
@@ -65,6 +71,38 @@ isolate::HelperOptions fake(const char* mode) {
 
 picture::LoadRequest request(const fs::path& path, std::uint32_t side = 128) {
     return {.path = path, .max_width = side, .max_height = side};
+}
+
+// a.txt and docs (three files) of pax.tar extracted into destination, the entries read by
+// helpers' sequence; the errors without the names they start with.
+nordend::fs::TransferResult extract_through(const std::shared_ptr<isolate::Helpers>& helpers,
+                                            const fs::path& destination) {
+    nordend::archive::set_sequence_opener([helpers](const fs::path& path,
+                                                    nordend::archive::Format format,
+                                                    std::function<bool()> stopped) {
+        return isolate::Helpers::open_sequence(helpers, path, format, std::move(stopped));
+    });
+    nordend::fs::forget_archive_trees();
+    const nordend::core::CancelToken token;
+    nordend::fs::TransferResult result =
+        nordend::fs::run_extract({.kind = nordend::fs::TransferKind::copy,
+                                  .source = fs::path{NORDEND_TEST_DATA} / "archive" / "pax.tar",
+                                  .names = {"a.txt", "docs"},
+                                  .destination = destination,
+                                  .force_copy = false,
+                                  .extract_into = {}},
+                                 token, {});
+    nordend::archive::set_sequence_opener({});
+    for (std::string& error : result.errors) {
+        error.erase(0, error.find(": ") + 2);
+    }
+    return result;
+}
+
+std::size_t files_under(const fs::path& folder) {
+    return static_cast<std::size_t>(std::ranges::count_if(
+        fs::recursive_directory_iterator{folder},
+        [](const fs::directory_entry& entry) { return entry.is_regular_file(); }));
 }
 
 }  // namespace
@@ -490,6 +528,16 @@ TEST_CASE("helpers: a sequence reads a tar.gz's entries in one helper, as this p
     // Given back: the next request finds it idle.
     CHECK(helpers->list_archive(archive, {}).failure == nordend::archive::Failure::none);
     CHECK(helpers->running() == 1);
+}
+
+TEST_CASE("helpers: an extracted file is checked as it is, not by the count its helper gave") {
+    const TempDir dir;
+    auto helpers = std::make_shared<isolate::Helpers>(fake("entry-long"));
+    const nordend::fs::TransferResult result = extract_through(helpers, dir.path);
+    // Each said its size and wrote more at once: none is left.
+    CHECK(files_under(dir.path) == 0);
+    CHECK(result.files_done == 0);
+    CHECK(result.errors == std::vector<std::string>(4, "not the size the archive says, left out"));
 }
 
 TEST_CASE("helpers: a sequence's read is stopped mid-entry, the helper with it") {

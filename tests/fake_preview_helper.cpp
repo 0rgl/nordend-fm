@@ -7,6 +7,8 @@
 // pixels, a size that wraps in 64 bits to a sparse 16 GiB memfd), unsealed (pixels that can
 // still be written to).
 // text-huge: the most bytes and spans a text can say, in 4 bytes.
+// entry-long: an archive entry with more written than said; entry-later: an entry written as
+// said, then more through a copy of its descriptor at the next request.
 #include <array>
 #include <csignal>
 #include <cstdint>
@@ -14,6 +16,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -41,6 +44,39 @@ bool send_pixels(std::uint32_t width, std::uint32_t height, off_t size, int seal
     return true;
 }
 
+// bytes written to fd, as far as they go: these lies need no more care.
+void write_out(int fd, std::string_view bytes) {
+    const ssize_t wrote = ::write(fd, bytes.data(), bytes.size());
+    static_cast<void>(wrote);
+}
+
+// An archive read answered with the bytes asked for and their count, then more: at once
+// (entry-long), or at the next request through a copy of the descriptor kept (entry-later).
+void answer_entry(const protocol::Packet& packet, std::string_view mode, int& kept) {
+    const std::string_view more = "more";
+    if (kept >= 0) {
+        write_out(kept, more);
+        ::close(kept);
+        kept = -1;
+    }
+    protocol::ArchiveReadRequest request;
+    if (packet.length < sizeof(request) || packet.fds[1] < 0) {
+        return;
+    }
+    std::memcpy(&request, packet.bytes.data(), sizeof(request));
+    const std::string bytes(request.size, 'x');
+    write_out(packet.fds[1], bytes);
+    if (mode == "entry-long") {
+        write_out(packet.fds[1], more);
+    } else {
+        kept = ::dup(packet.fds[1]);
+    }
+    protocol::ArchiveReadResponse response;
+    response.bytes = request.size;
+    static_cast<void>(
+        protocol::send_packet(protocol::kSocketFd, std::as_bytes(std::span{&response, 1})));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -54,6 +90,12 @@ int main(int argc, char** argv) {
         std::optional<protocol::Packet> packet = protocol::receive_packet(protocol::kSocketFd);
         if (!packet) {
             return 0;
+        }
+        if (mode == "entry-long" || mode == "entry-later") {
+            static int kept = -1;
+            answer_entry(*packet, mode, kept);
+            packet->close_fds();
+            continue;
         }
         packet->close_fds();
         if (mode == "crash") {

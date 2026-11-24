@@ -220,7 +220,8 @@ std::filesystem::path Cache::fail_path(const std::filesystem::path& file) const 
     return root_ / "fail" / app_ / (md5_hex(file_uri(file)) + ".png");
 }
 
-Thumbnail Cache::get(const std::filesystem::path& file, Size size) const {
+Thumbnail Cache::get(const std::filesystem::path& file, Size size,
+                     const std::function<bool()>& stopped) const {
     struct stat info{};
     if (::stat(file.c_str(), &info) != 0) {
         return failure(std::error_code{errno, std::generic_category()}.message());
@@ -243,7 +244,7 @@ Thumbnail Cache::get(const std::filesystem::path& file, Size size) const {
     if (!failed.empty() && matches(failed, uri, info.st_mtime, kFailureKey)) {
         return failure("failed before, and unchanged since");
     }
-    return make(file, size, info.st_mtime);
+    return make(file, size, info.st_mtime, stopped);
 }
 
 Thumbnail Cache::make(const std::filesystem::path& file, Size size) const {
@@ -254,16 +255,20 @@ Thumbnail Cache::make(const std::filesystem::path& file, Size size) const {
     return make(file, size, info.st_mtime);
 }
 
-Thumbnail Cache::make(const std::filesystem::path& file, Size size, std::int64_t mtime) const {
+Thumbnail Cache::make(const std::filesystem::path& file, Size size, std::int64_t mtime,
+                      const std::function<bool()>& stopped) const {
     const std::string uri = file_uri(file);
     const std::filesystem::path relative = file.lexically_relative(root_);
     if (!relative.empty() && *relative.begin() != "..") {
         return failure("a thumbnail itself");  // the spec: never thumbnail the cache
     }
     const std::uint32_t side = pixels(size);
-    picture::Loaded loaded =
-        picture::load_picture({.path = file, .max_width = side, .max_height = side});
+    picture::Loaded loaded = picture::load_picture(
+        {.path = file, .max_width = side, .max_height = side, .stopped = stopped});
     if (loaded.failure != picture::Failure::none) {
+        if (stopped && stopped()) {
+            return failure("stopped");  // no longer wanted, and not a failure of the file's
+        }
         // A lasting failure is remembered, so that it is not tried again until the file changes.
         if (const std::optional<std::string_view> why = lasting(loaded.failure)) {
             const picture::Image blank{.width = 1, .height = 1, .rgba = {0, 0, 0, 0}};

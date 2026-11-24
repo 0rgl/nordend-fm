@@ -49,7 +49,8 @@ public:
     Helpers(Helpers&&) = delete;
     Helpers& operator=(Helpers&&) = delete;
 
-    // The picture of request.path, made by a helper. Blocks while every helper is busy.
+    // The picture of request.path, made by a helper. Blocks while every helper is busy. When
+    // request.stopped says so, the helper is let go of mid-work: "unavailable", "stopped".
     // Thread-safe: called from the workers.
     [[nodiscard]] picture::Loaded load(const picture::LoadRequest& request);
 
@@ -101,10 +102,12 @@ private:
                             std::chrono::milliseconds timeout,
                             const std::function<bool()>& stopped = {});
     // The request to a helper (a new one if it had left), its reply handed to accept; false with
-    // why when no helper answered in a way accept took.
+    // why when no helper answered in a way accept took. stopped, when set, is asked while the
+    // helper works: true lets it go, mid-work.
     bool run(std::span<const std::byte> request, std::span<const int> fds,
              const std::function<bool(protocol::Packet&, std::string&)>& accept, std::string& why,
-             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt,
+             const std::function<bool()>& stopped = {});
 
     HelperOptions options_;
     mutable std::mutex mutex_;

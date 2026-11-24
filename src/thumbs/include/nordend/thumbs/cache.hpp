@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -64,15 +65,18 @@ public:
     // stored. A failure that lasts (an unknown format, a damaged file) is remembered until the
     // file changes; one that passes (a helper that took too long) and a file that cannot be read
     // are not. Blocking (reads, decodes, writes): call it on a worker.
-    [[nodiscard]] Thumbnail get(const std::filesystem::path& file, Size size) const;
+    // stopped, when set, is asked while the picture is made: true stops it, and a picture that
+    // was stopped stores nothing, not even a failure (one already made is still stored).
+    [[nodiscard]] Thumbnail get(const std::filesystem::path& file, Size size,
+                                const std::function<bool()>& stopped = {}) const;
 
     // Like get(), but never from the cache, and a remembered failure is tried again.
     [[nodiscard]] Thumbnail make(const std::filesystem::path& file, Size size) const;
 
 private:
     [[nodiscard]] std::filesystem::path fail_path(const std::filesystem::path& file) const;
-    [[nodiscard]] Thumbnail make(const std::filesystem::path& file, Size size,
-                                 std::int64_t mtime) const;
+    [[nodiscard]] Thumbnail make(const std::filesystem::path& file, Size size, std::int64_t mtime,
+                                 const std::function<bool()>& stopped = {}) const;
 
     std::filesystem::path root_;
     std::string app_;

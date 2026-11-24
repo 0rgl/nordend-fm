@@ -181,6 +181,27 @@ TEST_CASE("helpers: a helper that crashes, hangs or talks nonsense is let go of"
     }
 }
 
+TEST_CASE("helpers: a picture no longer wanted lets its helper go mid-work") {
+    isolate::HelperOptions options = fake("hang");
+    options.timeout = std::chrono::seconds{10};  // never reached: the stop comes first
+    isolate::Helpers helpers{options};
+    const auto start = std::chrono::steady_clock::now();
+    picture::LoadRequest asked = request(kData / "blocks.png");
+    asked.stopped = [start] {
+        return std::chrono::steady_clock::now() - start > std::chrono::milliseconds{150};
+    };
+    const picture::Loaded loaded = helpers.load(asked);
+    CHECK(loaded.failure == Failure::unavailable);
+    CHECK(loaded.detail == "stopped");
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds{1});
+    CHECK(helpers.running() == 0);  // killed and waited for
+
+    // Stopped before it is asked: no helper is started for it.
+    asked.stopped = [] { return true; };
+    CHECK(helpers.load(asked).detail == "stopped");
+    CHECK(helpers.running() == 0);
+}
+
 TEST_CASE("helpers: a helper without its cage never works, and Nordend says why") {
     isolate::Helpers helpers{fake("no-sandbox")};
     const picture::Loaded loaded = helpers.load(request(kData / "blocks.png"));

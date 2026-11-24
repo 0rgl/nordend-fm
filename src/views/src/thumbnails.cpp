@@ -33,8 +33,11 @@ const ui::Texture* Thumbnails::get(const std::filesystem::path& file, std::int64
         ++in_flight_;
         slot.job = pool_.submit(
             core::Priority::visible,
-            [cache = cache_, file, size](const core::CancelToken& /*token*/) {
-                thumbs::Thumbnail thumbnail = cache->get(file, size);
+            // A job no longer asked for (end_frame) stops even mid-picture: its helper is let go
+            // of, and the visible ones get the workers.
+            [cache = cache_, file, size](const core::CancelToken& token) {
+                thumbs::Thumbnail thumbnail =
+                    cache->get(file, size, [&token] { return token.cancelled(); });
                 return std::make_shared<picture::Image>(std::move(thumbnail.image));
             },
             [this, alive = alive_, key](std::shared_ptr<picture::Image> pixels) {

@@ -234,6 +234,32 @@ TEST_CASE("thumbs: a fail marker that says no reason (an older Nordend's) is tri
     CHECK(cache.get(broken, thumbs::Size::large).error == "failed before, and unchanged since");
 }
 
+TEST_CASE("thumbs: a picture stopped while it is made stores nothing, not even a failure") {
+    TempDir dir;
+    const fs::path photo = dir.path / "photo.jpg";
+    fs::copy_file(kData / "blocks.jpg", photo);
+    const fs::path root = dir.path / "thumbnails";
+    const thumbs::Cache cache{root, "nordend-test"};
+    const LoaderBack back;
+    // As the helpers do: a stop asked for ends the picture as "unavailable".
+    nordend::picture::set_loader([](const nordend::picture::LoadRequest& request) {
+        if (request.stopped && request.stopped()) {
+            nordend::picture::Loaded stopped;
+            stopped.failure = nordend::picture::Failure::unavailable;
+            stopped.detail = "stopped";
+            return stopped;
+        }
+        return nordend::formats::image::load(request);
+    });
+    const thumbs::Thumbnail stopped = cache.get(photo, thumbs::Size::large, [] { return true; });
+    CHECK(stopped.source == thumbs::Source::failed);
+    CHECK(stopped.error == "stopped");
+    CHECK_FALSE(fs::exists(root / "fail"));
+    CHECK_FALSE(fs::exists(cache.path_for(photo, thumbs::Size::large)));
+    // Asked again, not stopped: made, as if never asked before.
+    CHECK(cache.get(photo, thumbs::Size::large).source == thumbs::Source::decoded);
+}
+
 TEST_CASE("thumbs: the cache never thumbnails its own files") {
     TempDir dir;
     const thumbs::Cache cache{dir.path / "thumbnails", "nordend-test"};

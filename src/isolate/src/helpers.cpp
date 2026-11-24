@@ -331,7 +331,8 @@ Helpers::Outcome Helpers::exchange(Helper helper, std::span<const std::byte> req
 
 bool Helpers::run(std::span<const std::byte> request, std::span<const int> fds,
                   const std::function<bool(protocol::Packet&, std::string&)>& accept,
-                  std::string& why, std::optional<std::chrono::milliseconds> timeout) {
+                  std::string& why, std::optional<std::chrono::milliseconds> timeout,
+                  const std::function<bool()>& stopped) {
     using Clock = std::chrono::steady_clock;
     const auto ms = [](Clock::time_point from, Clock::time_point to) {
         return std::chrono::duration<double, std::milli>(to - from).count();
@@ -349,8 +350,8 @@ bool Helpers::run(std::span<const std::byte> request, std::span<const int> fds,
             return false;
         }
         protocol::Packet reply;
-        Outcome outcome =
-            exchange(*helper, request, fds, reply, why, timeout.value_or(options_.timeout));
+        Outcome outcome = exchange(*helper, request, fds, reply, why,
+                                   timeout.value_or(options_.timeout), stopped);
         if (outcome == Outcome::done) {
             const Clock::time_point answered = Clock::now();
             const bool accepted = accept(reply, why);
@@ -377,6 +378,9 @@ bool Helpers::run(std::span<const std::byte> request, std::span<const int> fds,
 }
 
 picture::Loaded Helpers::load(const picture::LoadRequest& request) {
+    if (request.stopped && request.stopped()) {
+        return failed(picture::Failure::unavailable, "stopped");  // not worth a helper
+    }
     const int file = open_regular(request.path);
     if (file < 0) {
         return failed(picture::Failure::unreadable, errno_text());
@@ -421,7 +425,8 @@ picture::Loaded Helpers::load(const picture::LoadRequest& request) {
     };
     std::string why;
     const std::array<int, 1> fds{file};
-    const bool done = run(std::as_bytes(std::span{&message, 1}), fds, accept, why);
+    const bool done =
+        run(std::as_bytes(std::span{&message, 1}), fds, accept, why, std::nullopt, request.stopped);
     ::close(file);
     return done ? result : failed(picture::Failure::unavailable, std::move(why));
 }

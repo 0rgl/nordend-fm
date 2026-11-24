@@ -33,6 +33,10 @@ struct LoadRequest {
     // The picture fits in max_width x max_height pixels (scaled down, never up).
     std::uint32_t max_width{0};
     std::uint32_t max_height{0};
+    // Asked while the picture is made (in Nordend, every Helpers::kStopCheck): true stops it, and
+    // the result is "unavailable". Empty: never stopped. The {} lets designated initializers leave
+    // it out without -Wmissing-field-initializers.
+    std::function<bool()> stopped{};  // NOLINT(readability-redundant-member-init)
 };
 
 struct Loaded {

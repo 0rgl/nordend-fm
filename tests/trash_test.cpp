@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -243,6 +244,29 @@ TEST_CASE("trash: on another disk, the top directory's trash with relative paths
     CHECK(shared.value_or(nordend::fs::TrashDir{}).path == top / ".Trash" / std::to_string(uid));
     CHECK(fs::is_directory(top / ".Trash" / std::to_string(uid) / "files"));
     CHECK(shared.value_or(nordend::fs::TrashDir{}).relative_to == top);
+}
+
+TEST_CASE("trash: a .trashinfo larger than a .trashinfo can be is left out, not read") {
+    const TempDir dir;
+    const fs::path top = dir.path / "disk";
+    const fs::path mine = top / std::format(".Trash-{}", geteuid());
+    fs::create_directories(mine / "files");
+    fs::create_directories(mine / "info");
+    std::ofstream{mine / "files" / "small.txt"} << "s";
+    std::ofstream{mine / "files" / "big.txt"} << "b";
+    const std::string header = "[Trash Info]\nPath=big.txt\nDeletionDate=2026-11-24T10:00:00\n";
+    std::ofstream{mine / "info" / "small.txt.trashinfo"}
+        << "[Trash Info]\nPath=small.txt\nDeletionDate=2026-11-24T10:00:00\n";
+    // A valid info, then a comment that takes it past 64 KiB.
+    std::ofstream{mine / "info" / "big.txt.trashinfo"}
+        << header << '#' << std::string((std::size_t{64} * 1024) - header.size(), 'x') << '\n';
+    REQUIRE(fs::file_size(mine / "info" / "big.txt.trashinfo") > std::size_t{64} * 1024);
+
+    const std::vector<nordend::fs::TrashedItem> items = nordend::fs::list_trash(
+        {.home = dir.path / "home", .tops = std::vector<fs::path>{top}, .uid = geteuid()});
+    REQUIRE(items.size() == 1);
+    CHECK(items[0].name == "small.txt");
+    CHECK(items[0].info.original == top / "small.txt");
 }
 
 TEST_CASE("trash: the top directory is the mount point") {

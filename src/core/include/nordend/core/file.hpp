@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,8 +16,11 @@ struct TextFile {
     std::string error;  // set when the file exists but cannot be read; text is then empty
 };
 
-// Reads a whole regular file. Never throws for I/O problems: they land in error.
-[[nodiscard]] TextFile read_text_file(const std::filesystem::path& path);
+// Reads a whole regular file, opened once without waiting (a FIFO is refused, never waited on).
+// A file larger than max_bytes is an error. Never throws for I/O problems: they land in error.
+[[nodiscard]] TextFile read_text_file(
+    const std::filesystem::path& path,
+    std::size_t max_bytes = std::numeric_limits<std::size_t>::max());
 
 // Replaces path's content with text, all or nothing: written to a hidden file beside it, synced,
 // then renamed over it. Its folder is made when missing. Returns what failed.

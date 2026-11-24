@@ -4,6 +4,7 @@
 #include <array>
 #include <cerrno>
 #include <climits>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
@@ -28,6 +29,8 @@ namespace {
 
 constexpr std::string_view kInfoSuffix = ".trashinfo";
 constexpr std::string_view kSizes = "directorysizes";
+// A .trashinfo is two lines; on another disk it is whatever that disk holds. Larger: left out.
+constexpr std::size_t kMaxInfoBytes = std::size_t{64} * 1024;
 
 std::error_code last_error() { return {errno, std::generic_category()}; }
 
@@ -526,7 +529,7 @@ std::vector<Found> read_trash(const std::filesystem::path& trash) {
         if (!file.ends_with(kInfoSuffix)) {
             continue;
         }
-        const core::TextFile text = core::read_text_file(entry.path());
+        const core::TextFile text = core::read_text_file(entry.path(), kMaxInfoBytes);
         std::optional<TrashInfo> info = parse_trash_info(text.text, base);
         const std::filesystem::path item =
             trash / "files" / file.substr(0, file.size() - kInfoSuffix.size());

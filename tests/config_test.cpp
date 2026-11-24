@@ -4,11 +4,13 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <sys/stat.h>
 #include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
 
+#include "nordend/core/file.hpp"
 #include "temp_dir.hpp"
 
 using nordend::core::Config;
@@ -16,6 +18,8 @@ using nordend::core::ConfigResult;
 using nordend::core::default_config_path;
 using nordend::core::load_config;
 using nordend::core::parse_config;
+using nordend::core::read_text_file;
+using nordend::core::TextFile;
 
 using nordend::test::TempDir;
 
@@ -235,6 +239,28 @@ TEST_CASE("load_config: missing file, real file, directory") {
     const ConfigResult directory = load_config(dir.path);
     REQUIRE(directory.problems.size() == 1);
     CHECK(contains(directory.problems[0], "not a regular file"));
+}
+
+TEST_CASE("read_text_file: a FIFO is not waited on, a file over its limit is not read") {
+    const TempDir dir;
+    const std::filesystem::path fifo = dir.path / "pipe";
+    REQUIRE(::mkfifo(fifo.c_str(), 0600) == 0);
+    const TextFile from_fifo = read_text_file(fifo);  // returns at once: nothing writes to it
+    CHECK(from_fifo.exists);
+    CHECK(from_fifo.error == "not a regular file");
+
+    const std::filesystem::path file = dir.write("two.txt", "line\nline\n");
+    CHECK(read_text_file(file).text == "line\nline\n");
+    CHECK(read_text_file(file, 10).text == "line\nline\n");
+    const TextFile over = read_text_file(file, 9);
+    CHECK(over.exists);
+    CHECK(over.text.empty());
+    CHECK(over.error == "larger than 9 bytes");
+
+    const TextFile missing = read_text_file(dir.path / "missing");
+    CHECK_FALSE(missing.exists);
+    CHECK(missing.error.empty());
+    CHECK_FALSE(read_text_file(file / "under-a-file").exists);
 }
 
 TEST_CASE("the example config parses clean and matches the defaults") {

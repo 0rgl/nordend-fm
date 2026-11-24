@@ -1,12 +1,12 @@
 #include "nordend/core/file.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <fcntl.h>
-#include <fstream>
-#include <ios>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -43,6 +43,48 @@ bool unescaped(unsigned char c) {
 }
 
 std::error_code last_error() { return {errno, std::generic_category()}; }
+
+// The regular file open at fd, to its end (which may have moved since fstat), at most
+// max_bytes.
+TextFile read_open_file(int fd, std::size_t max_bytes) {
+    TextFile result{.exists = true, .text = {}, .error = {}};
+    struct stat info{};
+    if (::fstat(fd, &info) != 0) {
+        result.error = last_error().message();
+        return result;
+    }
+    if (!S_ISREG(info.st_mode)) {
+        result.error = "not a regular file";
+        return result;
+    }
+    if (std::cmp_greater(info.st_size, max_bytes)) {
+        result.error = std::format("larger than {} bytes", max_bytes);
+        return result;
+    }
+    std::string text;
+    text.reserve(static_cast<std::size_t>(info.st_size));
+    std::array<char, 65536> chunk{};
+    for (;;) {
+        const ssize_t read = ::read(fd, chunk.data(), chunk.size());
+        if (read < 0 && errno == EINTR) {
+            continue;
+        }
+        if (read < 0) {
+            result.error = "read error";
+            return result;
+        }
+        if (read == 0) {
+            break;
+        }
+        if (static_cast<std::size_t>(read) > max_bytes - text.size()) {
+            result.error = std::format("larger than {} bytes", max_bytes);
+            return result;
+        }
+        text.append(chunk.data(), static_cast<std::size_t>(read));
+    }
+    result.text = std::move(text);
+    return result;
+}
 
 }  // namespace
 
@@ -106,35 +148,18 @@ std::error_code write_file_atomically(const std::filesystem::path& path, std::st
     return {};
 }
 
-TextFile read_text_file(const std::filesystem::path& path) {
-    TextFile result;
-    std::error_code error;
-    const auto status = std::filesystem::status(path, error);
-    if (status.type() == std::filesystem::file_type::not_found) {
-        return result;
+TextFile read_text_file(const std::filesystem::path& path, std::size_t max_bytes) {
+    // Opened once, and looked at through that descriptor: the name may be swapped for a FIFO
+    // after any check by name, and O_NONBLOCK keeps opening one from waiting for a writer.
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0 && (errno == ENOENT || errno == ENOTDIR)) {
+        return {};
     }
-    result.exists = true;
-    if (error) {
-        result.error = error.message();
-        return result;
+    if (fd < 0) {
+        return {.exists = true, .text = {}, .error = "cannot open: " + last_error().message()};
     }
-    if (status.type() != std::filesystem::file_type::regular) {
-        result.error = "not a regular file";
-        return result;
-    }
-    std::ifstream file{path, std::ios::binary};
-    if (!file.is_open()) {
-        result.error = "cannot open: " + std::error_code{errno, std::generic_category()}.message();
-        return result;
-    }
-    // Sized read: istreambuf_iterator trips GCC 14's -Wnull-dereference inside libstdc++.
-    std::string text(static_cast<std::size_t>(std::filesystem::file_size(path, error)), '\0');
-    file.read(text.data(), static_cast<std::streamsize>(text.size()));
-    if (error || file.gcount() != static_cast<std::streamsize>(text.size())) {
-        result.error = "read error";
-        return result;
-    }
-    result.text = std::move(text);
+    TextFile result = read_open_file(fd, max_bytes);
+    ::close(fd);
     return result;
 }
 

@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <ios>
 #include <memory>
 #include <span>
@@ -319,6 +321,27 @@ TEST_CASE("mime: someone else's file is still read for its type") {
                       .kind = EntryKind::file,
                       .size = static_cast<std::uint64_t>(info.st_size)};
     CHECK(f.db->name(f.db->detect(file.parent_path(), entry)) == "text/plain");
+}
+
+TEST_CASE("mime: a file swapped for a FIFO after the listing is not waited on") {
+    const Fixture f;
+    const TempDir files;
+    const std::filesystem::path fifo = files.path / "noext";
+    REQUIRE(::mkfifo(fifo.c_str(), 0600) == 0);
+    // As the listing saw it: a regular file with a size.
+    const Entry entry{.name = "noext", .kind = EntryKind::file, .size = 12};
+    std::future<MimeId> sniffed =
+        std::async(std::launch::async, [&] { return f.db->detect(files.path, entry); });
+    const bool returned = sniffed.wait_for(std::chrono::seconds{2}) == std::future_status::ready;
+    if (!returned) {
+        // A writer that comes and goes lets a blocked open() return, so the test can end.
+        const int writer = ::open(fifo.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+        if (writer >= 0) {
+            ::close(writer);
+        }
+    }
+    CHECK(returned);
+    CHECK(f.db->name(sniffed.get()) != "text/plain");  // nothing was read from it
 }
 
 TEST_CASE("mime: the system database loads") {

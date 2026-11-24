@@ -103,6 +103,12 @@ int resolve_beneath(int dir, const char* name) {
     }
 }
 
+// Whether the file open at fd is a regular file of size bytes.
+bool has_size(int fd, std::uint64_t size) {
+    struct stat info{};
+    return ::fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && std::cmp_equal(info.st_size, size);
+}
+
 // "a/b/c" -> {"a/b", "c"}; "c" -> {"", "c"}.
 std::pair<std::string, std::string> split(const std::string& path) {
     const std::size_t slash = path.rfind('/');
@@ -526,6 +532,12 @@ private:
             ::unlinkat(dir, name.c_str(), 0);
             fail(item, read.detail.empty() ? std::string_view{"it could not be read"}
                                            : std::string_view{read.detail});
+            return false;
+        }
+        // The file as it is, not only the count the engine gave: it may write more, or grow it.
+        if (!has_size(file.get(), entry.size)) {
+            ::unlinkat(dir, name.c_str(), 0);
+            fail(item, "not the size the archive says, left out");
             return false;
         }
         ::fchmod(file.get(), file_mode(entry.mode));

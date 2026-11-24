@@ -205,12 +205,18 @@ std::vector<std::byte> encode_text_payload(const text::Text& text, std::uint32_t
     return payload;
 }
 
+bool text_payload_fits(std::uint32_t lines, std::uint32_t bytes, std::uint32_t spans,
+                       const text::Limits& limits) {
+    return (lines != 0 || bytes == 0) &&
+           std::uint64_t{bytes} <= std::uint64_t{lines} * (limits.max_line_bytes + 1) &&
+           std::uint64_t{spans} <= std::uint64_t{bytes};
+}
+
 bool decode_text_payload(std::span<const std::byte> payload, std::uint32_t lines,
                          std::uint32_t bytes, std::uint32_t spans, bool coloured,
                          const text::Limits& limits, text::Text& text) {
-    if (payload.size() != text_payload_size(bytes, spans) || (lines == 0 && bytes != 0) ||
-        std::uint64_t{bytes} > std::uint64_t{lines} * (limits.max_line_bytes + 1) ||
-        std::uint64_t{spans} > std::uint64_t{bytes}) {
+    if (!text_payload_fits(lines, bytes, spans, limits) ||
+        payload.size() != text_payload_size(bytes, spans)) {
         return false;
     }
     const std::string_view all{reinterpret_cast<const char*>(payload.data()),  // NOLINT: bytes

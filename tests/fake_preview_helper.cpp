@@ -6,12 +6,14 @@
 // Sizes that do not hold: too-wide (a picture wider than asked for), wrap (2^31 x (2^31 + 2)
 // pixels, a size that wraps in 64 bits to a sparse 16 GiB memfd), unsealed (pixels that can
 // still be written to).
+// text-huge: the most bytes and spans a text can say, in 4 bytes.
 #include <array>
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <limits>
 #include <string_view>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -108,6 +110,22 @@ int main(int argc, char** argv) {
             if (!send_pixels(1, 1, 4, F_SEAL_SHRINK | F_SEAL_GROW)) {
                 return 1;
             }
+            continue;
+        }
+        if (mode == "text-huge") {
+            const int memfd = ::memfd_create("lie", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+            if (memfd < 0 || ::ftruncate(memfd, 4) != 0) {
+                return 1;
+            }
+            ::fcntl(memfd, F_ADD_SEALS, all_seals);
+            protocol::TextResponse response;
+            response.lines = 1;
+            response.bytes = std::numeric_limits<std::uint32_t>::max();
+            response.spans = std::numeric_limits<std::uint32_t>::max();
+            const std::array<int, 1> fds{memfd};
+            static_cast<void>(protocol::send_packet(protocol::kSocketFd,
+                                                    std::as_bytes(std::span{&response, 1}), fds));
+            ::close(memfd);
             continue;
         }
         // big-lie: 4 bytes of pixels for a 1000x1000 picture.

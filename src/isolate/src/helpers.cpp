@@ -94,11 +94,11 @@ std::optional<picture::Image> read_pixels(int fd, std::uint32_t width, std::uint
     return picture;
 }
 
-// A helper's sealed memfd of exactly size bytes, read whole; nullopt when it is not that.
+// A helper's sealed memfd of exactly size bytes, read whole; nullopt when it is not that. The
+// memfd is looked at first: room is made only for what is there.
 std::optional<std::vector<std::byte>> read_sealed(int fd, std::size_t size) {
-    std::vector<std::byte> bytes(size);
     if (size == 0) {
-        return bytes;
+        return std::vector<std::byte>{};
     }
     struct stat info{};
     if (fd < 0 || ::fstat(fd, &info) != 0 || std::cmp_not_equal(info.st_size, size)) {
@@ -108,6 +108,7 @@ std::optional<std::vector<std::byte>> read_sealed(int fd, std::size_t size) {
     if (seals < 0 || (seals & F_SEAL_WRITE) == 0 || (seals & F_SEAL_SHRINK) == 0) {
         return std::nullopt;
     }
+    std::vector<std::byte> bytes(size);
     std::size_t got = 0;
     while (got < size) {
         const ssize_t read = ::pread(fd, bytes.data() + got, size - got, static_cast<off_t>(got));
@@ -503,8 +504,12 @@ text::Loaded Helpers::load_text(const text::LoadRequest& request) {
             const std::uint64_t most_lines = std::min<std::uint64_t>(
                 request.limits.max_lines == 0 ? request.limits.max_bytes : request.limits.max_lines,
                 request.limits.max_bytes);
+            // Its sizes checked before any room is made for them. Not against max_bytes: tabs
+            // made spaces and other encodings made UTF-8 can take more bytes than the file.
             const std::optional<std::vector<std::byte>> payload =
-                response.lines > most_lines
+                response.lines > most_lines ||
+                        !protocol::text_payload_fits(response.lines, response.bytes, response.spans,
+                                                     request.limits)
                     ? std::nullopt
                     : read_sealed(reply.fds[0],
                                   protocol::text_payload_size(response.bytes, response.spans));

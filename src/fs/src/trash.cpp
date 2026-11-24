@@ -434,12 +434,70 @@ TransferResult Trasher::run() {
     return result_;
 }
 
+// File system types whose mount points are not looked into for a trash. The kernel's own, which
+// hold none. autofs: an automount not mounted yet, which looking would mount (a network share, a
+// disk spun up); once mounted, the same point has a second line with its real type. Network
+// ones: a server that is gone holds the look, and the worker, for as long as it is gone.
+constexpr auto kNoTrashTypes = std::to_array<std::string_view>({
+    // the kernel's own
+    "binfmt_misc",
+    "bpf",
+    "cgroup",
+    "cgroup2",
+    "configfs",
+    "debugfs",
+    "devpts",
+    "devtmpfs",
+    "efivarfs",
+    "fuse.gvfsd-fuse",
+    "fuse.portal",
+    "fusectl",
+    "hugetlbfs",
+    "mqueue",
+    "nfsd",
+    "proc",
+    "pstore",
+    "rpc_pipefs",
+    "securityfs",
+    "selinuxfs",
+    "sysfs",
+    "tracefs",
+    // an automount not mounted yet
+    "autofs",
+    // network
+    "afs",
+    "ceph",
+    "cifs",
+    "fuse.glusterfs",
+    "fuse.rclone",
+    "fuse.sshfs",
+    "glusterfs",
+    "ncpfs",
+    "nfs",
+    "nfs4",
+    "smb3",
+    "smbfs",
+});
+
+// A mountinfo line's file system type: the first field after " - ".
+std::string_view mount_type(std::string_view line) {
+    const std::size_t separator = line.find(" - ");
+    if (separator == std::string_view::npos) {
+        return {};
+    }
+    const std::string_view rest = line.substr(separator + 3);
+    return rest.substr(0, rest.find(' '));
+}
+
 std::vector<std::filesystem::path> parse_mount_points(std::string_view text) {
     std::vector<std::filesystem::path> points;
     while (!text.empty()) {
         const std::size_t end = std::min(text.find('\n'), text.size());
         std::string_view line = text.substr(0, end);
         text.remove_prefix(std::min(end + 1, text.size()));
+        if (std::ranges::find(kNoTrashTypes, mount_type(line)) != kNoTrashTypes.end()) {
+            continue;
+        }
         for (int field = 0; field < 4 && !line.empty(); ++field) {
             line.remove_prefix(std::min(line.find(' '), line.size()));
             line.remove_prefix(line.empty() ? 0 : 1);

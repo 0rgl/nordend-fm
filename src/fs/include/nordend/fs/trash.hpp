@@ -57,8 +57,8 @@ struct TrashDir {
 // Where the trashes are looked for.
 struct TrashSources {
     std::filesystem::path home;  // the home trash
-    // The top directories whose .Trash/uid and .Trash-uid count; nullopt: every mount point
-    // in /proc/self/mountinfo.
+    // The top directories whose .Trash/uid and .Trash-uid count; nullopt: the mount points in
+    // /proc/self/mountinfo, as mount_points() gives them.
     std::optional<std::vector<std::filesystem::path>> tops;
     uid_t uid{0};
 
@@ -71,8 +71,10 @@ struct TrashSources {
 void set_trash_sources(TrashSources sources);
 [[nodiscard]] const TrashSources& trash_sources();
 
-// Every mount point in /proc/self/mountinfo's text (its fifth field), octal escapes decoded
-// ("\040" is a space).
+// The mount points in /proc/self/mountinfo's text (its fifth field), octal escapes decoded
+// ("\040" is a space), but for those not looked into for a trash: the kernel's own file systems
+// (proc, sysfs, ...), an automount not mounted yet (autofs) and network mounts (nfs, cifs, sshfs,
+// ...).
 [[nodiscard]] std::vector<std::filesystem::path> mount_points(std::string_view mountinfo);
 
 // The trashes of sources that exist (home first), as TrashDir: files/ and info/ inside.

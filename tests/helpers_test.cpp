@@ -347,7 +347,8 @@ TEST_CASE("helpers: a helper that lies about a text is let go of") {
     const TempDir dir;
     const fs::path file = dir.path / "a.txt";
     std::ofstream{file} << "a\nb\nc\n";
-    for (const char* mode : {"crash", "garbage", "text-lie"}) {
+    // text-huge says 2^32 - 1 bytes and as many spans: no room is made for them.
+    for (const char* mode : {"crash", "garbage", "text-lie", "text-huge"}) {
         INFO(mode);
         isolate::Helpers helpers{fake(mode)};
         const text::Loaded loaded = helpers.load_text({.path = file, .mime = {}, .limits = {}});

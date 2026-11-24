@@ -232,6 +232,48 @@ TEST_CASE("extract: links stay inside; nothing written goes through one") {
     CHECK(no_staging(dir.path / "out"));
 }
 
+TEST_CASE("extract: a link that leads outside through another link is left out") {
+    TempDir dir;
+    fs::create_directories(dir.path / "outside");
+    dir.write("outside/secret", "secret\n");
+    // "s" is top itself, so "s/s/../.." climbs two folders above top, as a text cannot tell.
+    std::string tar = tar_member("top/", "", '5') + tar_member("top/sub/", "", '5') +
+                      tar_member("top/sub/file", "inside\n") + tar_member("top/s", "", '2', ".") +
+                      tar_member("top/t", "", '2', "s/s/../../outside/secret") +
+                      tar_member("top/through", "", '2', "t") +
+                      // Through a linked folder to a file in the archive: kept.
+                      tar_member("top/a", "", '2', "sub") + tar_member("top/b", "", '2', "a/file") +
+                      tar_member("top/dangling", "", '2', "missing.txt") + tar_end();
+    dir.write("links.tar", tar);
+    fs::create_directories(dir.path / "out");
+    const TransferResult result = extract(dir.path / "links.tar", {"top"}, dir.path / "out");
+    CHECK(result.placed == std::vector<std::string>{"top"});
+    const fs::path top = dir.path / "out" / "top";
+    CHECK_FALSE(fs::exists(fs::symlink_status(top / "t")));
+    CHECK_FALSE(fs::exists(fs::symlink_status(top / "through")));
+    CHECK(fs::read_symlink(top / "s") == ".");
+    CHECK(fs::read_symlink(top / "a") == "sub");
+    CHECK(read_file(top / "b") == "inside\n");
+    CHECK_FALSE(fs::exists(fs::symlink_status(top / "dangling")));
+    const std::vector<std::string>& errors = result.errors;
+    CHECK(std::ranges::count(errors, "top/t: a link leading outside, left out") == 1);
+    CHECK(std::ranges::count(errors, "top/through: a link leading outside, left out") == 1);
+    CHECK(std::ranges::count(errors, "top/dangling: a link to nothing extracted, left out") == 1);
+    CHECK(errors.size() == 3);
+    CHECK(no_staging(dir.path / "out"));
+
+    // Links that are top items themselves: followed beneath what is extracted.
+    std::string tops = tar_member("s", "", '2', ".") +
+                       tar_member("x", "", '2', "s/s/s/../../outside/secret") + tar_end();
+    dir.write("tops.tar", tops);
+    fs::create_directories(dir.path / "out2");
+    const TransferResult second = extract(dir.path / "tops.tar", {"s", "x"}, dir.path / "out2");
+    CHECK(second.placed == std::vector<std::string>{"s"});
+    CHECK_FALSE(fs::exists(fs::symlink_status(dir.path / "out2" / "x")));
+    CHECK(second.errors == std::vector<std::string>{"x: a link leading outside, left out"});
+    CHECK(no_staging(dir.path / "out2"));
+}
+
 TEST_CASE("extract: encrypted entries are said and left out") {
     TempDir dir;
     fs::copy_file(kArchives / "aes.zip", dir.path / "aes.zip");

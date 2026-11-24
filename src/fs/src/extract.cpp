@@ -88,6 +88,21 @@ int open_beneath(int dir, const char* name, std::uint64_t flags, std::uint64_t m
     }
 }
 
+// What name leads to under dir, symbolic links followed, but never out of dir: EXDEV for a link
+// that leads above dir or to an absolute path. An O_PATH descriptor, or -1 with errno.
+int resolve_beneath(int dir, const char* name) {
+    open_how how{};
+    how.flags = O_PATH | O_CLOEXEC;
+    how.resolve = RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV;
+    for (;;) {
+        const long fd = ::syscall(SYS_openat2, dir, name, &how, sizeof(how));
+        if (fd < 0 && errno == EINTR) {
+            continue;
+        }
+        return static_cast<int>(fd);
+    }
+}
+
 // "a/b/c" -> {"a/b", "c"}; "c" -> {"", "c"}.
 std::pair<std::string, std::string> split(const std::string& path) {
     const std::size_t slash = path.rfind('/');
@@ -157,6 +172,8 @@ std::array<timespec, 2> times_of(std::int64_t mtime) {
 
 // A symbolic link's target is kept when, followed from the link's folder inside what is
 // extracted (top: the first part of the link's path), it stays there: relative, never above top.
+// Read as text only: a part of the target can be another link from the archive, so once all the
+// links are made the kernel has the last word (Extractor::drop_links_not_inside).
 bool link_stays_inside(const std::string& link_path, const std::string& target) {
     if (target.empty() || target.starts_with('/') || target.find('\0') != std::string::npos) {
         return false;
@@ -375,6 +392,7 @@ private:
             archive, tree_->format(), [this] { return token_.cancelled(); });
         std::unordered_map<std::string, std::string> made;  // inner path -> out path, files
         std::vector<const Item*> folder_items;
+        std::vector<const Item*> links;
         for (const Item& item : items_) {
             if (token_.cancelled()) {
                 return;
@@ -405,6 +423,8 @@ private:
                         fail(item, "a link leading outside, left out");
                     } else if (::symlinkat(entry->link.c_str(), dir, name.c_str()) != 0) {
                         fail(item, errno_text(errno));
+                    } else {
+                        links.push_back(&item);
                     }
                     break;
                 case archive::Type::hardlink: {
@@ -429,6 +449,8 @@ private:
                     break;
             }
         }
+        // Before the folders' times: removing a link changes its folder's.
+        drop_links_not_inside(folders, links);
         // The folders' permissions and times last, deepest first: writing inside changes them.
         for (const Item* const each : std::views::reverse(folder_items)) {
             const Item& item = *each;
@@ -439,6 +461,41 @@ private:
                     const std::array<timespec, 2> times = times_of(item.entry->mtime);
                     ::futimens(dir.get(), times.data());
                 }
+            }
+        }
+    }
+
+    // The links made, looked at once all of them are there: each is followed by the kernel
+    // beneath its top ("s -> ." and then "s/s/../.." climb above it, which the text check cannot
+    // see). One that leads outside, or to nothing extracted (where it leads later cannot be
+    // told), is removed. All are looked at before any goes: one that passes through a link
+    // leading outside leads outside too.
+    void drop_links_not_inside(Folders& folders, const std::vector<const Item*>& links) {
+        std::vector<std::pair<const Item*, int>> dropped;
+        for (const Item* const item : links) {
+            const std::size_t slash = item->out.find('/');
+            Fd top;
+            int root = staging_.get();
+            std::string rest = item->out;
+            if (slash != std::string::npos) {
+                top = Fd{open_beneath(staging_.get(), item->out.substr(0, slash).c_str(),
+                                      O_RDONLY | O_DIRECTORY)};
+                root = top.get();
+                rest = item->out.substr(slash + 1);
+            }
+            const Fd resolved{root < 0 ? -1 : resolve_beneath(root, rest.c_str())};
+            if (resolved.get() < 0) {
+                dropped.emplace_back(item, errno);
+            }
+        }
+        for (const auto& [item, error] : dropped) {
+            const auto [parent, name] = split(item->out);
+            const int dir = folders.open(parent);
+            if (dir < 0 || ::unlinkat(dir, name.c_str(), 0) != 0) {
+                fail(*item, errno_text(errno));
+            } else {
+                fail(*item, error == EXDEV ? "a link leading outside, left out"
+                                           : "a link to nothing extracted, left out");
             }
         }
     }

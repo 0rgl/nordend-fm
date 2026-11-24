@@ -38,6 +38,11 @@ struct HelperOptions {
     std::size_t max_helpers{8};               // one for each worker: no picture waits for a helper
     std::chrono::milliseconds timeout{3000};  // for one picture
     std::chrono::milliseconds idle{30'000};   // a helper without work is closed after this
+    // Pictures in files of large_file bytes or more are made at most large_at_once at a time; the
+    // others keep every helper. A helper's cage allows 4 GiB, and a 100 MP JPEG (some 70 MB) takes
+    // up to 1 GB to decode: eight of them at once took 6 GB.
+    std::uint64_t large_file{std::uint64_t{20} * 1024 * 1024};
+    std::size_t large_at_once{2};
 };
 
 class Helpers {
@@ -49,7 +54,8 @@ public:
     Helpers(Helpers&&) = delete;
     Helpers& operator=(Helpers&&) = delete;
 
-    // The picture of request.path, made by a helper. Blocks while every helper is busy.
+    // The picture of request.path, made by a helper. Blocks while every helper is busy, and for a
+    // large file (HelperOptions::large_file) while large_at_once of them are being made.
     // Thread-safe: called from the workers.
     [[nodiscard]] picture::Loaded load(const picture::LoadRequest& request);
 
@@ -111,6 +117,8 @@ private:
     std::condition_variable freed_;
     std::vector<Helper> idle_;
     std::size_t count_{0};  // idle and busy
+    std::size_t large_{0};  // pictures of large files being made
+    std::condition_variable large_done_;
     std::condition_variable idle_changed_;
     bool stopping_{false};
     std::thread reaper_;  // declared last: started once the rest is ready

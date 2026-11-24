@@ -3,7 +3,9 @@
 // big-lie (claims a picture larger than the memfd it sends), goodbye (says goodbye instead of
 // answering, as a helper leaving after its idle time would), no-sandbox (exits as a helper that
 // could not build its cage).
+// slow: a right 1x1 picture, 300 ms after each request (a long decode).
 #include <array>
+#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
@@ -11,6 +13,7 @@
 #include <fcntl.h>
 #include <string_view>
 #include <sys/mman.h>
+#include <thread>
 #include <unistd.h>
 
 #include "protocol.hpp"
@@ -48,6 +51,22 @@ int main(int argc, char** argv) {
             static_cast<void>(
                 protocol::send_packet(protocol::kSocketFd, std::as_bytes(std::span{&goodbye, 1})));
             return 0;
+        }
+        if (mode == "slow") {
+            std::this_thread::sleep_for(std::chrono::milliseconds{300});
+            const int memfd = ::memfd_create("slow", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+            if (memfd < 0 || ::ftruncate(memfd, 4) != 0) {
+                return 1;
+            }
+            ::fcntl(memfd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE);
+            protocol::Response response;
+            response.width = 1;
+            response.height = 1;
+            const std::array<int, 1> fds{memfd};
+            static_cast<void>(protocol::send_packet(protocol::kSocketFd,
+                                                    std::as_bytes(std::span{&response, 1}), fds));
+            ::close(memfd);
+            continue;
         }
         if (mode == "text-lie") {
             // Three lines said, two sent.

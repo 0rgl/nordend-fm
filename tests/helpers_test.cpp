@@ -181,6 +181,37 @@ TEST_CASE("helpers: a helper that crashes, hangs or talks nonsense is let go of"
     }
 }
 
+TEST_CASE("helpers: large files take their turn, small ones never wait for them") {
+    const TempDir dir;
+    const fs::path large_a = dir.path / "a.jpg";
+    const fs::path large_b = dir.path / "b.jpg";
+    const fs::path small_a = dir.path / "c.jpg";
+    const fs::path small_b = dir.path / "d.jpg";
+    std::ofstream{large_a} << std::string(100, 'x');
+    std::ofstream{large_b} << std::string(100, 'x');
+    std::ofstream{small_a} << "x";
+    std::ofstream{small_b} << "x";
+    isolate::HelperOptions options = fake("slow");  // 300 ms a picture
+    options.max_helpers = 4;
+    options.timeout = std::chrono::seconds{5};
+    options.large_file = 50;
+    options.large_at_once = 1;
+    isolate::Helpers helpers{options};
+    // Two at once, timed: both made, and how long the pair took.
+    const auto both = [&](const fs::path& first, const fs::path& second) {
+        const auto start = std::chrono::steady_clock::now();
+        auto one = std::async(std::launch::async, [&] { return helpers.load(request(first)); });
+        auto two = std::async(std::launch::async, [&] { return helpers.load(request(second)); });
+        CHECK(one.get().failure == Failure::none);
+        CHECK(two.get().failure == Failure::none);
+        return std::chrono::steady_clock::now() - start;
+    };
+    constexpr auto one_picture = std::chrono::milliseconds{300};
+    CHECK(both(large_a, large_b) >= 2 * one_picture);  // one after the other
+    CHECK(both(small_a, small_b) < 2 * one_picture);   // side by side
+    CHECK(both(large_a, small_a) < 2 * one_picture);   // a small one does not wait for a large
+}
+
 TEST_CASE("helpers: a helper without its cage never works, and Nordend says why") {
     isolate::Helpers helpers{fake("no-sandbox")};
     const picture::Loaded loaded = helpers.load(request(kData / "blocks.png"));

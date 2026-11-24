@@ -381,6 +381,39 @@ picture::Loaded Helpers::load(const picture::LoadRequest& request) {
     if (file < 0) {
         return failed(picture::Failure::unreadable, errno_text());
     }
+
+    // A large file waits for its turn before it takes a helper: only so many decode at once. The
+    // turn is given back however the request ends.
+    struct Turn {
+        Helpers* helpers;
+
+        explicit Turn(Helpers* taken) : helpers{taken} {}
+
+        Turn(const Turn&) = delete;
+        Turn& operator=(const Turn&) = delete;
+        Turn(Turn&&) = delete;
+        Turn& operator=(Turn&&) = delete;
+
+        ~Turn() {
+            if (helpers != nullptr) {
+                {
+                    const std::scoped_lock lock{helpers->mutex_};
+                    --helpers->large_;
+                }
+                helpers->large_done_.notify_one();
+            }
+        }
+    };
+    struct stat info{};
+    const bool large =
+        ::fstat(file, &info) == 0 && std::cmp_greater_equal(info.st_size, options_.large_file);
+    if (large) {
+        std::unique_lock lock{mutex_};
+        large_done_.wait(
+            lock, [this] { return large_ < std::max<std::size_t>(options_.large_at_once, 1); });
+        ++large_;
+    }
+    const Turn turn{large ? this : nullptr};
     const protocol::Request message{.magic = protocol::kRequestMagic,
                                     .kind = protocol::Kind::picture,
                                     .max_width = request.max_width,

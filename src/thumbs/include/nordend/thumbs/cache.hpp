@@ -61,7 +61,9 @@ public:
                                                  Size size) const;
 
     // The thumbnail of file at size: the cached one when valid, else made from the file and
-    // stored. Blocking (reads, decodes, writes): call it on a worker.
+    // stored. A failure that lasts (an unknown format, a damaged file) is remembered until the
+    // file changes; one that passes (a helper that took too long) and a file that cannot be read
+    // are not. Blocking (reads, decodes, writes): call it on a worker.
     [[nodiscard]] Thumbnail get(const std::filesystem::path& file, Size size) const;
 
     // Like get(), but never from the cache, and a remembered failure is tried again.

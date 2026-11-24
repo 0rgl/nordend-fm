@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <fstream>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <sys/stat.h>
 #include <system_error>
 #include <unistd.h>
@@ -24,6 +26,30 @@ namespace {
 
 constexpr std::string_view kUriKey = "Thumb::URI";
 constexpr std::string_view kMtimeKey = "Thumb::MTime";
+// Why a fail marker was written (the spec's X- extension keys). A marker without it, from an
+// older Nordend, may stand for a failure that passes: the file is tried once more.
+constexpr std::string_view kFailureKey = "X-Nordend::Failure";
+
+// The failures that last as long as the file does, by the name their marker keeps. The others
+// pass (a helper that took too long, a file that could not be read): nothing is written for them,
+// and the file is tried again the next time it is shown.
+std::optional<std::string_view> lasting(picture::Failure failure) {
+    switch (failure) {
+        case picture::Failure::unknown_format:
+            return "unknown_format";
+        case picture::Failure::no_readable_preview:
+            return "no_readable_preview";
+        case picture::Failure::too_large:
+            return "too_large";
+        case picture::Failure::damaged:
+            return "damaged";
+        case picture::Failure::none:
+        case picture::Failure::unreadable:
+        case picture::Failure::unavailable:
+            break;
+    }
+    return std::nullopt;
+}
 
 std::vector<std::uint8_t> read_file(const std::filesystem::path& path) {
     std::error_code error;
@@ -40,11 +66,17 @@ std::vector<std::uint8_t> read_file(const std::filesystem::path& path) {
     return data;
 }
 
-// The PNG at path was written for this URI and modification time (spec: both must match).
-bool matches(std::span<const std::uint8_t> png, const std::string& uri, std::int64_t mtime) {
+// The PNG at path was written for this URI and modification time (spec: both must match); with
+// needed set, it also has that key.
+bool matches(std::span<const std::uint8_t> png, const std::string& uri, std::int64_t mtime,
+             std::string_view needed = {}) {
     bool uri_ok = false;
     bool mtime_ok = false;
+    bool needed_ok = needed.empty();
     for (const auto& [key, value] : picture::png_text(png)) {
+        if (key == needed) {
+            needed_ok = true;
+        }
         if (key == kUriKey) {
             uri_ok = value == uri;
         } else if (key == kMtimeKey) {
@@ -55,7 +87,7 @@ bool matches(std::span<const std::uint8_t> png, const std::string& uri, std::int
                 error == std::errc{} && end == value.data() + value.size() && stored == mtime;
         }
     }
-    return uri_ok && mtime_ok;
+    return uri_ok && mtime_ok && needed_ok;
 }
 
 // Creates the directories down to path, the new ones private (0700, as the spec asks).
@@ -75,11 +107,14 @@ bool make_private_directories(const std::filesystem::path& path) {
 // Writes the PNG of image with the spec's text to target: to a private temporary file next to
 // it, then renamed, so that readers never see half a thumbnail and two writers do not mix.
 bool store(const std::filesystem::path& target, const picture::Image& image, const std::string& uri,
-           std::int64_t mtime) {
-    const std::vector<std::uint8_t> png =
-        picture::encode_png(image, {{std::string{kUriKey}, uri},
-                                    {std::string{kMtimeKey}, std::to_string(mtime)},
-                                    {"Software", "Nordend"}});
+           std::int64_t mtime, std::string_view failure = {}) {
+    picture::PngText text{{std::string{kUriKey}, uri},
+                          {std::string{kMtimeKey}, std::to_string(mtime)},
+                          {"Software", "Nordend"}};
+    if (!failure.empty()) {
+        text.emplace_back(std::string{kFailureKey}, std::string{failure});
+    }
+    const std::vector<std::uint8_t> png = picture::encode_png(image, text);
     if (png.empty() || !make_private_directories(target.parent_path())) {
         return false;
     }
@@ -190,6 +225,11 @@ Thumbnail Cache::get(const std::filesystem::path& file, Size size) const {
     if (::stat(file.c_str(), &info) != 0) {
         return failure(std::error_code{errno, std::generic_category()}.message());
     }
+    // The spec (6.1): a file that cannot be read gets nothing from the cache, nor anything
+    // written to it, so that its thumbnail comes once its permissions allow it.
+    if (::access(file.c_str(), R_OK) != 0) {
+        return failure(std::error_code{errno, std::generic_category()}.message());
+    }
     const std::string uri = file_uri(file);
     const std::vector<std::uint8_t> cached = read_file(path_for(file, size));
     if (!cached.empty() && matches(cached, uri, info.st_mtime)) {
@@ -200,7 +240,7 @@ Thumbnail Cache::get(const std::filesystem::path& file, Size size) const {
         }
     }
     const std::vector<std::uint8_t> failed = read_file(fail_path(file));
-    if (!failed.empty() && matches(failed, uri, info.st_mtime)) {
+    if (!failed.empty() && matches(failed, uri, info.st_mtime, kFailureKey)) {
         return failure("failed before, and unchanged since");
     }
     return make(file, size, info.st_mtime);
@@ -224,9 +264,11 @@ Thumbnail Cache::make(const std::filesystem::path& file, Size size, std::int64_t
     picture::Loaded loaded =
         picture::load_picture({.path = file, .max_width = side, .max_height = side});
     if (loaded.failure != picture::Failure::none) {
-        // Remembered, so that it is not tried again until the file changes.
-        const picture::Image blank{.width = 1, .height = 1, .rgba = {0, 0, 0, 0}};
-        static_cast<void>(store(fail_path(file), blank, uri, mtime));
+        // A lasting failure is remembered, so that it is not tried again until the file changes.
+        if (const std::optional<std::string_view> why = lasting(loaded.failure)) {
+            const picture::Image blank{.width = 1, .height = 1, .rgba = {0, 0, 0, 0}};
+            static_cast<void>(store(fail_path(file), blank, uri, mtime, *why));
+        }
         return failure(std::string{loaded.error()} + " (" + loaded.detail + ")");
     }
     static_cast<void>(store(path_for(file, size), loaded.image, uri, mtime));

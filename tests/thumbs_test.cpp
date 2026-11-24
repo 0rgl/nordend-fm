@@ -1,10 +1,20 @@
+#include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <ios>
+#include <iterator>
 #include <string>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <vector>
 
 #include <doctest/doctest.h>
 
+#include "nordend/formats/image/load.hpp"
+#include "nordend/picture/load.hpp"
+#include "nordend/picture/png.hpp"
 #include "nordend/thumbs/cache.hpp"
 #include "nordend/thumbs/md5.hpp"
 #include "temp_dir.hpp"
@@ -22,6 +32,38 @@ int mode_of(const fs::path& path) {
     REQUIRE(::stat(path.c_str(), &info) == 0);
     return static_cast<int>(info.st_mode & 0777);
 }
+
+fs::path fail_marker(const fs::path& root, const fs::path& file) {
+    return root / "fail" / "nordend-test" / (thumbs::md5_hex(thumbs::file_uri(file)) + ".png");
+}
+
+// What the fail marker of file says about why it failed; empty when it says nothing.
+std::string marker_failure(const fs::path& marker) {
+    std::ifstream in{marker, std::ios::binary};
+    const std::vector<std::uint8_t> png{std::istreambuf_iterator<char>{in},
+                                        std::istreambuf_iterator<char>{}};
+    for (const auto& [key, value] : nordend::picture::png_text(png)) {
+        if (key == "X-Nordend::Failure") {
+            return value;
+        }
+    }
+    return {};
+}
+
+// The formats' own loader, as tests/main.cpp sets it, put back when it goes.
+struct LoaderBack {
+    LoaderBack() = default;
+    LoaderBack(const LoaderBack&) = delete;
+    LoaderBack& operator=(const LoaderBack&) = delete;
+    LoaderBack(LoaderBack&&) = delete;
+    LoaderBack& operator=(LoaderBack&&) = delete;
+
+    ~LoaderBack() {
+        nordend::picture::set_loader([](const nordend::picture::LoadRequest& request) {
+            return nordend::formats::image::load(request);
+        });
+    }
+};
 
 }  // namespace
 
@@ -106,8 +148,7 @@ TEST_CASE("thumbs: a failure is remembered until the file changes, make() tries 
     const thumbs::Thumbnail first = cache.get(broken, thumbs::Size::large);
     CHECK(first.source == thumbs::Source::failed);
     CHECK(first.image.empty());
-    CHECK(fs::exists(dir.path / "thumbnails" / "fail" / "nordend-test" /
-                     (thumbs::md5_hex(thumbs::file_uri(broken)) + ".png")));
+    CHECK(marker_failure(fail_marker(dir.path / "thumbnails", broken)) == "damaged");
     CHECK(cache.get(broken, thumbs::Size::large).error == "failed before, and unchanged since");
     CHECK(cache.make(broken, thumbs::Size::large).error != "failed before, and unchanged since");
 
@@ -118,6 +159,79 @@ TEST_CASE("thumbs: a failure is remembered until the file changes, make() tries 
 
     CHECK(cache.get(dir.path / "missing.jpg", thumbs::Size::large).source ==
           thumbs::Source::failed);
+}
+
+TEST_CASE("thumbs: a failure that passes is not remembered: the next get() tries again") {
+    TempDir dir;
+    const fs::path photo = dir.path / "photo.jpg";
+    fs::copy_file(kData / "blocks.jpg", photo);
+    const thumbs::Cache cache{dir.path / "thumbnails", "nordend-test"};
+    const LoaderBack back;
+    // A helper that took too long once, then answers.
+    std::atomic<int> asked{0};
+    nordend::picture::set_loader([&asked](const nordend::picture::LoadRequest& request) {
+        if (asked++ == 0) {
+            nordend::picture::Loaded late;
+            late.failure = nordend::picture::Failure::unavailable;
+            late.detail = "the preview helper took longer than 3000 ms";
+            return late;
+        }
+        return nordend::formats::image::load(request);
+    });
+    CHECK(cache.get(photo, thumbs::Size::large).source == thumbs::Source::failed);
+    CHECK_FALSE(fs::exists(fail_marker(dir.path / "thumbnails", photo)));
+    CHECK(cache.get(photo, thumbs::Size::large).source == thumbs::Source::decoded);
+    CHECK(asked == 2);
+}
+
+TEST_CASE("thumbs: a file that cannot be read is not remembered, and comes once it can be") {
+    if (::geteuid() == 0) {
+        MESSAGE("root reads every file: skipped");
+        return;
+    }
+    TempDir dir;
+    const fs::path photo = dir.path / "photo.jpg";
+    fs::copy_file(kData / "blocks.jpg", photo);
+    const thumbs::Cache cache{dir.path / "thumbnails", "nordend-test"};
+    REQUIRE(cache.get(photo, thumbs::Size::large).source == thumbs::Source::decoded);
+    // chmod leaves the modification time as it was: the thumbnail made before still matches it.
+    fs::permissions(photo, fs::perms::none);
+    CHECK(cache.get(photo, thumbs::Size::large).source == thumbs::Source::failed);
+    CHECK_FALSE(fs::exists(fail_marker(dir.path / "thumbnails", photo)));
+    fs::permissions(photo, fs::perms::owner_read | fs::perms::owner_write);
+    CHECK(cache.get(photo, thumbs::Size::large).source == thumbs::Source::cache);
+}
+
+TEST_CASE("thumbs: a fail marker that says no reason (an older Nordend's) is tried once more") {
+    TempDir dir;
+    const fs::path photo = dir.path / "photo.jpg";
+    fs::copy_file(kData / "blocks.jpg", photo);
+    const fs::path root = dir.path / "thumbnails";
+    const thumbs::Cache cache{root, "nordend-test"};
+    struct stat info{};
+    REQUIRE(::stat(photo.c_str(), &info) == 0);
+    const auto old_marker = [&](const fs::path& file) {
+        const nordend::picture::Image blank{.width = 1, .height = 1, .rgba = {0, 0, 0, 0}};
+        const std::vector<std::uint8_t> png =
+            nordend::picture::encode_png(blank, {{"Thumb::URI", thumbs::file_uri(file)},
+                                                 {"Thumb::MTime", std::to_string(info.st_mtime)},
+                                                 {"Software", "Nordend"}});
+        fs::create_directories(fail_marker(root, file).parent_path());
+        std::ofstream{fail_marker(root, file), std::ios::binary}.write(
+            reinterpret_cast<const char*>(png.data()),  // NOLINT: bytes to chars
+            static_cast<std::streamsize>(png.size()));
+    };
+    old_marker(photo);
+    CHECK(cache.get(photo, thumbs::Size::large).source == thumbs::Source::decoded);
+
+    // A damaged file behind an old marker: tried, and its new marker says why.
+    const fs::path broken = dir.path / "broken.jpg";
+    fs::copy_file(kData / "truncated.jpg", broken);
+    REQUIRE(::stat(broken.c_str(), &info) == 0);
+    old_marker(broken);
+    CHECK(cache.get(broken, thumbs::Size::large).error != "failed before, and unchanged since");
+    CHECK(marker_failure(fail_marker(root, broken)) == "damaged");
+    CHECK(cache.get(broken, thumbs::Size::large).error == "failed before, and unchanged since");
 }
 
 TEST_CASE("thumbs: the cache never thumbnails its own files") {

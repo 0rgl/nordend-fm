@@ -11,6 +11,7 @@
 #include <fnmatch.h>
 #include <functional>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <unordered_map>
 #include <utility>
@@ -192,12 +193,24 @@ std::vector<std::filesystem::path> default_mime_dirs() {
 // A file opened to read its head, with O_NOATIME, so that browsing a folder leaves the access
 // time of files typed by their content as it was. The kernel takes O_NOATIME only from the
 // file's owner or with CAP_FOWNER; anyone else's file is opened again without it, as in GLib.
+// O_NONBLOCK, then -1 (errno set) for anything but a regular file: the name may be a FIFO by
+// now, and opening one with no writer would hold the worker until something writes to it.
 int open_to_sniff(const std::filesystem::path& path) {
-    const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOATIME);
-    if (fd >= 0 || errno != EPERM) {
-        return fd;
+    constexpr int flags = O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NONBLOCK;
+    int fd = open(path.c_str(), flags | O_NOATIME);
+    if (fd < 0 && errno == EPERM) {
+        fd = open(path.c_str(), flags);
     }
-    return open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return -1;
+    }
+    struct stat info{};
+    if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode)) {
+        close(fd);
+        errno = EINVAL;
+        return -1;
+    }
+    return fd;
 }
 
 }  // namespace

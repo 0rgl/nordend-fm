@@ -1,6 +1,6 @@
 #!/bin/sh
 # nordend-setup: install, update and configure Nordend from its source code, on distributions
-# without a Nordend package. https://github.com/pankaspe/nordend-fm
+# without a Nordend package. https://github.com/0rgl/nordend-fm
 #
 # Read it before you run it: it is one plain POSIX sh file. It shows every command before
 # running it, asks before each one that needs sudo, and --dry-run prints them without running
@@ -12,7 +12,7 @@ set -u
 
 setup_version=0.10.0
 # NORDEND_SETUP_REPO names another repository (a local one, for testing a commit not pushed).
-repo_url=${NORDEND_SETUP_REPO:-https://github.com/pankaspe/nordend-fm.git}
+repo_url=${NORDEND_SETUP_REPO:-https://github.com/0rgl/nordend-fm.git}
 
 # What Nordend needs to build (CMakeLists.txt; minimums found building on each distribution).
 min_gcc=13
@@ -717,7 +717,7 @@ command_check() {
         ok "Nordend $latest: the installed $installed is newer"
     else
         ok "Nordend $latest is out: nordend-setup update"
-        note "What changed: https://github.com/pankaspe/nordend-fm/releases/tag/v$latest"
+        note "What changed: https://github.com/0rgl/nordend-fm/releases/tag/v$latest"
     fi
 }
 

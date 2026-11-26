@@ -2,8 +2,9 @@
 #   spectool -g -C ~/rpmbuild/SOURCES packaging/rpm/nordend.spec
 #   sudo dnf builddep packaging/rpm/nordend.spec
 #   rpmbuild -ba packaging/rpm/nordend.spec
-# or in a COPR project (Fedora's build service). --without check skips the tests.
-# .github/workflows/rpm.yml builds it from every commit, on the Fedora releases it lists.
+# --without check skips the tests. .github/workflows/rpm.yml builds it from every commit, on the
+# Fedora releases it lists; Packit (.packit.yaml) builds each published release in the COPR
+# project 0rgl0/nordend (https://copr.fedorainfracloud.org/coprs/0rgl0/nordend/).
 #
 # Looked after by 0rgl (https://github.com/0rgl): for questions or problems with the RPM, open
 # an issue and mention @0rgl.

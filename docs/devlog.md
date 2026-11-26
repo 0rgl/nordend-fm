@@ -33,6 +33,15 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   can work (two mounts of one file system do not share it). A restore that can only fail with
   "on another disk" therefore makes no folder, including through a link the disk itself holds;
   any other error on the way ("Not a directory") is said as it is.
+- #19: the RPM is built in the COPR project `0rgl0/nordend` for the Fedora releases supported
+  now (x86_64, Packit's `fedora-stable`), so Fedora users install with `dnf copr enable` and
+  update with `dnf upgrade`. Packit's `copr_build` job with `trigger: release` builds it from
+  the release's tag (`.packit.yaml`): it makes the archive from the tag as
+  `nordend-fm-VERSION.tar.gz`, which unpacks where `%autosetup -n nordend-fm-%{version}` looks,
+  and keeps the spec's `Release: 1%{?dist}` (`update_release: false`). Checked with
+  `packit srpm` on v0.10.1 in a Fedora 45 container: the SRPM holds that archive and the spec,
+  and `%prep` unpacks it. 0.10.1 itself went in by hand, as an SRPM from its tag. The COPR
+  project follows Fedora's branching; rpm.yml keeps building the spec on every push.
 
 ---
 

@@ -207,8 +207,15 @@ std::vector<std::byte> encode_text_payload(const text::Text& text, std::uint32_t
 
 bool text_payload_fits(std::uint32_t lines, std::uint32_t bytes, std::uint32_t spans,
                        const text::Limits& limits) {
-    return (lines != 0 || bytes == 0) &&
-           std::uint64_t{bytes} <= std::uint64_t{lines} * (limits.max_line_bytes + 1) &&
+    // The limits as the helper was given them (encode_text_request).
+    const std::uint64_t max_bytes = std::min(limits.max_bytes, kMaxTextBytes);
+    const std::uint64_t max_line_bytes = std::min(limits.max_line_bytes, kMaxTextLineBytes);
+    const std::uint64_t tab_width = std::min(limits.tab_width, kMaxTabWidth);
+    // Each byte read becomes at most a tab's spaces or a character of 3 bytes in UTF-8 (cp1252,
+    // UTF-16, U+FFFD), and one more U+FFFD can end the text.
+    const std::uint64_t most_bytes = (max_bytes + 1) * std::max<std::uint64_t>(tab_width, 4);
+    return (lines != 0 || bytes == 0) && bytes <= most_bytes &&
+           std::uint64_t{bytes} <= std::uint64_t{lines} * (max_line_bytes + 1) &&
            std::uint64_t{spans} <= std::uint64_t{bytes};
 }
 

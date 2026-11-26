@@ -12,6 +12,7 @@
 #include <functional>
 #include <future>
 #include <ios>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <poll.h>
@@ -293,13 +294,24 @@ TEST_CASE("helpers: the helper reads the same text as this process") {
         write("empty.txt", ""),
         write("newline.txt", "\n"),
         write("many.txt", many),
+        // Tabs grow the most: with tab_width 16, about 14 bytes for each one read.
+        write("tabs.txt",
+              [] {
+                  std::string tabs;
+                  for (int i = 0; i < 1000; ++i) {
+                      tabs += "\t\t\t\t\t\t\t\n";
+                  }
+                  return tabs;
+              }()),
         fs::path{NORDEND_TEST_DATA} / ".." / "text_test.cpp",
     };
     isolate::Helpers helpers{real(1)};
     for (const text::Limits limits :
          {text::Limits{}, text::Limits{.max_bytes = 8192, .max_line_bytes = 256, .max_lines = 40},
           text::Limits{.max_bytes = 100, .max_line_bytes = 3, .max_lines = 0, .tab_width = 8},
-          text::Limits{.max_bytes = 8192, .tail = true}}) {
+          text::Limits{.max_bytes = 8192, .tail = true},
+          text::Limits{
+              .max_bytes = 4096, .max_line_bytes = 1024, .max_lines = 0, .tab_width = 16}}) {
         for (const fs::path& file : files) {
             INFO(file.filename().string(), " ", limits.max_bytes);
             const bool code = file.extension() == ".cpp";
@@ -385,8 +397,9 @@ TEST_CASE("helpers: a helper that lies about a text is let go of") {
     const TempDir dir;
     const fs::path file = dir.path / "a.txt";
     std::ofstream{file} << "a\nb\nc\n";
-    // text-huge says 2^32 - 1 bytes and as many spans: no room is made for them.
-    for (const char* mode : {"crash", "garbage", "text-lie", "text-huge"}) {
+    // text-huge says 2^32 - 1 bytes and as many spans, text-sparse more bytes than the file read
+    // can become: no room is made for them.
+    for (const char* mode : {"crash", "garbage", "text-lie", "text-huge", "text-sparse"}) {
         INFO(mode);
         isolate::Helpers helpers{fake(mode)};
         const text::Loaded loaded = helpers.load_text({.path = file, .mime = {}, .limits = {}});
@@ -440,6 +453,19 @@ TEST_CASE("helpers: a text's payload travels whole, and spans out of place are r
                                               2, true, {}, out));
     CHECK_FALSE(protocol::decode_text_payload(payload, 2, 13, 2, true, {}, out));  // lines
     CHECK_FALSE(protocol::decode_text_payload(payload, 3, 13, 2, true, {.max_line_bytes = 5}, out));
+    // No more bytes than the file read can become: 16 for each byte read at tab_width 16, and 4
+    // at tab_width 2, since a byte can still become a character of 3 bytes in UTF-8.
+    const text::Limits tabs{.max_bytes = 4096, .max_line_bytes = 1024, .tab_width = 16};
+    CHECK(protocol::text_payload_fits(4097, 4097 * 16, 0, tabs));
+    CHECK_FALSE(protocol::text_payload_fits(4097, (4097 * 16) + 1, 0, tabs));
+    const text::Limits narrow{.max_bytes = 2048, .max_line_bytes = 1024, .tab_width = 2};
+    CHECK(protocol::text_payload_fits(2049, 2049 * 4, 0, narrow));
+    CHECK_FALSE(protocol::text_payload_fits(2049, (2049 * 4) + 1, 0, narrow));
+    // The limits as the helper is given them: no line is longer than kMaxTextLineBytes.
+    const text::Limits wide{.max_line_bytes = std::size_t{1} << 20};
+    CHECK_FALSE(protocol::text_payload_fits(1, protocol::kMaxTextLineBytes + 2, 0, wide));
+    CHECK(protocol::text_payload_fits(1, 2, 0,
+                                      {.max_line_bytes = std::numeric_limits<std::size_t>::max()}));
 }
 
 TEST_CASE("helpers: the helper lists and reads archives in its cage as this process does") {

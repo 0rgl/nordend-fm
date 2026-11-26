@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -209,6 +210,119 @@ TEST_CASE("trash folder: restoring puts items back, folders made again, sidecars
     // Not there any more.
     const TransferResult gone = restore({(files / "P1.ORF").string()});
     CHECK(gone.errors == Names{"P1.ORF: not in the trash any more"});
+}
+
+TEST_CASE("trash folder: a relative path that leads off its disk is marked") {
+    using nordend::fs::parse_trash_info;
+    const auto outside = [](const char* path, const char* top) {
+        const std::string text = std::string{"[Trash Info]\nPath="} + path + "\n";
+        return parse_trash_info(text, top).value_or(nordend::fs::TrashInfo{}).outside;
+    };
+    CHECK(outside("../../home/me/x.txt", "/media/disk"));
+    CHECK(outside("shots/../../x.txt", "/media/disk"));
+    CHECK(outside(".", "/media/disk"));  // the disk's top itself
+    CHECK_FALSE(outside("shots/../x.txt", "/media/disk"));
+    CHECK_FALSE(outside("shots/x.txt", "/media/disk/"));
+    // An absolute path is left to Restore, on the disk itself: a mount has more than one name.
+    CHECK_FALSE(outside("/home/me/x.txt", "/media/disk"));
+}
+
+TEST_CASE("trash folder: a disk's entry that points off the disk is listed, never restored") {
+    Trashes t;
+    const fs::path mine = t.disk_trash();
+    const auto put = [&](const std::string& name, const std::string& path) {
+        Trashes::make(mine / "files" / name, name);
+        Trashes::make(mine / "info" / (name + ".trashinfo"),
+                      "[Trash Info]\nPath=" + path + "\nDeletionDate=2026-11-23T23:40:00\n");
+    };
+    put("escaped.txt", "../victim/made/escaped.txt");
+    put("inside.txt", (t.disk / "shots" / "inside.txt").string());  // absolute, on the disk
+    put("relative.txt", "shots/relative.txt");
+    Trashes::make(t.disk / "plain", "a file, not a folder");
+    put("under-file.txt", "plain/sub/under-file.txt");
+
+    std::vector<nordend::fs::TrashedItem> items = nordend::fs::list_trash(t.sources);
+    std::ranges::sort(items, {}, &nordend::fs::TrashedItem::name);
+    REQUIRE(items.size() == 4);
+    CHECK(items[0].name == "escaped.txt");
+    CHECK(items[0].info.outside);
+    CHECK_FALSE(items[1].info.outside);
+    CHECK_FALSE(items[2].info.outside);
+    CHECK_FALSE(items[3].info.outside);
+
+    const TransferResult refused = restore({(mine / "files" / "escaped.txt").string()});
+    CHECK(refused.files_done == 0);
+    CHECK(refused.errors ==
+          Names{"escaped.txt: its trash entry points outside its disk: not restored"});
+    CHECK_FALSE(fs::exists(t.dir.path / "victim"));  // no folder made for it
+    CHECK(fs::exists(mine / "files" / "escaped.txt"));
+
+    // A folder that cannot be reached says why, not "another disk".
+    const TransferResult blocked = restore({(mine / "files" / "under-file.txt").string()});
+    CHECK(blocked.errors == Names{"under-file.txt: Not a directory"});
+
+    const TransferResult restored = restore(
+        {(mine / "files" / "inside.txt").string(), (mine / "files" / "relative.txt").string()});
+    CHECK(restored.errors.empty());
+    CHECK(fs::exists(t.disk / "shots" / "inside.txt"));
+    CHECK(fs::exists(t.disk / "shots" / "relative.txt"));
+}
+
+TEST_CASE("trash folder: a restore that would cross disks makes no folder first") {
+    // A folder on /dev/shm, a tmpfs of its own, removed with everything in it.
+    struct Other {
+        fs::path path;
+
+        Other() {
+            std::string pattern = "/dev/shm/nordend-test-XXXXXX";
+            if (mkdtemp(pattern.data()) != nullptr) {
+                path = pattern;
+            }
+        }
+
+        ~Other() {
+            std::error_code ignored;
+            fs::remove_all(path, ignored);
+        }
+
+        Other(const Other&) = delete;
+        Other& operator=(const Other&) = delete;
+        Other(Other&&) = delete;
+        Other& operator=(Other&&) = delete;
+    };
+
+    const Other other;
+    Trashes t;
+    struct stat here{};
+    struct stat there{};
+    if (other.path.empty() || ::stat(t.dir.path.c_str(), &here) != 0 ||
+        ::stat(other.path.c_str(), &there) != 0 || here.st_dev == there.st_dev) {
+        MESSAGE("no /dev/shm of its own here: skipped");
+        return;
+    }
+    // From the home trash, to a folder on another disk that is gone.
+    Trashes::make(t.sources.home / "files" / "a.txt", "a");
+    Trashes::make(t.sources.home / "info" / "a.txt.trashinfo",
+                  "[Trash Info]\nPath=" + (other.path / "gone" / "a.txt").string() + "\n");
+    // From the disk's trash: through a link on the disk that leads off it, and absolute.
+    fs::create_directory_symlink(other.path, t.disk / "link");
+    Trashes::make(t.disk_trash() / "files" / "b.txt", "b");
+    Trashes::make(t.disk_trash() / "info" / "b.txt.trashinfo",
+                  "[Trash Info]\nPath=link/made/b.txt\n");
+    Trashes::make(t.disk_trash() / "files" / "c.txt", "c");
+    Trashes::make(t.disk_trash() / "info" / "c.txt.trashinfo",
+                  "[Trash Info]\nPath=" + (other.path / "away" / "c.txt").string() + "\n");
+
+    const TransferResult result = restore({(t.sources.home / "files" / "a.txt").string(),
+                                           (t.disk_trash() / "files" / "b.txt").string(),
+                                           (t.disk_trash() / "files" / "c.txt").string()});
+    CHECK(result.files_done == 0);
+    CHECK(result.errors == Names{"a.txt: its folder is on another disk now: not copied back",
+                                 "b.txt: its folder is on another disk now: not copied back",
+                                 "c.txt: its folder is on another disk now: not copied back"});
+    CHECK_FALSE(fs::exists(other.path / "gone"));
+    CHECK_FALSE(fs::exists(other.path / "made"));
+    CHECK_FALSE(fs::exists(other.path / "away"));
 }
 
 TEST_CASE("trash folder: a taken name asks; keep both renames the sidecars too") {

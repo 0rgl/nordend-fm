@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <climits>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
@@ -33,6 +34,21 @@ constexpr std::string_view kSizes = "directorysizes";
 constexpr std::size_t kMaxInfoBytes = std::size_t{64} * 1024;
 
 std::error_code last_error() { return {errno, std::generic_category()}; }
+
+// Whether path is under top, both normal: below it, not top itself.
+bool strictly_under(const std::filesystem::path& path, const std::filesystem::path& top) {
+    auto at = path.begin();
+    for (const std::filesystem::path& part : top) {
+        if (part.empty()) {
+            continue;  // the trailing "" of "/media/disk/"
+        }
+        if (at == path.end() || *at != part) {
+            return false;
+        }
+        ++at;
+    }
+    return at != path.end() && !at->empty();
+}
 
 std::optional<struct stat> status_of(const std::filesystem::path& path) {
     struct stat info{};
@@ -567,6 +583,44 @@ std::error_code make_folders(const std::filesystem::path& path) {
     return last_error();
 }
 
+// The mount path is on, links followed: its mount ID, or its device where the kernel gives none.
+std::optional<std::uint64_t> mount_of(const std::filesystem::path& path, std::error_code& error) {
+    struct statx info{};
+    if (statx(AT_FDCWD, path.c_str(), 0, STATX_MNT_ID, &info) != 0) {
+        error = last_error();
+        return std::nullopt;
+    }
+    if ((info.stx_mask & STATX_MNT_ID) != 0) {
+        return info.stx_mnt_id;
+    }
+    return (std::uint64_t{info.stx_dev_major} << 32U) | info.stx_dev_minor;
+}
+
+// Whether a restore into directory can be a rename from the trash folder files: the nearest
+// folder of directory that exists, links followed (a link on the disk can lead off it), is on
+// the same mount (a rename between two mounts of one file system fails too). An error other than
+// a missing folder is returned as it is.
+std::error_code same_mount(const std::filesystem::path& files, std::filesystem::path directory,
+                           bool& same) {
+    std::error_code error;
+    const std::optional<std::uint64_t> trash = mount_of(files, error);
+    if (!trash) {
+        return error;
+    }
+    std::optional<std::uint64_t> there = mount_of(directory, error);
+    while (!there && error == std::errc::no_such_file_or_directory &&
+           directory.has_relative_path()) {
+        directory = directory.parent_path();
+        error.clear();
+        there = mount_of(directory, error);
+    }
+    if (!there) {
+        return error;
+    }
+    same = *there == *trash;
+    return {};
+}
+
 // An item found in a trash for restoring.
 struct Found {
     std::filesystem::path item;       // in files/
@@ -736,6 +790,23 @@ TransferResult Restorer::run() {
         const std::filesystem::path directory = group.item.info.original.parent_path();
         const std::string original = group.item.info.original.filename().string();
         progress_.current = original;
+        // Checked before a folder is made: a restore that can only fail makes nothing.
+        if (group.item.info.outside) {
+            result_.errors.push_back(
+                std::format("{}: its trash entry points outside its disk: not restored", original));
+            continue;
+        }
+        bool same = false;
+        if (const std::error_code checked =
+                same_mount(group.item.item.parent_path(), directory, same)) {
+            error(original, checked);
+            continue;
+        }
+        if (!same) {
+            result_.errors.push_back(
+                std::format("{}: its folder is on another disk now: not copied back", original));
+            continue;
+        }
         if (const std::error_code made = make_folders(directory)) {
             error(original, made);
             continue;
@@ -1027,10 +1098,13 @@ std::optional<TrashInfo> parse_trash_info(std::string_view text,
         return std::nullopt;
     }
     std::filesystem::path original{*path};
+    bool outside = false;
     if (original.is_relative()) {
-        original = relative_to / original;
+        original = (relative_to / original).lexically_normal();
+        outside = !strictly_under(original, relative_to.lexically_normal());
     }
-    return TrashInfo{.original = original.lexically_normal(), .deleted = std::move(deleted)};
+    return TrashInfo{
+        .original = original.lexically_normal(), .deleted = std::move(deleted), .outside = outside};
 }
 
 std::vector<TrashedItem> list_trash(const TrashSources& sources) {

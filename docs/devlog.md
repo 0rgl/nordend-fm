@@ -22,6 +22,17 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   read-only file of one's own may still be allowed to run; a marked one (tarballs pack
   programs 0555) gets `u+w` for the moment, as its owner could give it with chmod anyway,
   unless it has setuid or setgid, which that chmod could drop.
+- #66: a disk's trash entry can no longer reach outside the disk. A relative `Path=` that
+  `..` takes out of the folder it is relative to ("../../home/…" in `.Trash-1000` on a data
+  disk) is marked `TrashInfo::outside` by `parse_trash_info()`: listed, so Delete and Empty
+  Trash still reach it, shown "off its disk" in the info pane, refused by Restore with its own
+  message. An absolute path is not judged by its text, since a disk can be reached by more than
+  one name (`/mnt` is a link to `/var/mnt` on Fedora Atomic). Instead, before `make_folders()`,
+  Restore checks with `statx(STATX_MNT_ID)` that the nearest folder that exists, links
+  followed, is on the same mount as the trash's `files/`, the condition under which the rename
+  can work (two mounts of one file system do not share it). A restore that can only fail with
+  "on another disk" therefore makes no folder, including through a link the disk itself holds;
+  any other error on the way ("Not a directory") is said as it is.
 
 ---
 

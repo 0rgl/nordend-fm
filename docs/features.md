@@ -286,7 +286,10 @@ README's [What's next](../README.md#whats-next).
     Quick Look work as anywhere else; it follows what other programs trash or restore, live;
   - Restore (right click) puts things back where they were, makes their folder again if it is
     gone, asks on the card when the name is taken (a folder is never merged), and brings a
-    photo's darktable sidecars back with it;
+    photo's darktable sidecars back with it. Never to another disk, and no folder is made for a
+    restore that cannot happen: an entry whose relative path climbs off its disk with `..`,
+    which the Trash Specification does not allow, is listed, marked "off its disk" in the info
+    pane, and can be deleted but not restored (issue #66);
   - Delete (or "Delete Permanently…" in the menu) deletes the selection for good, a photo with
     its trashed darktable sidecars; "Empty Trash…" (on the trash's empty space, or a right click
     on Trash in the sidebar) empties every trash at once, orphaned `.trashinfo` files and

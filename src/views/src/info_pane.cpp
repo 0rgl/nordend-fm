@@ -496,7 +496,10 @@ void InfoPane::draw(ui::Renderer& renderer, const ui::Rect& bounds, const theme:
         out.row("Modified", format_time(single->modified_ns));
         // In the trash: where it was, and when it went.
         if (const fs::TrashedItem* const item = folder.model().trashed(single->name)) {
-            out.row("Original location", item->info.original.parent_path().string());
+            out.row("Original location",
+                    item->info.outside
+                        ? item->info.original.parent_path().string() + " (off its disk)"
+                        : item->info.original.parent_path().string());
             std::string deleted = item->info.deleted;
             std::ranges::replace(deleted, 'T', ' ');
             out.row("Deleted", deleted);

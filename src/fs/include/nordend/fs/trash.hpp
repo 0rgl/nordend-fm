@@ -86,6 +86,11 @@ void set_trash_sources(TrashSources sources);
 struct TrashInfo {
     std::filesystem::path original;
     std::string deleted;
+    // A relative path that "..", once made normal, takes out of relative_to (a disk's trash
+    // pointing into the home: "../../home/…"); the Trash Specification has none. Listed, so
+    // Delete and Empty Trash still reach it; never restored (issue #66). An absolute path is
+    // checked by Restore on the disk itself, since a mount can have more than one name.
+    bool outside{false};
 };
 
 [[nodiscard]] std::optional<TrashInfo> parse_trash_info(std::string_view text,
@@ -108,7 +113,8 @@ struct TrashedItem {
 // Each goes to its original path, the folder made again if it is gone; a taken name goes to
 // callbacks.resolve (replace: a file over a file; a folder is never merged, Replace is not
 // offered), then its .trashinfo is removed. A photo takes along its darktable sidecars that are in
-// the same trash from the same folder, named after it. Never copied between disks.
+// the same trash from the same folder, named after it. Never copied between disks, and no folder
+// is made for an item that could not go there anyway (TrashInfo::outside, another mount).
 //
 // The result: placed = the original names as restored, files_done = items, sidecars included.
 [[nodiscard]] TransferResult run_restore(const TransferRequest& request,

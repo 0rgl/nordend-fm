@@ -131,7 +131,7 @@ Everything it does, area by area: [docs/features.md](docs/features.md).
 
 Nordend is young software, used every day by its author. It needs Linux with a Wayland
 compositor that offers xdg-shell (developed on Umbriel, also tried on GNOME, Plasma and niri)
-and a GPU driver with OpenGL ES 3.0 (Mesa). Four ways, each opens with a click:
+and a GPU driver with OpenGL ES 3.0 (Mesa). Five ways, each opens with a click:
 
 <details>
 <summary><b>On any distribution</b>: nordend-setup builds, installs and updates it</summary>
@@ -155,6 +155,25 @@ sh nordend-setup           # asks what to do; or: sh nordend-setup install
 It installs itself beside `nordend`, to keep Nordend current later: its commands are below, in
 [nordend-setup](#nordend-setup). Nordend itself never goes online: only the script does, when
 you run it.
+
+</details>
+
+<details>
+<summary><b>On Fedora</b>: packages from COPR, updated with dnf</summary>
+
+Nordend's RPM is built in [COPR](https://copr.fedorainfracloud.org/coprs/0rgl0/nordend/),
+Fedora's build service, from the spec in [`packaging/rpm`](packaging/rpm), for the Fedora
+releases supported now (x86_64). Each release is built when it is published, its tests
+included, and comes with `dnf upgrade`:
+
+```sh
+sudo dnf copr enable 0rgl0/nordend
+sudo dnf install nordend
+```
+
+The package puts `nordend`, its desktop entry and icon, the shell completions and the file
+chooser's portal files under `/usr`, so Nordend can be the file chooser of other applications
+(below) without another step.
 
 </details>
 

@@ -1,0 +1,21 @@
+# Packit (https://packit.dev): builds the Fedora RPM in COPR when a release is published, from
+# packaging/rpm/nordend.spec at the release's tag. Its Version should match the release, as
+# .github/workflows/rpm.yml checks on every push.
+specfile_path: packaging/rpm/nordend.spec
+downstream_package_name: nordend
+# The archive Packit makes from the tag unpacks to nordend-fm-VERSION/, as GitHub's does
+upstream_package_name: nordend-fm
+upstream_tag_template: "v{version}"
+# Keep Release: 1%{?dist} from the spec, so a release builds as nordend-VERSION-1
+update_release: false
+
+jobs:
+  - job: copr_build
+    trigger: release
+    # The Fedora releases supported now, x86_64, as rpm.yml builds them; the COPR project
+    # follows Fedora's branching, so a new release is there when the alias takes it in.
+    targets:
+      - fedora-stable
+    # The COPR project nordend under the maintainer's Fedora account.
+    owner: 0rgl0
+    project: nordend

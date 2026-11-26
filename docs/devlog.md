@@ -7,6 +7,21 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 ## 2026-11-26 — toward 0.10.2
 
 **Done**
+- #57: a window takes 2 inotify instances instead of 13. Every `core::FileWatcher` of a loop
+  now shares one instance (`FileWatcher::Shared`, found through a registry keyed by the loop
+  and held weakly, so it goes with the loop's last watcher), and the watchers of files in one
+  directory share its watch: `inotify_add_watch` gives the same descriptor for a directory
+  already watched, so each is counted and removed with its last watcher. A watcher joining a
+  watched directory first has the queue read and handed to those already there, so it does not
+  hear of older changes; a watch the kernel dropped (`IN_IGNORED`) is let go at once, since its
+  number can come back for another directory. One queue means an overflow now reloads every
+  watcher of the window, which only reads a file again. The public API is the same and no call
+  site changed. `fs::DirectoryWatcher` keeps its own instance, as its mask
+  differs. Measured in a Fedora 45 container under a headless Weston, three windows of each
+  build, with a GTK 4 theme of `gtk.css` and five imports plus `gtk-3.0/gtk.css`
+  (`anon_inode:inotify` in `/proc/PID/fd`): 13 per window before, 2 after; 6 and 2 in an empty
+  home. With the kernel's 128 per user, and about 41 held by the rest of a Hyprland session as
+  in the issue, that is room for about 43 windows instead of 6.
 - #69, the part left over: `Helpers::read_archive_entry()` (Quick Look on a file inside an
   archive) handed the helper a memfd to write to and then gave the helper back to the pool, as
   extraction did before 0.10.1, so a helper could keep a copy of the descriptor and change the

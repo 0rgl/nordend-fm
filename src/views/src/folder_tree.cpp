@@ -51,6 +51,8 @@ void FolderTree::unfold(const std::filesystem::path& place, const std::filesyste
     if (error == std::errc::no_space_on_device) {
         // The per-user inotify watch limit: show the level anyway, without live updates.
         log::warn("{}: cannot watch for changes (inotify watch limit reached)", folder.string());
+    } else if (error == std::errc::too_many_files_open) {
+        // No inotify instance at all (said once by the watcher): shown without live updates.
     } else if (error) {
         level.failed = true;
         changed();

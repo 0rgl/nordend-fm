@@ -22,6 +22,15 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   (`anon_inode:inotify` in `/proc/PID/fd`): 13 per window before, 2 after; 6 and 2 in an empty
   home. With the kernel's 128 per user, and about 41 held by the rest of a Hyprland session as
   in the issue, that is room for about 43 windows instead of 6.
+- #57, the other half: with no inotify instance left at all, Nordend still opens its window
+  instead of exiting with "inotify_init1: Too many open files" (which a launcher shows
+  nowhere). `FileWatcher::Shared` and `fs::DirectoryWatcher` then stay without an instance and
+  say so once in the log, naming `fs.inotify.max_user_instances`; a file watcher is quiet, and
+  `DirectoryWatcher::watch()` answers `EMFILE`, which the folder views take as the watch limit
+  already was: the folder is shown, without live updates. A watcher whose folder must exist
+  still refuses a missing one, and `watch()` checks the path first, as the kernel would, so
+  an archive (`ENOTDIR`) still opens as a folder. Each tries `inotify_init1` again at its next
+  watch and says when it follows things again.
 - #69, the part left over: `Helpers::read_archive_entry()` (Quick Look on a file inside an
   archive) handed the helper a memfd to write to and then gave the helper back to the pool, as
   extraction did before 0.10.1, so a helper could keep a copy of the descriptor and change the

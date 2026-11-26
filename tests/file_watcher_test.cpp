@@ -1,15 +1,19 @@
 #include "nordend/core/file_watcher.hpp"
 
 #include <chrono>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <sys/resource.h>
 #include <system_error>
+#include <unistd.h>
 
 #include <doctest/doctest.h>
 
 #include "nordend/core/event_loop.hpp"
+#include "nordend/fs/directory_watcher.hpp"
 #include "temp_dir.hpp"
 
 using nordend::core::EventLoop;
@@ -18,6 +22,12 @@ using nordend::test::TempDir;
 using namespace std::chrono_literals;
 
 namespace {
+
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+constexpr bool kSanitized = true;
+#else
+constexpr bool kSanitized = false;
+#endif
 
 // Runs the loop for a fixed time: long enough for inotify and the settle timer.
 void run_for(EventLoop& loop, std::chrono::milliseconds time) {
@@ -37,6 +47,31 @@ int inotify_instances() {
     }
     return count;
 }
+
+// While it lives, no new descriptor can be opened (RLIMIT_NOFILE at the lowest free one), so
+// inotify_init1 fails with EMFILE, as when the user's inotify instances are all taken.
+class NoDescriptorsLeft {
+public:
+    NoDescriptorsLeft() {
+        REQUIRE(::getrlimit(RLIMIT_NOFILE, &saved_) == 0);
+        const int lowest = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+        REQUIRE(lowest >= 0);
+        ::close(lowest);
+        rlimit tight = saved_;
+        tight.rlim_cur = static_cast<rlim_t>(lowest);
+        REQUIRE(::setrlimit(RLIMIT_NOFILE, &tight) == 0);
+    }
+
+    ~NoDescriptorsLeft() { ::setrlimit(RLIMIT_NOFILE, &saved_); }
+
+    NoDescriptorsLeft(const NoDescriptorsLeft&) = delete;
+    NoDescriptorsLeft& operator=(const NoDescriptorsLeft&) = delete;
+    NoDescriptorsLeft(NoDescriptorsLeft&&) = delete;
+    NoDescriptorsLeft& operator=(NoDescriptorsLeft&&) = delete;
+
+private:
+    rlimit saved_{};
+};
 
 }  // namespace
 
@@ -192,4 +227,68 @@ TEST_CASE("file watchers: a folder that goes lets its watch go, and a new one wo
     dir.write("b.toml", "x");
     run_for(loop, 150ms);
     CHECK(calls == 1);
+}
+
+// Not under the sanitizers: their runtimes need descriptors of their own (ASan's pipe() to probe
+// memory), and with none left they stop the whole run.
+TEST_CASE("watchers: with no inotify instance left, they are made and stay quiet (#57)" *
+          doctest::skip(kSanitized)) {
+    const TempDir dir;
+    std::filesystem::create_directories(dir.path / "gtk-4.0");
+    std::filesystem::create_directories(dir.path / "folder");
+    dir.write("photos.zip", "PK");
+    EventLoop loop;  // its own descriptors first
+    int calls = 0;
+    std::unique_ptr<FileWatcher> file;
+    std::unique_ptr<FileWatcher> existing;
+    std::unique_ptr<nordend::fs::DirectoryWatcher> folders;
+    std::error_code on_folder;
+    std::error_code on_archive;
+    std::error_code on_missing;
+    bool missing_throws = false;
+    bool following = true;
+    {
+        const NoDescriptorsLeft full;
+        file =
+            std::make_unique<FileWatcher>(loop, dir.path / "colors.toml", [&] { ++calls; }, 20ms);
+        existing = std::make_unique<FileWatcher>(
+            loop, dir.path / "gtk-4.0" / "gtk.css", [&] { ++calls; }, 20ms,
+            FileWatcher::Directory::existing);
+        try {
+            const FileWatcher missing{loop, dir.path / "gtk-3.0" / "gtk.css", [] {}, 20ms,
+                                      FileWatcher::Directory::existing};
+        } catch (const std::system_error&) {
+            missing_throws = true;
+        }
+        folders = std::make_unique<nordend::fs::DirectoryWatcher>(loop);
+        following = folders->following();
+        const auto none = [](const auto& /*events*/) {};
+        CHECK(folders->watch(dir.path / "folder", none, on_folder) == 0);
+        CHECK(folders->watch(dir.path / "photos.zip", none, on_archive) == 0);
+        CHECK(folders->watch(dir.path / "gone", none, on_missing) == 0);
+    }
+    CHECK_FALSE(following);
+    // A folder that must exist and does not is still refused, as with a watch.
+    CHECK(missing_throws);
+    // What the kernel would have said about the path, then that nothing follows a folder: an
+    // archive still opens as a folder (ENOTDIR), a missing one is an error.
+    CHECK(on_folder == std::errc::too_many_files_open);
+    CHECK(on_archive == std::errc::not_a_directory);
+    CHECK(on_missing == std::errc::no_such_file_or_directory);
+    // Quiet.
+    dir.write("colors.toml", "x");
+    dir.write("gtk-4.0/gtk.css", "x");
+    run_for(loop, 100ms);
+    CHECK(calls == 0);
+    // An instance free again: the next watch takes it, and follows.
+    std::error_code again;
+    int events = 0;
+    const auto id =
+        folders->watch(dir.path / "folder", [&](const auto& /*events*/) { ++events; }, again);
+    CHECK(id != 0);
+    CHECK(folders->following());
+    dir.write("folder/new.txt", "x");
+    run_for(loop, 100ms);
+    CHECK(events > 0);
+    folders->unwatch(id);
 }

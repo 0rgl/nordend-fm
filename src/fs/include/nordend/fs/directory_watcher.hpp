@@ -47,11 +47,16 @@ public:
     DirectoryWatcher& operator=(DirectoryWatcher&&) = delete;
 
     // Starts watching a directory; 0 and error set on failure (ENOENT, EACCES, ENOSPC when the
-    // per-user watch limit is reached...). The same directory may be watched more than once.
+    // per-user watch limit is reached, EMFILE when there was no inotify instance left for this
+    // watcher: it was made anyway, and said so once in the log). The same directory may be
+    // watched more than once.
     WatchId watch(const std::filesystem::path& directory, Handler handler, std::error_code& error);
 
     // Stops one watch; unknown ids are ignored. Safe from inside a handler.
     void unwatch(WatchId id);
+
+    // Whether it has an inotify instance, so that its watches follow changes.
+    [[nodiscard]] bool following() const noexcept { return fd_ >= 0; }
 
 private:
     struct Subscriber {
@@ -59,6 +64,7 @@ private:
         Handler handler;
     };
 
+    bool start();  // the inotify instance and its source; false without one
     void on_readable();
 
     core::EventLoop& loop_;

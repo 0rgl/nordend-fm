@@ -571,15 +571,18 @@ TEST_CASE("drop: Alt asks to move, copy or link here; a link is relative, Ctrl+Z
 
     f.choose("link_here");
     REQUIRE(run_until(f.loop, [&] { return fs::is_symlink(f.album / "P2.ORF"); }));
+    REQUIRE(f.settle());  // recorded for Ctrl+Z: the link is on disk a little before
     CHECK(fs::read_symlink(f.album / "P2.ORF") == fs::path{"../photos/P2.ORF"});
     CHECK(fs::is_regular_file(fs::symlink_status(f.photos / "P2.ORF")));
 
     // Ctrl+Z moves the link to the trash, never what it leads to; Ctrl+Shift+Z makes it again.
     CHECK(f.browser.key(key(XKB_KEY_z, {.ctrl = true}), Browser::Clock::now()));
     REQUIRE(run_until(f.loop, [&] { return listing(f.album).empty(); }));
+    REQUIRE(f.settle());  // the undo recorded, else Ctrl+Shift+Z finds nothing to redo
     CHECK(fs::is_regular_file(fs::symlink_status(f.photos / "P2.ORF")));
     CHECK(f.browser.key(key(XKB_KEY_Z, {.ctrl = true, .shift = true}), Browser::Clock::now()));
     REQUIRE(run_until(f.loop, [&] { return fs::is_symlink(f.album / "P2.ORF"); }));
+    REQUIRE(f.settle());
 
     // Escape: nothing happens.
     f.drag(f.photos, "P1.ORF");

@@ -33,8 +33,10 @@ inline constexpr std::string_view kExtractedOrigin = "nordend:extracted";
 // Gives to what from has. True when from has none, or to now has it too.
 [[nodiscard]] bool copy_origin(int from, int to) noexcept;
 
-// Removes it from path (links followed); a file without it, or on a file system without user
-// attributes, is no error.
+// Removes it from path (links followed) where it can: a file without it, or where it cannot be
+// removed (someone else's, a read-only disk, a file that cannot be read), is left as it is, which
+// origin_of() then shows. A read-only file of the user's own gets u+w for the moment; the error
+// says it could not be given its mode back.
 [[nodiscard]] std::error_code forget_origin(const std::filesystem::path& path);
 
 }  // namespace nordend::fs

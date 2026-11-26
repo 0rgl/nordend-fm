@@ -1754,7 +1754,7 @@ void Browser::ask_to_run(const std::filesystem::path& program,
     const std::string name = program.filename().string();
     confirm_.open(
         std::format("Allow \u201c{}\u201d to run?", name),
-        "It is a program, and it is not allowed to run yet.", "Allow and Run",
+        "It is a program, and it has not been allowed to run yet.", "Allow and Run",
         [allow_and_run = std::move(allow_and_run)](bool confirmed) {
             if (confirmed) {
                 allow_and_run();

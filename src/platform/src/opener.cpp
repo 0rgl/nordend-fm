@@ -259,17 +259,14 @@ void Opener::allow_and_run(const std::filesystem::path& program) {
         [program](const core::CancelToken& /*token*/) {
             OpenPlan plan;
             const fs::ModeResult result = fs::set_running({program}, true);
-            if (!result.errors.empty()) {
-                plan.problems.push_back(
-                    std::format("Could not allow it to run: {}", result.errors.front()));
-                return plan;
-            }
             const ProgramCheck check = check_program(program);
-            // A mark that could not be removed (someone else's program) does not matter here:
-            // the user has just said yes.
+            // What the file is now decides: a mark that could not be removed (someone else's
+            // program) does not matter here, the user has just said yes.
             if (!check.program || !check.executable || check.noexec) {
                 plan.problems.push_back(
-                    std::format("“{}” still cannot run", program.filename().string()));
+                    result.errors.empty()
+                        ? std::format("“{}” still cannot run", program.filename().string())
+                        : std::format("Could not allow it to run: {}", result.errors.front()));
                 return plan;
             }
             plan.launches.push_back(program_launch(program));

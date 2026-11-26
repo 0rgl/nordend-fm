@@ -253,7 +253,9 @@ README's [What's next](../README.md#whats-next).
   is in it), with its icon and name under the pointer. It drops onto a folder in any view (marked),
   the empty part of a column or view (that folder), a step of the path above or a place in the
   sidebar; the Trash trashes. On the same disk it moves, onto another it copies; Ctrl copies,
-  Shift moves. It goes through the same engine as a paste: sidecars, questions, progress, Ctrl+Z.
+  Shift moves. Alt asks in a small menu: Move Here, Copy Here or Link Here (a relative link, which
+  Ctrl+Z moves to the trash); where the files already are it asks nothing. It goes through the
+  same engine as a paste: sidecars, questions, progress, Ctrl+Z.
   A folder never goes into itself, and dropping where the files already are does nothing. Other
   programs receive the files as file URIs and paths (Firefox, terminals), only to copy: Nordend
   never deletes its files because another program says it took them. Files dragged from another
@@ -394,6 +396,10 @@ README's [What's next](../README.md#whats-next).
   `user-dirs.dirs`), the file system, your GTK bookmarks (shared with other file managers) and
   the mounted disks. A disk appears as soon as it is mounted and disappears when it is unmounted.
   Ctrl+B hides the sidebar, and F6 moves the keyboard into it and back.
+  **Order and hiding** (`places_order`, `places_hidden`, `devices_order`, `devices_hidden` under
+  `[sidebar]` in `config.toml`, read live): the places by name (home, downloads, trash…), the
+  disks by mount point or by their file system's UUID; the others follow in their usual order.
+  Ctrl+K still offers a hidden place, and `nordend --check-config` reports a name it does not know.
   **Folder tree** (`[sidebar] tree = true` in `config.toml`, off by default, read live): each
   folder place gets a chevron that shows its subfolders, indented, one level at a time; a click
   on a name opens the folder. With the keyboard in the sidebar, → unfolds and goes into the first
@@ -452,7 +458,8 @@ README's [What's next](../README.md#whats-next).
   a folder already there is not added twice. Dragging to reorder comes later.
 - **Breadcrumb:** the folder's path as a row of clickable steps, starting from your home. A long
   path is shortened from the left.
-- **Typing a path** (Ctrl+L, or "Go to Path…" in Ctrl+K): the breadcrumb becomes a field holding
+- **Typing a path** (Ctrl+L, "Go to Path…" in Ctrl+K, or a click on the folder shown last in the
+  breadcrumb, the caret then at the end): the breadcrumb becomes a field holding
   the folder's path, all selected. Tab completes the folder name after the last `/` (with several
   matches their common start, then each in turn; Shift+Tab goes back; the status bar says how
   many), from a listing made on a worker once per folder typed, so no key waits on the disk.
@@ -674,7 +681,7 @@ FileChooser and portals.conf; org.freedesktop.FileManager1.
 
 ## Next
 
-0.10.0 is out (Create Link, the sidebar's folder tree, Ctrl+L to type a path, Ctrl+S to select by pattern, from 0rgl's issues and pull requests; the file chooser's Open when the cursor's file went away, slutsaint's issue #52), after 0.9.5 (scripts of your own in the context menu, from HOkket's issue #26; Ctrl+Shift+I, Ctrl+Shift+T, shell completions, back and forward under the compositor's title bar, access times left alone, from 0rgl's issues and pull requests), after 0.9.1 (Find Files ranks names first and takes terms in any order, from stradus64's issue #25; AppImages with the static runtime start, Evergaster's issue #23; copy, cut and mouse selection in every text field, slutsaint's issue #24; pasting into a folder reached through a link, issue #27; the last two with 0rgl's pull requests), after 0.9.0 (archives: zip, tar and tar.gz browsed like folders by Nordend's own caged reader, looked at with Quick Look, extracted safely and made from the menu; `.iso` images mounted; from veinhusk's issue #13; an RPM spec from 0rgl), after 0.8.1 (a name with room drawn whole at any text size, from 0rgl's pull request), after 0.8.0 (copying about twice as fast: a folder's files on eight threads, close to fcp and
+0.10.1 is out (Link Here, the path field from a click, the sidebar's order and hidden places; six safety fixes; the repository moved to 0rgl/nordend-fm, handed over by pankaspe), after 0.10.0 (Create Link, the sidebar's folder tree, Ctrl+L to type a path, Ctrl+S to select by pattern, from 0rgl's issues and pull requests; the file chooser's Open when the cursor's file went away, slutsaint's issue #52), after 0.9.5 (scripts of your own in the context menu, from HOkket's issue #26; Ctrl+Shift+I, Ctrl+Shift+T, shell completions, back and forward under the compositor's title bar, access times left alone, from 0rgl's issues and pull requests), after 0.9.1 (Find Files ranks names first and takes terms in any order, from stradus64's issue #25; AppImages with the static runtime start, Evergaster's issue #23; copy, cut and mouse selection in every text field, slutsaint's issue #24; pasting into a folder reached through a link, issue #27; the last two with 0rgl's pull requests), after 0.9.0 (archives: zip, tar and tar.gz browsed like folders by Nordend's own caged reader, looked at with Quick Look, extracted safely and made from the menu; `.iso` images mounted; from veinhusk's issue #13; an RPM spec from 0rgl), after 0.8.1 (a name with room drawn whole at any text size, from 0rgl's pull request), after 0.8.0 (copying about twice as fast: a folder's files on eight threads, close to fcp and
 ahead of `cp`; merging folders asks about each taken file, and Ctrl+Z after a merge takes away
 only what was copied; Shift+Escape stops a transfer), after 0.7.6 (programs and AppImages started with Enter, safely, "Allow Running as Program" and
 a dot on what can run, from Evergaster's issue #17; "Show in Folder" opening Nordend, from 0rgl's

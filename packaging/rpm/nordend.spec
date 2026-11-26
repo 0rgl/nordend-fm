@@ -11,7 +11,7 @@
 %bcond check 1
 
 Name:           nordend
-Version:        0.10.0
+Version:        0.10.1
 Release:        1%{?dist}
 Summary:        Native Wayland file manager
 
@@ -126,6 +126,12 @@ test -x %{_vpath_builddir}/tests/nordend-tests
 %{zsh_completions_dir}/_nordend
 
 %changelog
+* Thu Nov 26 2026 0rgl <30941756+0rgl@users.noreply.github.com> - 0.10.1-1
+- Alt with a drop asks to Move, Copy or Link Here; a click on the folder shown last opens the
+  path field; the sidebar's places and disks ordered and hidden from config.toml; safety fixes
+  for the preview helper's answers, copied setuid programs, the state files' permissions and
+  archive links; the repository moved to github.com/0rgl/nordend-fm
+
 * Mon Nov 23 2026 pankaspe <7622507+pankaspe@users.noreply.github.com> - 0.10.0-1
 - Create Link in the menu; a folder tree under the sidebar's places; Ctrl+L to type a path;
   Ctrl+S to select by pattern; the file chooser takes the selected files when the cursor's file

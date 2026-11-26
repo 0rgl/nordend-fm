@@ -205,6 +205,51 @@ TEST_CASE("transfer: a move on one disk renames; between disks it copies, then d
     CHECK(result.placed == Names{"notes.txt"});
 }
 
+TEST_CASE("transfer: a copy drops setuid and setgid, a move between disks keeps them") {
+    const auto modes = [](const fs::path& top) {
+        std::vector<unsigned> found;
+        for (const char* name : {"P1.ORF", "notes.txt", "Trip", "Trip/deep"}) {
+            found.push_back(stat_of(top / name).st_mode & 07777U);
+        }
+        return found;
+    };
+    // Whether the bits could be set: a build sandbox (Nix's) refuses them, a folder of another
+    // group drops setgid quietly.
+    const auto set_modes = [&modes](const fs::path& top) {
+        return ::chmod((top / "P1.ORF").c_str(), 04755) == 0 &&
+               ::chmod((top / "notes.txt").c_str(), 02750) == 0 &&
+               ::chmod((top / "Trip").c_str(), 02755) == 0 &&
+               ::chmod((top / "Trip" / "deep").c_str(), 01777) == 0 &&
+               modes(top) == std::vector<unsigned>{04755, 02750, 02755, 01777};
+    };
+    Tree t;
+    if (!set_modes(t.from)) {
+        MESSAGE("setuid and setgid cannot be set here: skipped");
+        return;
+    }
+    TransferResult result = t.run(TransferKind::copy, {"P1.ORF", "notes.txt", "Trip"});
+    CHECK(result.errors.empty());
+    // As cp: the bits go, a folder's sticky bit stays.
+    CHECK(modes(t.to) == std::vector<unsigned>{0755, 0750, 0755, 01777});
+
+    // Into a folder whose new folders take its group (setgid): as cp, the copies keep that.
+    Tree shared;
+    REQUIRE(::chmod((shared.from / "Trip").c_str(), 0755) == 0);
+    REQUIRE(::chmod((shared.from / "Trip" / "deep").c_str(), 0755) == 0);
+    REQUIRE(::chmod(shared.to.c_str(), 02775) == 0);
+    result = shared.run(TransferKind::copy, {"P1.ORF", "Trip"});
+    CHECK(result.errors.empty());
+    CHECK((stat_of(shared.to / "Trip").st_mode & 07777U) == 02755);
+    CHECK((stat_of(shared.to / "Trip" / "deep").st_mode & 07777U) == 02755);
+    CHECK((stat_of(shared.to / "P1.ORF").st_mode & 07000U) == 0);  // files take only the group
+
+    Tree u;
+    REQUIRE(set_modes(u.from));
+    result = u.run(TransferKind::move, {"P1.ORF", "notes.txt", "Trip"}, {}, true);
+    CHECK(result.errors.empty());
+    CHECK(modes(u.to) == std::vector<unsigned>{04755, 02750, 02755, 01777});
+}
+
 TEST_CASE("transfer: between two file systems the bytes go through read and write") {
     // /dev/shm is a tmpfs of its own: copy_file_range refuses (EXDEV), the fallback copies.
     std::string pattern = "/dev/shm/nordend-test-XXXXXX";

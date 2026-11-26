@@ -116,6 +116,22 @@ TEST_CASE("scroller: inertia stops at the edge; extent changes clamp; jump_to") 
     CHECK(s.offset() == 9500.0F);
 }
 
+TEST_CASE("scroller: a glide far down arrives with frames microseconds apart") {
+    // 40 000 pixels down a float steps by about 0.004: a frame of 50 microseconds would move
+    // the last pixel by less than that, and the glide would stop short of its target.
+    Scroller s;
+    s.set_extent(40000.0F, 500.0F);
+    s.jump_to(30000.0F);
+    auto t = Scroller::Clock::time_point{} + 1s;
+    s.glide_to(s.max_offset(), t);
+    for (int i = 0; i < 40000 && s.animating(); ++i) {  // two seconds of frames
+        t += 50us;
+        s.advance(t);
+    }
+    CHECK_FALSE(s.animating());
+    CHECK(s.offset() == s.max_offset());
+}
+
 TEST_CASE("scroller: glide_to glides to a clamped offset, destination tells where it heads") {
     Scroller s;
     s.set_extent(1000.0F, 400.0F);

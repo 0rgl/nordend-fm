@@ -22,10 +22,22 @@ struct TextFile {
     const std::filesystem::path& path,
     std::size_t max_bytes = std::numeric_limits<std::size_t>::max());
 
+struct WriteOptions {
+    unsigned mode{0644};  // a new file's permissions; one already there keeps its own
+    // The program's own file (state.toml): mode and a rwx------ folder even when they are there.
+    bool private_file{false};
+    // A symbolic link's target is written and the link stays (a dotfiles repository's); one that
+    // leads nowhere, or into a read-only place (home-manager's), is an error. False: the link is
+    // replaced by a file, for a file that must never write into what a link leads to.
+    bool through_links{true};
+};
+
 // Replaces path's content with text, all or nothing: written to a hidden file beside it, synced,
-// then renamed over it. Its folder is made when missing. Returns what failed.
+// then renamed over it. Missing folders are made rwx------, as the XDG base directory spec asks.
+// Returns what failed.
 [[nodiscard]] std::error_code write_file_atomically(const std::filesystem::path& path,
-                                                    std::string_view text);
+                                                    std::string_view text,
+                                                    const WriteOptions& options = {});
 
 // The file:// URI of an absolute path, escaped exactly as GLib's g_filename_to_uri does (other
 // programs compare these strings: thumbnails by their MD5, bookmarks, the clipboard).

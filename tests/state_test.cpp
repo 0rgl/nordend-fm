@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <sys/stat.h>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -191,6 +192,12 @@ TEST_CASE("StateKeeper: one write after the last change, flush writes what is le
     keeper.note(second);  // within the delay: only this one is written
     REQUIRE(run_until(loop, [&] { return keeper.saved() == second; }));
     REQUIRE(run_until(loop, [&] { return load_state(file).state == second; }));
+    // Where the user has been: the file and the folder made for it are theirs alone.
+    struct stat info{};
+    REQUIRE(::stat(file.c_str(), &info) == 0);
+    CHECK((info.st_mode & 07777U) == 0600);
+    REQUIRE(::stat(file.parent_path().c_str(), &info) == 0);
+    CHECK((info.st_mode & 07777U) == 0700);
 
     State third = second;
     third.sidebar_width = 300.0F;

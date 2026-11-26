@@ -44,6 +44,55 @@ bool unescaped(unsigned char c) {
 
 std::error_code last_error() { return {errno, std::generic_category()}; }
 
+// folder and the folders above it, those missing made rwx------.
+std::error_code make_folders(const std::filesystem::path& folder) {
+    std::filesystem::path made;
+    for (const std::filesystem::path& part : folder) {
+        made /= part;
+        struct stat info{};
+        if (::stat(made.c_str(), &info) == 0) {
+            if (!S_ISDIR(info.st_mode)) {
+                return std::make_error_code(std::errc::not_a_directory);
+            }
+            continue;
+        }
+        if (errno != ENOENT) {
+            return last_error();
+        }
+        if (::mkdir(made.c_str(), 0700) != 0) {
+            // Made meanwhile is fine when it is a folder.
+            if (errno != EEXIST || ::stat(made.c_str(), &info) != 0 || !S_ISDIR(info.st_mode)) {
+                return errno == EEXIST ? std::make_error_code(std::errc::not_a_directory)
+                                       : last_error();
+            }
+        }
+    }
+    return {};
+}
+
+// The link at path put back as it is, so that what watches its folder (another window, a GTK
+// program watching its bookmarks) hears of a change made to its target in another folder. Done
+// as a rename over it, never leaving it missing; when it cannot be, the change is just unheard.
+void touch_link(const std::filesystem::path& path) {
+    std::error_code error;
+    const std::filesystem::path target = std::filesystem::read_symlink(path, error);
+    if (error) {
+        return;
+    }
+    std::string temporary = (path.parent_path() / ("." + path.filename().string() + ".XXXXXX"));
+    const int fd = ::mkostemp(temporary.data(), O_CLOEXEC);  // a free name, made a link next
+    if (fd < 0) {
+        return;
+    }
+    ::close(fd);
+    if (::unlink(temporary.c_str()) != 0 || ::symlink(target.c_str(), temporary.c_str()) != 0) {
+        return;
+    }
+    if (::rename(temporary.c_str(), path.c_str()) != 0) {
+        ::unlink(temporary.c_str());
+    }
+}
+
 // The regular file open at fd, to its end (which may have moved since fstat), at most
 // max_bytes.
 TextFile read_open_file(int fd, std::size_t max_bytes) {
@@ -103,15 +152,33 @@ std::string file_uri(const std::filesystem::path& absolute) {
     return uri;
 }
 
-std::error_code write_file_atomically(const std::filesystem::path& path, std::string_view text) {
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    if (error) {
+std::error_code write_file_atomically(const std::filesystem::path& given, std::string_view text,
+                                      const WriteOptions& options) {
+    // A link's target is written, beside it the hidden file: renamed over the link, it would put
+    // a file in the link's place.
+    std::filesystem::path path = given;
+    struct stat old{};
+    const bool link = ::lstat(given.c_str(), &old) == 0 && S_ISLNK(old.st_mode);
+    if (link && options.through_links) {
+        std::error_code error;
+        path = std::filesystem::canonical(given, error);
+        if (error) {
+            return error;
+        }
+    }
+    if (const std::error_code error = make_folders(path.parent_path())) {
         return error;
     }
-    // The file keeps its permissions; a new one gets rw-r--r--.
-    struct stat old{};
-    const mode_t mode = ::stat(path.c_str(), &old) == 0 ? (old.st_mode & 07777) : 0644;
+    mode_t mode = options.mode;
+    if (options.private_file) {
+        // Its folder too, when an older Nordend made it with the umask's mode; not a folder a link
+        // leads into, which is someone else's choice. Tried only: the file is still worth saving.
+        if (!link) {
+            static_cast<void>(::chmod(path.parent_path().c_str(), 0700));
+        }
+    } else if ((!link || options.through_links) && ::stat(path.c_str(), &old) == 0) {
+        mode = old.st_mode & 07777;
+    }
     std::string temporary = (path.parent_path() / ("." + path.filename().string() + ".XXXXXX"));
     const int fd = ::mkostemp(temporary.data(), O_CLOEXEC);
     if (fd < 0) {
@@ -144,6 +211,9 @@ std::error_code write_file_atomically(const std::filesystem::path& path, std::st
         const std::error_code why = last_error();
         ::unlink(temporary.c_str());
         return why;
+    }
+    if (link && options.through_links) {
+        touch_link(given);
     }
     return {};
 }

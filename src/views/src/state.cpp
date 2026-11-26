@@ -451,7 +451,9 @@ struct StateKeeper::File {
             return {};
         }
         written = generation;
-        const std::error_code error = core::write_file_atomically(path, text);
+        // Where the user has been: theirs alone, even when an older Nordend made it readable.
+        const std::error_code error = core::write_file_atomically(
+            path, text, {.mode = 0600, .private_file = true, .through_links = true});
         return error ? error.message() : std::string{};
     }
 };

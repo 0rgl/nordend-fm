@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
@@ -39,21 +40,13 @@ constexpr std::uint32_t kEvents =
 // it and reloads, not only those of the busy directory. Their handlers only read a file again.
 class FileWatcher::Shared {
 public:
-    explicit Shared(EventLoop& loop) : loop_{loop}, fd_{inotify_init1(IN_NONBLOCK | IN_CLOEXEC)} {
-        if (fd_ < 0) {
-            throw std::system_error{errno, std::generic_category(), "inotify_init1"};
-        }
-        try {
-            source_ = loop_.add_fd(fd_, POLLIN, [this](short /*revents*/) { on_readable(); });
-        } catch (...) {
-            close(fd_);
-            throw;
-        }
-    }
+    explicit Shared(EventLoop& loop) : loop_{loop} { start(); }
 
     ~Shared() {
-        loop_.remove(source_);
-        close(fd_);
+        if (fd_ >= 0) {
+            loop_.remove(source_);
+            close(fd_);
+        }
         const std::scoped_lock lock{registry_mutex()};
         registry().erase(&loop_);
     }
@@ -83,8 +76,21 @@ public:
         return made;
     }
 
-    // Watches folder for watcher; its watch descriptor.
+    // Watches folder for watcher; its watch descriptor, or -1 without an instance.
     int add(const std::filesystem::path& folder, FileWatcher* watcher) {
+        if (fd_ < 0 && start()) {
+            log::info("file watcher: an inotify instance again, new watchers follow their files");
+        }
+        if (fd_ < 0) {
+            // As a watch would: a folder that must exist and cannot be reached is an error.
+            std::error_code error;
+            if (!std::filesystem::is_directory(folder, error)) {
+                throw std::system_error{
+                    error ? error : std::make_error_code(std::errc::not_a_directory),
+                    "inotify_add_watch " + folder.string()};
+            }
+            return -1;
+        }
         // What is queued already belongs to the watchers there before: read and handed out now,
         // so that a watcher joining a directory's watch does not hear of older changes.
         on_readable();
@@ -110,6 +116,33 @@ public:
     }
 
 private:
+    // The instance and its source; false without one.
+    bool start() {
+        fd_ = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+        if (fd_ < 0) {
+            // No instance left (fs.inotify.max_user_instances, 128 by default, shared by every
+            // program of the user): Nordend runs without following its files (issue #57). Said
+            // once; tried again at the next watcher.
+            static std::atomic_flag said;
+            if (!said.test_and_set()) {
+                log::warn(
+                    "file watcher: no inotify instance left ({}): config.toml, the colours "
+                    "and the places are not followed while Nordend runs; raise "
+                    "fs.inotify.max_user_instances",
+                    std::strerror(errno));  // NOLINT(concurrency-mt-unsafe)
+            }
+            return false;
+        }
+        try {
+            source_ = loop_.add_fd(fd_, POLLIN, [this](short /*revents*/) { on_readable(); });
+        } catch (...) {
+            close(fd_);
+            fd_ = -1;
+            throw;
+        }
+        return true;
+    }
+
     static std::mutex& registry_mutex() {
         static std::mutex mutex;
         return mutex;
@@ -180,7 +213,7 @@ private:
     }
 
     EventLoop& loop_;
-    int fd_;
+    int fd_{-1};
     EventLoop::SourceId source_{0};
     std::map<int, std::vector<FileWatcher*>> watches_;  // watch descriptor: its watchers
 };

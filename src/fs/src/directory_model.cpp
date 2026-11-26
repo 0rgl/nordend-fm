@@ -60,6 +60,8 @@ void DirectoryModel::open(std::filesystem::path path) {
     if (error == std::errc::no_space_on_device) {
         // The per-user inotify watch limit: show the directory anyway, without live updates.
         log::warn("{}: cannot watch for changes (inotify watch limit reached)", path_.string());
+    } else if (error == std::errc::too_many_files_open) {
+        // No inotify instance at all (said once by the watcher): shown without live updates.
     } else if (error) {
         fail(error);
         return;

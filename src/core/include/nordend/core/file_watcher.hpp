@@ -20,7 +20,8 @@ namespace nordend::core {
 //
 // Every FileWatcher of a loop shares one inotify instance (issue #57: the kernel allows 128 per
 // user, and a window used to take one per file), and watchers of files in one directory share
-// its watch.
+// its watch. When the user has no instance left, watchers are made all the same and stay quiet
+// (said once in the log), so that Nordend still starts.
 //
 // Made and destroyed on the loop thread. Must not outlive the loop. Not copyable or movable: the
 // loop callbacks keep a pointer to it.

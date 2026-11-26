@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
 #include <poll.h>
 #include <sys/inotify.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <utility>
 
@@ -21,21 +23,61 @@ constexpr std::uint32_t kWatchMask = IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_
 
 }  // namespace
 
-DirectoryWatcher::DirectoryWatcher(core::EventLoop& loop)
-    : loop_{loop}, fd_{inotify_init1(IN_NONBLOCK | IN_CLOEXEC)} {
+DirectoryWatcher::DirectoryWatcher(core::EventLoop& loop) : loop_{loop} { start(); }
+
+bool DirectoryWatcher::start() {
+    fd_ = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (fd_ < 0) {
-        throw std::system_error{errno, std::generic_category(), "inotify_init1"};
+        // No instance left (fs.inotify.max_user_instances): folders are shown without following
+        // their changes, rather than no window at all (issue #57). Said once; tried again at the
+        // next watch.
+        static std::atomic_flag said;
+        if (!said.test_and_set()) {
+            log::warn(
+                "directory watcher: no inotify instance left ({}): folders are not followed "
+                "live; raise fs.inotify.max_user_instances",
+                std::strerror(errno));  // NOLINT(concurrency-mt-unsafe)
+        }
+        return false;
     }
-    source_ = loop_.add_fd(fd_, POLLIN, [this](short /*revents*/) { on_readable(); });
+    try {
+        source_ = loop_.add_fd(fd_, POLLIN, [this](short /*revents*/) { on_readable(); });
+    } catch (...) {
+        close(fd_);
+        fd_ = -1;
+        throw;
+    }
+    return true;
 }
 
 DirectoryWatcher::~DirectoryWatcher() {
-    loop_.remove(source_);
-    close(fd_);  // drops every watch
+    if (fd_ >= 0) {
+        loop_.remove(source_);
+        close(fd_);  // drops every watch
+    }
 }
 
 DirectoryWatcher::WatchId DirectoryWatcher::watch(const std::filesystem::path& directory,
                                                   Handler handler, std::error_code& error) {
+    if (fd_ < 0) {
+        if (start()) {
+            log::info("directory watcher: an inotify instance again, new folders are followed");
+        } else {
+            // What the watch would have said about the path (an archive is not a directory:
+            // the model opens it as one on ENOTDIR), then that nothing follows it.
+            struct stat info{};
+            if (::stat(directory.c_str(), &info) != 0) {
+                error = {errno, std::generic_category()};
+            } else if (!S_ISDIR(info.st_mode)) {
+                error = std::make_error_code(std::errc::not_a_directory);
+            } else if (::access(directory.c_str(), R_OK) != 0) {
+                error = {errno, std::generic_category()};
+            } else {
+                error = std::make_error_code(std::errc::too_many_files_open);
+            }
+            return 0;
+        }
+    }
     const int descriptor = inotify_add_watch(fd_, directory.c_str(), kWatchMask);
     if (descriptor < 0) {
         error = {errno, std::generic_category()};

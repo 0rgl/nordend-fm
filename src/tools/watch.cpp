@@ -58,6 +58,9 @@ int main(int argc, char** argv) {
         loop.add_fd(signals, POLLIN, [&](short /*revents*/) { loop.quit(0); });
         core::WorkerPool pool{loop};
         fs::DirectoryWatcher watcher{loop};
+        if (!watcher.following()) {
+            std::fprintf(stderr, "no inotify instance left: changes are not followed\n");
+        }
         const auto mime = fs::MimeDatabase::load();
         fs::DirectoryModel model{loop, pool, watcher, mime};
 

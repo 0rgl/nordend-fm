@@ -579,6 +579,47 @@ TEST_CASE("helpers: an extracted file is checked again once its helper is gone")
     CHECK(result.errors == std::vector<std::string>(3, "not the size the archive says, left out"));
 }
 
+TEST_CASE("helpers: one entry read for Quick Look ends its helper, then is checked") {
+    const fs::path archive = fs::path{NORDEND_TEST_DATA} / "archive" / "gnu.tar";
+    const int fd = ::open(archive.c_str(), O_RDONLY | O_CLOEXEC);
+    REQUIRE(fd >= 0);
+    const nordend::archive::Listing listing = nordend::formats::archive::list(fd, {});
+    ::close(fd);
+    const auto file = std::ranges::find_if(listing.entries, [](const auto& entry) {
+        return entry.type == nordend::archive::Type::file && entry.size > 0;
+    });
+    REQUIRE(file != listing.entries.end());
+    const auto size_of = [](int out) {
+        struct stat info{};
+        REQUIRE(::fstat(out, &info) == 0);
+        return static_cast<std::uint64_t>(info.st_size);
+    };
+
+    // More written than said: refused.
+    isolate::Helpers long_one{fake("entry-long")};
+    const int out = ::memfd_create("out", MFD_CLOEXEC);
+    const nordend::archive::Read refused =
+        long_one.read_archive_entry(archive, listing.format, *file, out, 1 << 20);
+    CHECK(refused.failure == nordend::archive::Failure::unreadable);
+    CHECK(refused.detail == "not the size the archive says");
+    CHECK(long_one.running() == 0);
+    ::close(out);
+
+    // A copy of the descriptor kept for later: the helper is gone before the next read, so the
+    // first entry stays as it was checked.
+    isolate::Helpers later{fake("entry-later")};
+    const int first = ::memfd_create("first", MFD_CLOEXEC);
+    const int second = ::memfd_create("second", MFD_CLOEXEC);
+    CHECK(later.read_archive_entry(archive, listing.format, *file, first, 1 << 20).failure ==
+          nordend::archive::Failure::none);
+    CHECK(later.running() == 0);
+    CHECK(later.read_archive_entry(archive, listing.format, *file, second, 1 << 20).failure ==
+          nordend::archive::Failure::none);
+    CHECK(size_of(first) == file->size);
+    ::close(first);
+    ::close(second);
+}
+
 TEST_CASE("helpers: a sequence's read is stopped mid-entry, the helper with it") {
     // 4 GiB of zeros once inflated: one 64 MiB gzip member, 64 times over (gzip allows that).
     std::string member;

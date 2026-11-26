@@ -7,6 +7,16 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 ## 2026-11-26 — toward 0.10.2
 
 **Done**
+- #69, the part left over: `Helpers::read_archive_entry()` (Quick Look on a file inside an
+  archive) handed the helper a memfd to write to and then gave the helper back to the pool, as
+  extraction did before 0.10.1, so a helper could keep a copy of the descriptor and change the
+  entry after it was checked. `run()` takes `end`, and this read ends its helper once it has
+  answered, as a sequence does; the memfd is then checked against the count the helper gave.
+  The cost is a new helper for the next request, about 2 ms (measured for #78), and one more:
+  a helper used to keep a tar.gz's inflate stream between two reads, so Quick Look going down
+  the entries of a large .tar.gz read each from where the last stopped; now each is inflated
+  from the archive's start again. Safety first; keeping the stream in Nordend instead is left
+  for the archives work of 0.14.
 - #65: a program from an archive asks before it first runs. Extraction (Extract Here, Ctrl+V,
   and Enter on a file inside, which extracts to a private copy and opens it) gives every file
   with an execute bit `user.xdg.origin.url`: the archive's own value when a browser set one,

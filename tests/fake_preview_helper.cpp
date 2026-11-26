@@ -6,7 +6,8 @@
 // Sizes that do not hold: too-wide (a picture wider than asked for), wrap (2^31 x (2^31 + 2)
 // pixels, a size that wraps in 64 bits to a sparse 16 GiB memfd), unsealed (pixels that can
 // still be written to).
-// text-huge: the most bytes and spans a text can say, in 4 bytes.
+// text-huge: the most bytes and spans a text can say, in 4 bytes. text-sparse: every line
+// max_line_bytes long at the default limits, about 3.5 GB, in a sparse memfd of that size.
 // entry-long: an archive entry with more written than said; entry-later: an entry written as
 // said, then more through a copy of its descriptor at the next request.
 #include <array>
@@ -152,6 +153,23 @@ int main(int argc, char** argv) {
             if (!send_pixels(1, 1, 4, F_SEAL_SHRINK | F_SEAL_GROW)) {
                 return 1;
             }
+            continue;
+        }
+        if (mode == "text-sparse") {
+            protocol::TextResponse response;
+            response.lines = 256 * 1024;                   // the default max_bytes, a line each
+            response.bytes = response.lines * (1024 + 1);  // the default max_line_bytes and '\n'
+            response.spans = response.bytes;
+            const int memfd = ::memfd_create("lie", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+            if (memfd < 0 || ::ftruncate(memfd, static_cast<off_t>(protocol::text_payload_size(
+                                                    response.bytes, response.spans))) != 0) {
+                return 1;
+            }
+            ::fcntl(memfd, F_ADD_SEALS, all_seals);
+            const std::array<int, 1> fds{memfd};
+            static_cast<void>(protocol::send_packet(protocol::kSocketFd,
+                                                    std::as_bytes(std::span{&response, 1}), fds));
+            ::close(memfd);
             continue;
         }
         if (mode == "text-huge") {

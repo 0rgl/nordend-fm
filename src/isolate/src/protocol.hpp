@@ -114,8 +114,9 @@ struct TextResponse {
 // The payload's size for bytes and spans.
 [[nodiscard]] std::size_t text_payload_size(std::uint32_t bytes, std::uint32_t spans);
 
-// Whether lines, bytes and spans can make a payload within limits, before it is read: every line
-// at most limits.max_line_bytes and its '\n', every span at least a byte.
+// Whether lines, bytes and spans can make a payload within limits, before it is read: no more
+// bytes than limits.max_bytes of a file can become, every line at most limits.max_line_bytes
+// and its '\n', every span at least a byte.
 [[nodiscard]] bool text_payload_fits(std::uint32_t lines, std::uint32_t bytes, std::uint32_t spans,
                                      const text::Limits& limits);
 

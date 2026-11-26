@@ -96,6 +96,7 @@ void Scroller::jump_to(float offset) {
 
 bool Scroller::advance(Clock::time_point now) {
     const float dt = std::max(0.0F, seconds(now - last_));
+    const Clock::time_point was = last_;
     last_ = now;
     const float before = offset_;
     switch (mode_) {
@@ -108,6 +109,10 @@ bool Scroller::advance(Clock::time_point now) {
             if (std::abs(target_ - offset_) < kGlideEpsilon) {
                 offset_ = target_;
                 mode_ = Mode::idle;
+            } else if (offset_ == before) {
+                // A step too small for a float this far down (frames microseconds apart, far
+                // into a long text): the time is kept for the next frame instead of spent.
+                last_ = was;
             }
             break;
         }

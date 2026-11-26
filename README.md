@@ -458,3 +458,7 @@ are the author's. Step numbers in code comments ("ROADMAP 6.3") refer to the int
 
 [MIT](LICENSE). Third-party code and data (the wuffs decoder, the Tabler icons, Noctalia's default
 palette) are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+---
+
+<p align="center">Created by <a href="https://github.com/pankaspe">pankaspe</a></p>

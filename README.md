@@ -344,9 +344,9 @@ flowchart LR
 
 - **Untrusted files never reach the main program.** Photos, raw files, texts and archives are read
   by `nordend-preview`, a separate helper caged by Nordend: seccomp lets through only the system
-  calls it needs (opening a file is refused), landlock closes the file system, rlimits cap its
-  memory. It gets an open file and gives back sealed memory. If a file breaks it, the helper dies;
-  Nordend shows no preview and goes on.
+  calls it needs (opening a file is refused, and no memory can be made executable), landlock
+  closes the file system, rlimits cap its memory. It gets an open file and gives back sealed
+  memory. If a file breaks it, the helper dies; Nordend shows no preview and goes on.
 - **Our own readers, fuzzed.** TIFF, DNG, the raw containers, lossless JPEG, archives and text are
   Nordend's own code, run under libFuzzer for an hour per target before a release that changes
   them; real findings stay in the tests. PNG, JPEG and GIF go through

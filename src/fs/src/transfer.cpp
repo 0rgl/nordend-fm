@@ -474,7 +474,11 @@ bool Engine::copy_file(const std::filesystem::path& source, const struct stat& i
         return false;
     }
     const std::array<timespec, 2> times{info.st_atim, info.st_mtim};
-    fchmod(to.get(), info.st_mode & 07777);
+    // A copy is its maker's, so it would run as them: setuid, setgid and sticky go, as with cp.
+    // A move between disks keeps them when the file keeps its owner and group too, as with mv;
+    // one that cannot (someone else's file) loses them instead of running as its mover.
+    const bool same_owner = moving_ && fchown(to.get(), info.st_uid, info.st_gid) == 0;
+    fchmod(to.get(), info.st_mode & (same_owner ? 07777 : 0777));
     futimens(to.get(), times.data());
     // Between file systems the original is deleted next: the copy must be on the disk first.
     if (moving_ && fsync(to.get()) != 0) {
@@ -644,7 +648,16 @@ bool Engine::finish(std::deque<Building>& folders) {
                 building.parent->failed = true;  // incomplete inside: so is the folder around it
             }
         }
-        chmod(building.made.c_str(), building.info.st_mode & 07777);
+        // As cp and mv: a copied folder keeps its sticky bit, and the setgid it took from the
+        // folder it was made in, not its own; a moved one keeps all with its owner and group.
+        const bool same_owner = moving_ && chown(building.made.c_str(), building.info.st_uid,
+                                                 building.info.st_gid) == 0;
+        mode_t mode = building.info.st_mode & (same_owner ? 07777 : 01777);
+        struct stat made{};
+        if (!same_owner && stat(building.made.c_str(), &made) == 0) {
+            mode |= made.st_mode & S_ISGID;
+        }
+        chmod(building.made.c_str(), mode);
         const std::array<timespec, 2> times{building.info.st_atim, building.info.st_mtim};
         utimensat(AT_FDCWD, building.made.c_str(), times.data(), 0);
         if (moving_ && !failed && building.parent != nullptr) {

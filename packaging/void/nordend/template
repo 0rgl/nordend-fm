@@ -15,10 +15,10 @@ makedepends="wayland-devel wayland-protocols libglvnd-devel libxkbcommon-devel
 # and xdg-desktop-portal (desktop colours, the file chooser) are used when present
 depends="shared-mime-info hicolor-icon-theme"
 short_desc="Fast, native file manager for Wayland, made for photographers"
-maintainer="pankaspe <7622507+pankaspe@users.noreply.github.com>"
+maintainer="0rgl <30941756+0rgl@users.noreply.github.com>"
 license="MIT"
-homepage="https://github.com/pankaspe/nordend-fm"
-distfiles="https://github.com/pankaspe/nordend-fm/archive/v${version}.tar.gz"
+homepage="https://github.com/0rgl/nordend-fm"
+distfiles="https://github.com/0rgl/nordend-fm/archive/v${version}.tar.gz"
 checksum=14e1cf39bcc876c2dcf1f2442f61efbf6cf3fb7d6217208f29f4615865ee0dc9
 
 post_install() {

@@ -1,5 +1,5 @@
 # Nordend's Nix package, in nixpkgs' style. The flake at the top of the repository builds it
-# from the tree it sits in: nix build, or nix run github:pankaspe/nordend-fm
+# from the tree it sits in: nix build, or nix run github:0rgl/nordend-fm
 {
   lib,
   stdenv,
@@ -83,7 +83,7 @@ stdenv.mkDerivation {
 
   meta = {
     description = "Fast, native file manager for Wayland, made for photographers";
-    homepage = "https://github.com/pankaspe/nordend-fm";
+    homepage = "https://github.com/0rgl/nordend-fm";
     license = lib.licenses.mit;
     # the only one built and tried so far
     platforms = [ "x86_64-linux" ];

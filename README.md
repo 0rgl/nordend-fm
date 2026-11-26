@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/pankaspe/nordend-fm/releases/tag/v0.10.0"><img src="https://img.shields.io/badge/release-v0.10.0-2a6a9e" alt="release v0.10.0"></a>
+  <a href="https://github.com/0rgl/nordend-fm/releases/tag/v0.10.0"><img src="https://img.shields.io/badge/release-v0.10.0-2a6a9e" alt="release v0.10.0"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Wayland-native-FFBC00?logo=wayland&logoColor=black" alt="Wayland native">
   <img src="https://img.shields.io/badge/tests-703%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="703 tests, ASan, TSan">
   <img src="https://img.shields.io/badge/fuzzed-7%20parsers-c0392b" alt="7 parsers fuzzed">
-  <a href="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/pankaspe/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/0rgl/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/0rgl/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-3DA639" alt="MIT license">
 </p>
 
@@ -146,7 +146,7 @@ openSUSE Tumbleweed. Ubuntu 24.04 and Linux Mint 22 cannot build Nordend (their 
 Download it, read it, run it:
 
 ```sh
-curl -fLO https://raw.githubusercontent.com/pankaspe/nordend-fm/v0.10.0/scripts/nordend-setup
+curl -fLO https://raw.githubusercontent.com/0rgl/nordend-fm/v0.10.0/scripts/nordend-setup
 less nordend-setup
 sh nordend-setup           # asks what to do; or: sh nordend-setup install
 ```
@@ -171,7 +171,7 @@ cd void-packages
 ./xbps-src binary-bootstrap
 
 # 2. Nordend's template, then the package
-git clone --depth 1 https://github.com/pankaspe/nordend-fm /tmp/nordend-fm
+git clone --depth 1 https://github.com/0rgl/nordend-fm /tmp/nordend-fm
 cp -r /tmp/nordend-fm/packaging/void/nordend srcpkgs/
 ./xbps-src pkg nordend
 sudo xbps-install -R hostdir/binpkgs nordend
@@ -191,15 +191,15 @@ it on your machine, in a few minutes, its tests included. Since 0.5.1, for x86_6
 on NixOS 26.05 with GNOME.
 
 ```sh
-nix run github:pankaspe/nordend-fm           # try it
-nix profile add github:pankaspe/nordend-fm   # keep it (nix profile install in older Nix)
+nix run github:0rgl/nordend-fm           # try it
+nix profile add github:0rgl/nordend-fm   # keep it (nix profile install in older Nix)
 ```
 
 In a NixOS configuration made with flakes:
 
 ```nix
 # flake.nix: inputs
-nordend.url = "github:pankaspe/nordend-fm";
+nordend.url = "github:0rgl/nordend-fm";
 
 # a module (with inputs passed in specialArgs)
 nixpkgs.overlays = [ inputs.nordend.overlays.default ];
@@ -219,7 +219,7 @@ sudo xbps-install -S cmake ninja pkgconf wayland-devel wayland-protocols \
     libxkbcommon-devel libglvnd-devel MesaLib-devel \
     harfbuzz-devel freetype-devel fontconfig-devel tomlplusplus-devel \
     libwebp-devel libjxl-devel zlib-devel sdbus-c++-devel
-git clone https://github.com/pankaspe/nordend-fm
+git clone https://github.com/0rgl/nordend-fm
 cd nordend-fm
 cmake -B build -G Ninja
 cmake --build build
@@ -415,9 +415,9 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 | Version | What it brought |
 |---|---|
-| [0.10.0](https://github.com/pankaspe/nordend-fm/releases/tag/v0.10.0), 2026-11-23 | A symbolic link from the context menu, a folder tree under the sidebar's places (off by default), Ctrl+L to type a path with Tab completing folder names, Ctrl+S to select by a name pattern: 0rgl's issues and pull requests; the file chooser's Open no longer fails when the cursor's file went away, slutsaint's issue #52 |
-| [0.9.5](https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.5), 2026-11-20 | Scripts of your own in the context menu, as in Nautilus, from HOkket's issue #26; Ctrl+Shift+I inverts the selection, Ctrl+Shift+T reopens a closed tab, completions for bash, zsh and fish, back and forward under the compositor's title bar, access times left alone, a disk not powered off says why: 0rgl's issues and pull requests |
-| [0.9.1](https://github.com/pankaspe/nordend-fm/releases/tag/v0.9.1), 2026-11-20 | Find Files ranks names first, the shallower path first, takes terms in any order and keeps Space for Quick Look in the list, from stradus64's issue #25; AppImages with the static runtime start, Evergaster's issue #23; copy, cut and mouse selection in every text field, slutsaint's issue #24; pasting into a folder reached through a link, issue #27; the last two from 0rgl's pull requests |
+| [0.10.0](https://github.com/0rgl/nordend-fm/releases/tag/v0.10.0), 2026-11-23 | A symbolic link from the context menu, a folder tree under the sidebar's places (off by default), Ctrl+L to type a path with Tab completing folder names, Ctrl+S to select by a name pattern: 0rgl's issues and pull requests; the file chooser's Open no longer fails when the cursor's file went away, slutsaint's issue #52 |
+| [0.9.5](https://github.com/0rgl/nordend-fm/releases/tag/v0.9.5), 2026-11-20 | Scripts of your own in the context menu, as in Nautilus, from HOkket's issue #26; Ctrl+Shift+I inverts the selection, Ctrl+Shift+T reopens a closed tab, completions for bash, zsh and fish, back and forward under the compositor's title bar, access times left alone, a disk not powered off says why: 0rgl's issues and pull requests |
+| [0.9.1](https://github.com/0rgl/nordend-fm/releases/tag/v0.9.1), 2026-11-20 | Find Files ranks names first, the shallower path first, takes terms in any order and keeps Space for Quick Look in the list, from stradus64's issue #25; AppImages with the static runtime start, Evergaster's issue #23; copy, cut and mouse selection in every text field, slutsaint's issue #24; pasting into a folder reached through a link, issue #27; the last two from 0rgl's pull requests |
 
 ## What's next
 

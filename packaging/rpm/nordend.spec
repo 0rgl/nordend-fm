@@ -17,7 +17,7 @@ Summary:        Native Wayland file manager
 
 # MIT: Nordend, fzy, Tabler Icons, Noctalia palette; MIT OR Apache-2.0: wuffs
 License:        MIT AND (MIT OR Apache-2.0)
-URL:            https://github.com/pankaspe/nordend-fm
+URL:            https://github.com/0rgl/nordend-fm
 Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 # See THIRD_PARTY.md; not packaged in Fedora, no upstream switch for system copies.

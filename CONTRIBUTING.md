@@ -14,10 +14,11 @@ your time.
   do it, so we can agree on the shape before you write it. That way your pull request has a
   clear path to being merged, with you as the author of the commit and your name in the devlog
   and the release notes. Issues marked **good first issue** are a good place to start.
-- **The core steps on the roadmap are written in-house**: the file picker, the preview engines
-  and the formats they read, the sandbox, plugins, network shares. There, your ideas, issues and
-  reference branches shape the work and are credited, but the code stays with the maintainer,
-  so that these parts stay coherent.
+- **The core steps on the roadmap need an agreed shape first**: the file picker, the preview
+  engines and the formats they read, the sandbox, plugins, network shares. These parts have to
+  fit together, so we settle the design in the issue before any code is written, and then a pull
+  request is welcome. An idea or a reference branch that shaped the work is credited, even when
+  none of its code is merged.
 
 ## What fits Nordend
 

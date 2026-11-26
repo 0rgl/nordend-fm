@@ -4,8 +4,10 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <optional>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -231,6 +233,81 @@ TEST_CASE("bookmarks: written all at once, the folder made, the permissions kept
     CHECK(files == 1);
     // A folder where the file should be: an error, nothing else.
     CHECK(nordend::core::write_file_atomically(dir.path / "config", "x"));
+    // The folders made are rwx------, as the XDG base directory spec asks.
+    for (const std::filesystem::path& folder : {dir.path / "config", file.parent_path()}) {
+        CHECK((std::filesystem::status(folder).permissions() & std::filesystem::perms::all) ==
+              std::filesystem::perms::owner_all);
+    }
+    // A new file gets the mode asked for; one already there keeps its own.
+    using std::filesystem::perms;
+    const auto mode_of = [](const std::filesystem::path& path) {
+        return std::filesystem::status(path).permissions() & perms::all;
+    };
+    const std::filesystem::path own = dir.path / "state" / "nordend" / "state.toml";
+    CHECK_FALSE(nordend::core::write_file_atomically(
+        own, "a", {.mode = 0600, .private_file = false, .through_links = true}));
+    CHECK(mode_of(own) == (perms::owner_read | perms::owner_write));
+    std::filesystem::permissions(file, perms::owner_read | perms::owner_write | perms::group_read);
+    CHECK_FALSE(nordend::core::write_file_atomically(
+        file, "file:///c\n", {.mode = 0600, .private_file = false, .through_links = true}));
+    CHECK(mode_of(file) == (perms::owner_read | perms::owner_write | perms::group_read));
+    // The program's own file, left readable by an older version: its mode and its folder's are
+    // put right.
+    std::filesystem::permissions(
+        own, perms::owner_read | perms::owner_write | perms::group_read | perms::others_read);
+    std::filesystem::permissions(own.parent_path(), perms::owner_all | perms::group_read |
+                                                        perms::group_exec | perms::others_read |
+                                                        perms::others_exec);
+    CHECK_FALSE(nordend::core::write_file_atomically(
+        own, "b", {.mode = 0600, .private_file = true, .through_links = true}));
+    CHECK(mode_of(own) == (perms::owner_read | perms::owner_write));
+    CHECK(mode_of(own.parent_path()) == perms::owner_all);
+}
+
+TEST_CASE("bookmarks: written through a symbolic link, the link stays") {
+    const TempDir dir;
+    // A dotfiles repository's file, linked into place (GNU Stow, home-manager).
+    const std::filesystem::path kept = dir.path / "dotfiles" / "bookmarks";
+    std::filesystem::create_directories(kept.parent_path());
+    std::ofstream{kept} << "file:///a\n";
+    std::filesystem::permissions(kept, std::filesystem::perms::owner_read |
+                                           std::filesystem::perms::owner_write |
+                                           std::filesystem::perms::group_read);
+    const std::filesystem::path link = dir.path / "config" / "bookmarks";
+    std::filesystem::create_directories(link.parent_path());
+    std::filesystem::create_symlink("../dotfiles/bookmarks", link);
+    CHECK_FALSE(nordend::core::write_file_atomically(link, "file:///b\n"));
+    CHECK(std::filesystem::is_symlink(link));
+    CHECK(nordend::core::read_text_file(kept).text == "file:///b\n");
+    CHECK((std::filesystem::status(kept).permissions() & std::filesystem::perms::all) ==
+          (std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+           std::filesystem::perms::group_read));
+    // The link was put back, so that what watches its folder hears of the change.
+    struct stat before{};
+    REQUIRE(::lstat(link.c_str(), &before) == 0);
+    CHECK_FALSE(nordend::core::write_file_atomically(link, "file:///c\n"));
+    struct stat after{};
+    REQUIRE(::lstat(link.c_str(), &after) == 0);
+    CHECK(S_ISLNK(after.st_mode));
+    CHECK(after.st_ino != before.st_ino);
+    CHECK(std::filesystem::read_symlink(link) == "../dotfiles/bookmarks");
+    // Nothing left beside the target, nor beside the link.
+    for (const std::filesystem::path& folder : {kept.parent_path(), link.parent_path()}) {
+        CHECK(std::distance(std::filesystem::directory_iterator{folder},
+                            std::filesystem::directory_iterator{}) == 1);
+    }
+    // A link that leads nowhere: an error, and the link is left as it was.
+    const std::filesystem::path dangling = dir.path / "config" / "nowhere";
+    std::filesystem::create_symlink("../dotfiles/missing", dangling);
+    CHECK(nordend::core::write_file_atomically(dangling, "x"));
+    CHECK(std::filesystem::is_symlink(dangling));
+    CHECK_FALSE(std::filesystem::exists(dir.path / "dotfiles" / "missing"));
+    // Not through links (the app's icon): the link is replaced, what it leads to left alone.
+    CHECK_FALSE(nordend::core::write_file_atomically(
+        link, "icon", {.mode = 0644, .private_file = false, .through_links = false}));
+    CHECK_FALSE(std::filesystem::is_symlink(link));
+    CHECK(nordend::core::read_text_file(link).text == "icon");
+    CHECK(nordend::core::read_text_file(kept).text == "file:///c\n");
 }
 
 TEST_CASE("places: mounts") {

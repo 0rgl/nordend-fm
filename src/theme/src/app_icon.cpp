@@ -169,7 +169,10 @@ AppIconChange sync_app_icon(const AppIconPlace& place, std::optional<Color> acce
     if (current.exists && current.text == wanted) {
         return AppIconChange::none;
     }
-    if (const std::error_code error = core::write_file_atomically(place.path, wanted)) {
+    // A link here may lead to the installed icon (a prefix stowed into ~/.local): replaced, never
+    // written through.
+    if (const std::error_code error = core::write_file_atomically(
+            place.path, wanted, {.mode = 0644, .private_file = false, .through_links = false})) {
         log::warn("icon: cannot write {}: {}", place.path.string(), error.message());
         return AppIconChange::failed;
     }

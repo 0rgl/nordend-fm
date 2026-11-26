@@ -61,7 +61,8 @@ public:
     [[nodiscard]] text::Loaded load_text(const text::LoadRequest& request);
 
     // An archive's entries, and one entry's bytes written to out, by a helper; the time allowed
-    // grows with the archive (a tar.gz is inflated from its start). Thread-safe.
+    // grows with the archive (a tar.gz is inflated from its start). Thread-safe. The helper that
+    // wrote an entry is ended, and out (a new, empty file) must then hold what it said.
     [[nodiscard]] archive::Listing list_archive(const std::filesystem::path& path,
                                                 const archive::Limits& limits);
     [[nodiscard]] archive::Read read_archive_entry(const std::filesystem::path& path,
@@ -102,10 +103,11 @@ private:
                             std::chrono::milliseconds timeout,
                             const std::function<bool()>& stopped = {});
     // The request to a helper (a new one if it had left), its reply handed to accept; false with
-    // why when no helper answered in a way accept took.
+    // why when no helper answered in a way accept took. Then the helper goes back to the pool,
+    // or with end, is ended (it was handed a descriptor to write to, and could keep a copy).
     bool run(std::span<const std::byte> request, std::span<const int> fds,
              const std::function<bool(protocol::Packet&, std::string&)>& accept, std::string& why,
-             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt, bool end = false);
 
     HelperOptions options_;
     mutable std::mutex mutex_;

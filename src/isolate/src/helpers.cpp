@@ -343,7 +343,7 @@ Helpers::Outcome Helpers::exchange(Helper helper, std::span<const std::byte> req
 
 bool Helpers::run(std::span<const std::byte> request, std::span<const int> fds,
                   const std::function<bool(protocol::Packet&, std::string&)>& accept,
-                  std::string& why, std::optional<std::chrono::milliseconds> timeout) {
+                  std::string& why, std::optional<std::chrono::milliseconds> timeout, bool end) {
     using Clock = std::chrono::steady_clock;
     const auto ms = [](Clock::time_point from, Clock::time_point to) {
         return std::chrono::duration<double, std::milli>(to - from).count();
@@ -371,7 +371,11 @@ bool Helpers::run(std::span<const std::byte> request, std::span<const int> fds,
                        helper->pid, ms(asked, taken), ms(taken, answered),
                        ms(answered, Clock::now()));
             if (accepted) {
-                give_back(*helper);
+                if (end) {
+                    discard(*helper);
+                } else {
+                    give_back(*helper);
+                }
                 return true;
             }
             outcome = Outcome::failed;  // it said something else: not to be trusted again
@@ -746,11 +750,26 @@ archive::Read Helpers::read_archive_entry(const std::filesystem::path& path, arc
     };
     std::string why;
     const std::array<int, 2> fds{file, out};
-    const bool done = run(std::as_bytes(std::span{&message, 1}), fds, accept, why,
-                          archive_timeout(options_.timeout, file, std::min(entry.size, max_bytes)));
+    // Ended once it has answered, as a sequence's helper is: it was handed out to write to, and a
+    // copy of that descriptor kept would let it change the entry after it is checked (#69).
+    const bool done =
+        run(std::as_bytes(std::span{&message, 1}), fds, accept, why,
+            archive_timeout(options_.timeout, file, std::min(entry.size, max_bytes)), true);
     ::close(file);
     if (!done) {
         return {.failure = archive::Failure::unreadable, .detail = std::move(why), .bytes = 0};
+    }
+    // The entry as it is now that nothing else can write to it, not the count the helper gave.
+    // A failure the helper reported is kept as it said it.
+    struct stat written{};
+    if (result.failure != archive::Failure::none) {
+        return result;
+    }
+    if (::fstat(out, &written) != 0 ||
+        (S_ISREG(written.st_mode) && static_cast<std::uint64_t>(written.st_size) != result.bytes)) {
+        return {.failure = archive::Failure::unreadable,
+                .detail = "not the size the archive says",
+                .bytes = 0};
     }
     return result;
 }

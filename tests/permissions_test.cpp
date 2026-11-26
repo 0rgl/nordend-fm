@@ -122,7 +122,8 @@ TEST_CASE("set_running: allowing takes away the mark that asks first, stopping k
     REQUIRE(::setxattr(shared.c_str(), nordend::fs::kOriginAttribute, "x", 1, 0) == 0);
     if (::chmod(shared.c_str(), 02555) == 0 && mode_of(shared) == 02555) {
         const ModeResult kept = nordend::fs::set_running({shared}, true);
-        CHECK(kept.errors.empty());
+        CHECK(kept.errors ==
+              std::vector<std::string>{"shared: it will keep asking before it runs"});
         CHECK(nordend::fs::origin_of(shared) == "x");
         CHECK(mode_of(shared) == 02555);
     }

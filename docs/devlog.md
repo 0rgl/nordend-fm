@@ -32,6 +32,17 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   read-only file of one's own may still be allowed to run; a marked one (tarballs pack
   programs 0555) gets `u+w` for the moment, as its owner could give it with chmod anyway,
   unless it has setuid or setgid, which that chmod could drop.
+- #65, a second look: a marked program that the user may already run without owning it (a
+  group's program, `0750` in a shared folder, downloaded by a browser) stopped at Allow and
+  Run, because `set_running()` tried to add `u+x` and the chmod failed. A program that
+  `access(X_OK)` already lets run, and that is not the user's, gets no chmod; only its mark
+  goes, where it can. A mark that stays is said ("it will keep asking before it runs"), and
+  Allow and Run decides by what the file is afterwards, so the program still starts.
+  `forget_origin()` now opens the file once and works on the descriptor (`fgetxattr`,
+  `fremovexattr`, `fstat`, `fchmod`), so a path swapped for a link between two steps cannot
+  turn the temporary `u+w` onto another file; its only error is a chmod back that failed,
+  which `set_running()` reports. The card says "it has not been allowed to run yet", true of a
+  program with its execute bit too.
 - #66: a disk's trash entry can no longer reach outside the disk. A relative `Path=` that
   `..` takes out of the folder it is relative to ("../../home/…" in `.Trash-1000` on a data
   disk) is marked `TrashInfo::outside` by `parse_trash_info()`: listed, so Delete and Empty

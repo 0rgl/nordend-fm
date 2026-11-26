@@ -440,7 +440,8 @@ README's [What's next](../README.md#whats-next).
   moves the items in only when all is written, never over anything ("x 2"); setuid bits are
   dropped, a program keeps its execute bits for a terminal but carries `user.xdg.origin.url`
   (the archive's own, or `nordend:extracted`), so Enter asks before it first runs, and where
-  that cannot be written it loses the bits instead; a copy keeps the mark; links that lead
+  that cannot be written it loses the bits instead; a copy keeps the mark, and a copy or a
+  move to a disk without user attributes loses the execute bits instead; links that lead
   outside left out, encrypted entries said; more than the free space is
   refused, and an archive that unpacks to more than 100 times its size (over 1 GiB) is asked
   about. Shift+Esc stops it, leaving nothing behind.

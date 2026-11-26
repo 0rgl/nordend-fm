@@ -7,6 +7,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <system_error>
+#include <unistd.h>
 #include <vector>
 
 #include "nordend/fs/origin.hpp"
@@ -40,7 +41,10 @@ ModeResult set_running(const std::vector<std::filesystem::path>& files, bool all
         }
         const auto before = static_cast<std::uint16_t>(info.st_mode & 07777U);
         const std::uint16_t after = running_mode(before, allow);
-        if (after != before) {
+        // Someone else's program the user may already run (a group's execute bit) gets no
+        // chmod, which would fail: only its mark goes, where it can.
+        const bool runs = allow && info.st_uid != ::geteuid() && ::access(file.c_str(), X_OK) == 0;
+        if (after != before && !runs) {
             if (::chmod(file.c_str(), after) != 0) {
                 result.errors.push_back(error_text(file, errno));
                 continue;
@@ -48,10 +52,15 @@ ModeResult set_running(const std::vector<std::filesystem::path>& files, bool all
             result.changed.push_back({.path = file, .before = before, .after = after});
         }
         // Allowed by the user: it no longer asks before it runs (issue #65). Where the mark
-        // cannot go (someone else's file, a read-only disk), Enter keeps asking, and the
-        // program still runs once the user says yes.
+        // cannot go (someone else's file, a read-only disk), that is said; Enter keeps asking,
+        // and the program still runs once the user says yes.
         if (allow) {
-            static_cast<void>(forget_origin(file));
+            if (const std::error_code error = forget_origin(file)) {
+                result.errors.push_back(error_text(file, error.value()));
+            } else if (origin_of(file)) {
+                result.errors.push_back(std::format("{}: it will keep asking before it runs",
+                                                    file.filename().string()));
+            }
         }
     }
     return result;

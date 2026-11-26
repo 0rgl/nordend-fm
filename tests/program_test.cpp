@@ -8,6 +8,8 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <sys/stat.h>
+#include <sys/xattr.h>
 #include <utility>
 #include <vector>
 
@@ -17,6 +19,7 @@
 #include "nordend/core/worker_pool.hpp"
 #include "nordend/fs/entry.hpp"
 #include "nordend/fs/mime.hpp"
+#include "nordend/fs/origin.hpp"
 #include "nordend/platform/opener.hpp"
 #include "temp_dir.hpp"
 
@@ -273,4 +276,72 @@ TEST_CASE(
     CHECK(asked.empty());
     REQUIRE(reports.size() == 1);
     CHECK(reports[0].first.starts_with("No application opens"));
+}
+
+TEST_CASE("opener: a program with its bit that came from an archive or a download asks first") {
+    const fs::path real = harmless_program();
+    if (real.empty()) {
+        MESSAGE("no ELF true(1) to try");
+        return;
+    }
+    const TempDir dir;
+    Environment environment;
+    environment.data_dirs = {dir.path / "share"};
+    environment.config_dirs = {dir.path / "config"};
+    environment.path = (dir.path / "bin").string();
+    const fs::path apps = dir.path / "apps";
+    fs::create_directories(apps);
+    const fs::path tool = apps / "tool";
+    fs::copy_file(real, tool);
+    fs::permissions(tool, fs::perms::owner_all);
+    if (::setxattr(tool.c_str(), nordend::fs::kOriginAttribute, "nordend:extracted", 17, 0) != 0) {
+        MESSAGE("no user attributes here: skipped");
+        return;
+    }
+    CHECK(nordend::platform::check_program(tool).asks);
+
+    EventLoop loop;
+    WorkerPool pool{loop, 2};
+    std::vector<std::pair<std::string, bool>> reports;
+    std::vector<fs::path> asked;
+    std::function<void()> yes;
+    Opener opener{
+        loop, pool, MimeDatabase::load(), environment,
+        [&](const std::string& message, bool error) { reports.emplace_back(message, error); }};
+    opener.set_ask_to_run([&](fs::path program, std::function<void()> allow_and_run) {
+        asked.push_back(std::move(program));
+        yes = std::move(allow_and_run);
+    });
+    opener.open(apps, {{.name = "tool", .kind = EntryKind::file, .size = fs::file_size(tool)}});
+    REQUIRE(run_until(loop, [&] { return !opener.planning() && !asked.empty(); }));
+    CHECK(reports.empty());
+    CHECK(asked == std::vector<fs::path>{tool});
+
+    // Allow and Run takes the mark away: it starts, and the next Enter does not ask again.
+    yes();
+    REQUIRE(run_until(loop, [&] {
+        return !reports.empty() && !opener.planning() && opener.launcher().running() == 0;
+    }));
+    CHECK(reports == std::vector<std::pair<std::string, bool>>{{"Starting tool…", false}});
+    CHECK_FALSE(nordend::fs::origin_of(tool).has_value());
+    CHECK_FALSE(nordend::platform::check_program(tool).asks);
+
+    // A mark that cannot be removed (here: read-only with setgid, as someone else's program
+    // would be): asked every time, and the yes still runs it.
+    REQUIRE(::setxattr(tool.c_str(), nordend::fs::kOriginAttribute, "x", 1, 0) == 0);
+    if (::chmod(tool.c_str(), 02555) != 0 ||
+        (fs::status(tool).permissions() & fs::perms::set_gid) == fs::perms::none) {
+        MESSAGE("setgid cannot be set here: the rest skipped");
+        return;
+    }
+    asked.clear();
+    reports.clear();
+    opener.open(apps, {{.name = "tool", .kind = EntryKind::file, .size = fs::file_size(tool)}});
+    REQUIRE(run_until(loop, [&] { return !opener.planning() && !asked.empty(); }));
+    yes();
+    REQUIRE(run_until(loop, [&] {
+        return !reports.empty() && !opener.planning() && opener.launcher().running() == 0;
+    }));
+    CHECK(reports == std::vector<std::pair<std::string, bool>>{{"Starting tool…", false}});
+    CHECK(nordend::platform::check_program(tool).asks);
 }

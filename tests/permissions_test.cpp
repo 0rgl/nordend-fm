@@ -3,11 +3,13 @@
 #include <filesystem>
 #include <string>
 #include <sys/stat.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 #include <vector>
 
 #include <doctest/doctest.h>
 
+#include "nordend/fs/origin.hpp"
 #include "temp_dir.hpp"
 
 using nordend::fs::ModeResult;
@@ -85,4 +87,50 @@ TEST_CASE("set_running through a link changes its target, as chmod does") {
     const ModeResult result = nordend::fs::set_running({dir.path / "link"}, true);
     CHECK(result.changed.size() == 1);
     CHECK(mode_of(target) == 0744);
+}
+
+TEST_CASE("set_running: allowing takes away the mark that asks first, stopping keeps it") {
+    const TempDir dir;
+    const fs::path tool = dir.write("tool", "x");
+    ::chmod(tool.c_str(), 0755);
+    if (::setxattr(tool.c_str(), nordend::fs::kOriginAttribute, "nordend:extracted", 17, 0) != 0) {
+        MESSAGE("no user attributes here: skipped");
+        return;
+    }
+    // Already allowed by its bits, still asked about: allowing it is what takes the mark away.
+    const ModeResult allowed = nordend::fs::set_running({tool}, true);
+    CHECK(allowed.errors.empty());
+    CHECK(allowed.changed.empty());
+    CHECK_FALSE(nordend::fs::origin_of(tool).has_value());
+
+    REQUIRE(::setxattr(tool.c_str(), nordend::fs::kOriginAttribute, "x", 1, 0) == 0);
+    static_cast<void>(nordend::fs::set_running({tool}, false));
+    CHECK(nordend::fs::origin_of(tool) == "x");
+
+    // A read-only program with the mark (tarballs pack them 0555): allowed, and left read-only.
+    const fs::path packed = dir.write("packed", "x");
+    REQUIRE(::setxattr(packed.c_str(), nordend::fs::kOriginAttribute, "x", 1, 0) == 0);
+    ::chmod(packed.c_str(), 0555);
+    const ModeResult unpacked = nordend::fs::set_running({packed}, true);
+    CHECK(unpacked.errors.empty());
+    CHECK_FALSE(nordend::fs::origin_of(packed).has_value());
+    CHECK(mode_of(packed) == 0555);
+
+    // Read-only with setgid: no chmod for the moment (it could drop setgid), so the mark stays;
+    // that is no error, Enter keeps asking.
+    const fs::path shared = dir.write("shared", "x");
+    REQUIRE(::setxattr(shared.c_str(), nordend::fs::kOriginAttribute, "x", 1, 0) == 0);
+    if (::chmod(shared.c_str(), 02555) == 0 && mode_of(shared) == 02555) {
+        const ModeResult kept = nordend::fs::set_running({shared}, true);
+        CHECK(kept.errors.empty());
+        CHECK(nordend::fs::origin_of(shared) == "x");
+        CHECK(mode_of(shared) == 02555);
+    }
+
+    // The user's own read-only file without a mark: allowed, though nothing could be removed.
+    const fs::path plain = dir.write("plain", "x");
+    ::chmod(plain.c_str(), 0444);
+    const ModeResult read_only = nordend::fs::set_running({plain}, true);
+    CHECK(read_only.errors.empty());
+    CHECK(mode_of(plain) == 0544);
 }

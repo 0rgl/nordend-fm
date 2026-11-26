@@ -9,6 +9,8 @@
 #include <system_error>
 #include <vector>
 
+#include "nordend/fs/origin.hpp"
+
 namespace nordend::fs {
 namespace {
 
@@ -36,16 +38,21 @@ ModeResult set_running(const std::vector<std::filesystem::path>& files, bool all
         if (!S_ISREG(info.st_mode)) {
             continue;  // a folder's execute bit means something else
         }
-        const auto before = static_cast<std::uint16_t>(info.st_mode & 07777);
+        const auto before = static_cast<std::uint16_t>(info.st_mode & 07777U);
         const std::uint16_t after = running_mode(before, allow);
-        if (after == before) {
-            continue;
+        if (after != before) {
+            if (::chmod(file.c_str(), after) != 0) {
+                result.errors.push_back(error_text(file, errno));
+                continue;
+            }
+            result.changed.push_back({.path = file, .before = before, .after = after});
         }
-        if (::chmod(file.c_str(), after) != 0) {
-            result.errors.push_back(error_text(file, errno));
-            continue;
+        // Allowed by the user: it no longer asks before it runs (issue #65). Where the mark
+        // cannot go (someone else's file, a read-only disk), Enter keeps asking, and the
+        // program still runs once the user says yes.
+        if (allow) {
+            static_cast<void>(forget_origin(file));
         }
-        result.changed.push_back({.path = file, .before = before, .after = after});
     }
     return result;
 }

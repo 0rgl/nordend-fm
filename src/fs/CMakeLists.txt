@@ -12,6 +12,7 @@ add_library(nordend_fs
     src/links.cpp
     src/mime.cpp
     src/operations.cpp
+    src/origin.cpp
     src/permissions.cpp
     src/places.cpp
     src/scripts.cpp

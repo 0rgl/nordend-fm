@@ -199,7 +199,7 @@ void Opener::open(const std::filesystem::path& directory, std::vector<fs::Entry>
                         if (check.noexec) {
                             problems.push_back(std::format(
                                 "“{}” is on a disk that does not let programs run", entry.name));
-                        } else if (check.executable) {
+                        } else if (check.executable && !check.asks) {
                             started.push_back(program_launch(path));
                         } else {
                             not_allowed.push_back(path);
@@ -265,6 +265,8 @@ void Opener::allow_and_run(const std::filesystem::path& program) {
                 return plan;
             }
             const ProgramCheck check = check_program(program);
+            // A mark that could not be removed (someone else's program) does not matter here:
+            // the user has just said yes.
             if (!check.program || !check.executable || check.noexec) {
                 plan.problems.push_back(
                     std::format("“{}” still cannot run", program.filename().string()));

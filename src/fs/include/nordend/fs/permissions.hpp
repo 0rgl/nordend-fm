@@ -26,7 +26,9 @@ struct ModeResult {
 [[nodiscard]] std::uint16_t running_mode(std::uint16_t mode, bool allow) noexcept;
 
 // Sets running_mode on each of files (a link: its target, as chmod does). Anything that is not a
-// regular file is left alone, and so is a file whose bits would not change.
+// regular file is left alone, and so is a file whose bits would not change. Allowing also removes
+// the file's user.xdg.origin.url (origin.hpp), the mark that asks before it first runs, where it
+// can; an undo gives back the bits, not the mark.
 [[nodiscard]] ModeResult set_running(const std::vector<std::filesystem::path>& files, bool allow);
 
 // Gives each changed file its bits before (an undo) or after (a redo) again, if they are still

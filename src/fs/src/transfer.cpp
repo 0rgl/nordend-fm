@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "nordend/fs/operations.hpp"
+#include "nordend/fs/origin.hpp"
 
 namespace nordend::fs {
 namespace {
@@ -478,7 +479,13 @@ bool Engine::copy_file(const std::filesystem::path& source, const struct stat& i
     // A move between disks keeps them when the file keeps its owner and group too, as with mv;
     // one that cannot (someone else's file) loses them instead of running as its mover.
     const bool same_owner = moving_ && fchown(to.get(), info.st_uid, info.st_gid) == 0;
-    fchmod(to.get(), info.st_mode & (same_owner ? 07777 : 0777));
+    mode_t mode = info.st_mode & (same_owner ? 07777U : 0777U);
+    // A program that asks before it first runs (an extracted one, a download) still asks as a
+    // copy; where its mark cannot go, it loses its execute bits instead.
+    if (!copy_origin(from.get(), to.get())) {
+        mode &= ~static_cast<mode_t>(S_IXUSR | S_IXGRP | S_IXOTH);
+    }
+    fchmod(to.get(), mode);
     futimens(to.get(), times.data());
     // Between file systems the original is deleted next: the copy must be on the disk first.
     if (moving_ && fsync(to.get()) != 0) {

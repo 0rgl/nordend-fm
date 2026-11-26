@@ -182,6 +182,9 @@ README's [What's next](../README.md#whats-next).
     PDF), that may
     already run, starts in its folder like any app. One that may not run yet asks first, on the
     card ("Allow “Tool.AppImage” to run?", **Allow and Run** gives it `u+x` and starts it).
+    So does one that came out of an archive, or from a browser that marks its downloads, even
+    with its execute bit set: it carries `user.xdg.origin.url`, and Allow and Run removes that
+    (issue #65).
     Safety first: scripts never start this way (a downloaded `.sh` looks like a document: it
     opens as text), nothing ever runs by itself (a stick plugged in, a folder opened, Quick
     Look), a disk mounted `noexec` stays so (said in the status bar), and `[open] programs =
@@ -431,7 +434,10 @@ README's [What's next](../README.md#whats-next).
   more than one item), and Enter on a file inside opens it from a private copy. Nordend makes
   every file itself in a hidden folder where nothing can lead out (no `..`, no link followed), and
   moves the items in only when all is written, never over anything ("x 2"); setuid bits are
-  dropped, links that lead outside left out, encrypted entries said; more than the free space is
+  dropped, a program keeps its execute bits for a terminal but carries `user.xdg.origin.url`
+  (the archive's own, or `nordend:extracted`), so Enter asks before it first runs, and where
+  that cannot be written it loses the bits instead; a copy keeps the mark; links that lead
+  outside left out, encrypted entries said; more than the free space is
   refused, and an archive that unpacks to more than 100 times its size (over 1 GiB) is asked
   about. Shift+Esc stops it, leaving nothing behind.
   Making archives: "Compress to .zip" or "Compress to .tar.gz" in the menu puts the selection

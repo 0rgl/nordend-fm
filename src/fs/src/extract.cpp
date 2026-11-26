@@ -29,6 +29,7 @@
 
 #include "nordend/archive/archive.hpp"
 #include "nordend/fs/archive_folder.hpp"
+#include "nordend/fs/origin.hpp"
 
 namespace nordend::fs {
 namespace {
@@ -166,6 +167,8 @@ mode_t file_mode(std::uint32_t mode) {
     return (bits == 0 ? 0644 : bits) | S_IRUSR;
 }
 
+constexpr mode_t kAnyExecute = S_IXUSR | S_IXGRP | S_IXOTH;
+
 mode_t folder_mode(std::uint32_t mode) {
     const auto bits = static_cast<mode_t>(mode & 0777U);
     return (bits == 0 ? 0755 : bits) | S_IRWXU;
@@ -246,6 +249,10 @@ public:
             result_.errors.push_back(std::format("the archive is damaged: {}", tree_->detail()));
         }
         gather(*where);
+        // A program comes out carrying where its archive came from, so Enter asks before it
+        // first runs (issue #65): the browser's URL when the archive has one, else a mark that
+        // says nothing about where the archive is.
+        origin_ = origin_of(where->archive).value_or(std::string{kExtractedOrigin});
         if (!check(where->archive)) {
             return std::move(result_);
         }
@@ -579,7 +586,13 @@ private:
             fail(item, "not the size the archive says, left out");
             return false;
         }
-        ::fchmod(file.get(), file_mode(entry.mode));
+        mode_t mode = file_mode(entry.mode);
+        // Where the mark cannot be written, the program loses its execute bits instead, which
+        // asks all the same.
+        if ((mode & kAnyExecute) != 0 && !set_origin(file.get(), origin_)) {
+            mode &= ~kAnyExecute;
+        }
+        ::fchmod(file.get(), mode);
         if (entry.mtime != 0) {
             const std::array<timespec, 2> times = times_of(entry.mtime);
             ::futimens(file.get(), times.data());
@@ -639,6 +652,7 @@ private:
     Fd destination_;
     Fd staging_;
     std::string staging_name_;
+    std::string origin_;  // what a program extracted carries in user.xdg.origin.url
 };
 
 }  // namespace

@@ -10,6 +10,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "nordend/fs/origin.hpp"
+
 namespace nordend::platform {
 namespace {
 
@@ -95,6 +97,7 @@ ProgramCheck check_program(const std::filesystem::path& path) {
     });
     struct statvfs volume{};
     check.noexec = ::fstatvfs(fd, &volume) == 0 && (volume.f_flag & ST_NOEXEC) != 0;
+    check.asks = fs::has_origin(fd);
     ::close(fd);
     check.executable = ::access(path.c_str(), X_OK) == 0;
     return check;

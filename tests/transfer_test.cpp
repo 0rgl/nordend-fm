@@ -13,6 +13,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -21,6 +22,7 @@
 
 #include "nordend/core/event_loop.hpp"
 #include "nordend/core/worker_pool.hpp"
+#include "nordend/fs/origin.hpp"
 #include "nordend/fs/transfer_queue.hpp"
 #include "temp_dir.hpp"
 
@@ -248,6 +250,31 @@ TEST_CASE("transfer: a copy drops setuid and setgid, a move between disks keeps 
     result = u.run(TransferKind::move, {"P1.ORF", "notes.txt", "Trip"}, {}, true);
     CHECK(result.errors.empty());
     CHECK(modes(u.to) == std::vector<unsigned>{04755, 02750, 02755, 01777});
+}
+
+TEST_CASE("transfer: a program that asks before it runs still asks as a copy, and moved") {
+    Tree t;
+    const fs::path tool = t.from / "P1.ORF";
+    ::chmod(tool.c_str(), 0755);
+    if (::setxattr(tool.c_str(), nordend::fs::kOriginAttribute, "https://example.org/t", 21, 0) !=
+        0) {
+        MESSAGE("no user attributes here: skipped");
+        return;
+    }
+    TransferResult result = t.run(TransferKind::copy, {"P1.ORF", "notes.txt"});
+    CHECK(result.errors.empty());
+    CHECK(nordend::fs::origin_of(t.to / "P1.ORF") == "https://example.org/t");
+    CHECK((stat_of(t.to / "P1.ORF").st_mode & 0777U) == 0755);
+    CHECK_FALSE(nordend::fs::origin_of(t.to / "notes.txt").has_value());
+
+    // Between disks (a copy, then a delete): the same.
+    Tree u;
+    ::chmod((u.from / "P1.ORF").c_str(), 0755);
+    REQUIRE(::setxattr((u.from / "P1.ORF").c_str(), nordend::fs::kOriginAttribute,
+                       "nordend:extracted", 17, 0) == 0);
+    result = u.run(TransferKind::move, {"P1.ORF"}, {}, true);
+    CHECK(result.errors.empty());
+    CHECK(nordend::fs::origin_of(u.to / "P1.ORF") == "nordend:extracted");
 }
 
 TEST_CASE("transfer: between two file systems the bytes go through read and write") {

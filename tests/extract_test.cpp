@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
+#include <sys/xattr.h>
 #include <vector>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -21,6 +22,7 @@
 #include "nordend/fs/archive_folder.hpp"
 #include "nordend/fs/directory_watcher.hpp"
 #include "nordend/fs/mime.hpp"
+#include "nordend/fs/origin.hpp"
 #include "nordend/fs/transfer.hpp"
 #include "nordend/views/browser.hpp"
 #include "temp_dir.hpp"
@@ -186,12 +188,49 @@ TEST_CASE("extract: tar.gz, times and modes kept, setuid dropped") {
     CHECK(info.st_mtim.tv_sec == 1794744000);
     CHECK((info.st_mode & 07777) == 0644);
 
+    // Where no user attribute can be written (Nix's build sandbox), a program loses its execute
+    // bits instead of carrying the mark that asks before it runs (#65).
+    const bool attributes =
+        ::setxattr(dir.path.c_str(), nordend::fs::kOriginAttribute, "t", 1, 0) == 0;
     const TransferResult modes = extract(dir.path / "modes.tar", {"run.sh", "secret"}, dir.path);
     CHECK(modes.errors.empty());
     REQUIRE(::stat((dir.path / "run.sh").c_str(), &info) == 0);
-    CHECK((info.st_mode & 07777) == 0755);  // no setuid
+    CHECK((info.st_mode & 07777) == (attributes ? 0755 : 0644));  // no setuid either way
     REQUIRE(::stat((dir.path / "secret").c_str(), &info) == 0);
     CHECK((info.st_mode & 0400) != 0);  // readable by its owner
+}
+
+TEST_CASE("extract: a program comes out asking before it runs (#65)") {
+    TempDir dir;
+    dir.write("tools.tar", tar_member("tool",
+                                      "\x7f"
+                                      "ELF",
+                                      '0', {}, 0755) +
+                               tar_member("readme", "hi", '0', {}, 0644) + tar_end());
+    const bool attributes =
+        ::setxattr(dir.path.c_str(), nordend::fs::kOriginAttribute, "t", 1, 0) == 0;
+    fs::create_directories(dir.path / "out");
+    TransferResult result = extract(dir.path / "tools.tar", {"tool", "readme"}, dir.path / "out");
+    CHECK(result.errors.empty());
+    struct stat info{};
+    REQUIRE(::stat((dir.path / "out" / "tool").c_str(), &info) == 0);
+    CHECK_FALSE(nordend::fs::origin_of(dir.path / "out" / "readme").has_value());
+    if (!attributes) {
+        // Where the mark cannot be written, the execute bits go instead.
+        CHECK((info.st_mode & 0777U) == 0644);
+        return;
+    }
+    CHECK((info.st_mode & 0777U) == 0755);  // a terminal still runs it as packed
+    CHECK(nordend::fs::origin_of(dir.path / "out" / "tool") == "nordend:extracted");
+
+    // An archive that came with an origin (a browser's download) passes it on.
+    REQUIRE(::setxattr((dir.path / "tools.tar").c_str(), nordend::fs::kOriginAttribute,
+                       "https://example.org/tools.tar", 29, 0) == 0);
+    fs::remove_all(dir.path / "out");
+    fs::create_directories(dir.path / "out");
+    result = extract(dir.path / "tools.tar", {"tool"}, dir.path / "out");
+    CHECK(result.errors.empty());
+    CHECK(nordend::fs::origin_of(dir.path / "out" / "tool") == "https://example.org/tools.tar");
 }
 
 TEST_CASE("extract: links stay inside; nothing written goes through one") {

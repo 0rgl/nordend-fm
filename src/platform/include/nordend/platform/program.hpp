@@ -14,6 +14,7 @@ struct ProgramCheck {
     bool program{false};     // an ELF executable (not a shared library, not an object file)
     bool executable{false};  // the user may run it (access X_OK)
     bool noexec{false};      // its file system is mounted noexec: the kernel would refuse
+    bool asks{false};        // it carries user.xdg.origin.url (extracted, downloaded): ask first
 };
 
 // What path is; a file that cannot be read is not a program.

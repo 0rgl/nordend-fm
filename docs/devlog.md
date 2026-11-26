@@ -4,6 +4,27 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-26 — toward 0.10.2
+
+**Done**
+- #65: a program from an archive asks before it first runs. Extraction (Extract Here, Ctrl+V,
+  and Enter on a file inside, which extracts to a private copy and opens it) gives every file
+  with an execute bit `user.xdg.origin.url`: the archive's own value when a browser set one,
+  else `nordend:extracted`, which says nothing about where the archive is. The bits stay as
+  packed, so a terminal still runs the tool; Enter shows the "Allow and Run" card, and allowing
+  it there removes the attribute after the bits are set. Where it cannot be removed (someone
+  else's program, a read-only disk), Enter keeps asking and the program still runs after the
+  yes; an undo of an allow gives back the bits, not the attribute. Where it cannot be written
+  (vfat, exFAT), the execute bits go instead. A copy, and a move between disks, carry it with
+  the same fallback. The check at Enter is one `fgetxattr` on the descriptor `check_program()`
+  already opens; nothing is read while browsing. `forget_origin()` looks before it removes,
+  since removing a user attribute needs write permission even when there is none, and a
+  read-only file of one's own may still be allowed to run; a marked one (tarballs pack
+  programs 0555) gets `u+w` for the moment, as its owner could give it with chmod anyway,
+  unless it has setuid or setgid, which that chmod could drop.
+
+---
+
 ## 2026-11-26 — 0.10.1, and a new maintainer
 
 **Done**

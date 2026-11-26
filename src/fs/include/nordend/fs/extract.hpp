@@ -27,7 +27,9 @@ inline constexpr std::uint64_t kAskRatio = 100;
 //   earlier) and O_EXCL; only once everything is written are the items renamed into the
 //   destination, never over anything: a name taken gets "x 2". Cancelled, nothing is published.
 // - Permissions are the archive's, without setuid, setgid or sticky bits (and readable by the
-//   owner); modification times are the archive's.
+//   owner); modification times are the archive's. A file that may run carries
+//   user.xdg.origin.url (origin.hpp), so Enter asks before it first runs; where that cannot be
+//   written, it loses its execute bits instead.
 // - Symbolic links are made only when they point inside what is extracted (relative, never
 //   above its top); hard links only to a file extracted in the same run. Encrypted entries, those
 //   compressed in a way not read yet, devices and fifos are skipped and said in errors.

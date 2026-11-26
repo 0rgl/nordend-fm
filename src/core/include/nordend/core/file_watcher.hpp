@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "nordend/core/event_loop.hpp"
@@ -17,7 +18,12 @@ namespace nordend::core {
 // coalesced: the handler runs once, settle after the last one, so a writer that saves in several
 // steps is read only when it is done.
 //
-// Must not outlive the loop. Not copyable or movable: the loop callbacks keep a pointer to it.
+// Every FileWatcher of a loop shares one inotify instance (issue #57: the kernel allows 128 per
+// user, and a window used to take one per file), and watchers of files in one directory share
+// its watch.
+//
+// Made and destroyed on the loop thread. Must not outlive the loop. Not copyable or movable: the
+// loop callbacks keep a pointer to it.
 class FileWatcher {
 public:
     using Handler = std::function<void()>;
@@ -40,14 +46,17 @@ public:
     FileWatcher& operator=(FileWatcher&&) = delete;
 
 private:
-    void on_readable();
+    class Shared;  // the loop's inotify instance
+
+    // Something happened to name_, or events were lost: the handler runs once things settle.
+    void changed();
 
     EventLoop& loop_;
     std::string name_;  // file name inside the watched directory
     Handler handler_;
     std::chrono::milliseconds settle_;
-    int fd_{-1};
-    EventLoop::SourceId source_{0};
+    std::shared_ptr<Shared> shared_;
+    int watch_{-1};                 // the directory's watch descriptor in shared_
     EventLoop::SourceId timer_{0};  // 0 = no change pending
 };
 

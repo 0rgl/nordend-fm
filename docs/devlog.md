@@ -4,6 +4,48 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
+## 2026-11-26 — 0.10.1, and a new maintainer
+
+**Done**
+- pankaspe handed the repository over: it is now 0rgl/nordend-fm, and he stays a collaborator.
+  Before the move he merged #59, #83, #84, #85 and #86 by rebase after his four builds. The
+  links in nordend-setup, the packaging and the README point at the new address (#87); the old
+  ones redirect, and nordend-setup's `git ls-remote` follows the redirect, so installs made
+  before the move still update. `main` is protected by a ruleset: pull requests only, rebase
+  only, the 13 checks required, no force push or deletion.
+- #69 (#88): the preview helper's answers checked before any room is made for them. A picture
+  bounded by the size asked for, without a wrap; the memfd's size and seals read before the
+  vector; a text bounded by what max_bytes of a file can become (each byte at most
+  max(tab_width, 4) bytes: about 1 MiB with the defaults, against 52 GB before); an extracted
+  file checked with fstat, and the helper ended after an extraction since it could keep a copy
+  of a file's descriptor, each file then checked again before the links are.
+- #72 (#89): a copy keeps & 0777 (a folder & 01777, and the setgid it takes from a group's
+  folder); a move between disks chowns to the source's owner and keeps every bit only when that
+  works, as mv. Checked against cp in a Fedora 45 container: cp drops setuid and setgid and keeps
+  a folder's sticky bit. The test skips where setuid cannot be set (Nix's build sandbox).
+- #74 (#90): write_file_atomically() takes WriteOptions. The state files are 0600 in a 0700
+  folder, tightened at the next save; missing folders are made 0700 (XDG); a link is written
+  through to its target and put back by a rename, so inotify in its folder hears of it; a
+  dangling or read-only link is an error; the app icon is never written through a link.
+- #91: "quick look: a log opens at its end" failed now and then in Release builds on Fedora. A
+  glide 40 000 pixels down moves in float steps of about 0.004, and with offscreen frames tens of
+  microseconds apart the last pixel's share rounded to nothing, so the glide stopped short and
+  never ended. A step that does not move the offset now keeps its frame's time.
+
+**Measured** (Release, in a `void-glibc-full` container with Void's GCC 14.2.1, as the README's
+numbers): nordend 5.40 MiB (4.47 stripped; 0.10.0 measured the same way: 5.33 / 4.41),
+nordend-preview 1.24 (1.11), nordend-portal 0.44 (0.35). The same trees on Fedora 45 with GCC 16
+give 6.23 / 5.32 and 6.17 / 5.27: the compiler, not the code. 720 test cases, green in the four
+builds. Every fuzz target for 15 minutes on `main`, about 326 million runs in all (dng 174 million,
+ljpeg 124, text 12, tiff 5.7, archive 5.0, camera 4.8, picture 0.9): nothing found.
+
+**Open**
+- #66 next (decided: an entry pointing off its disk is shown and its Restore refused; an
+  absolute path inside the same disk is read). `read_archive_entry()` keeps its helper after
+  writing to a descriptor, as the sequence did before #69: a separate change.
+
+---
+
 ## 2026-11-23 — Chooser and menu slips
 
 **Done**

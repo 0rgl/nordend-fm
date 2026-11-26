@@ -14,6 +14,8 @@
 #include <linux/landlock.h>
 #include <linux/seccomp.h>
 #include <string_view>
+#include <sys/mman.h>
+#include <sys/personality.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
@@ -96,11 +98,9 @@ constexpr std::array kAllowed{
     __NR_close,
     __NR_fcntl,
     __NR_fstat,
-    // memory and the pixels' memfd
-    __NR_mmap,
+    // memory and the pixels' memfd (mmap and mprotect: below, never executable)
     __NR_munmap,
     __NR_mremap,
-    __NR_mprotect,
     __NR_brk,
     __NR_madvise,
     __NR_memfd_create,
@@ -127,6 +127,11 @@ constexpr std::array kAllowedSanitized{
     __NR_readlink,
 #endif
 };
+
+// Memory that may be mapped or changed, but never made executable once the cage is closed: the
+// libraries are loaded before, and no decoder makes code at run time. Without it, a decoder bug
+// could not write code and then run it; only code already there could be reused (issue #70).
+constexpr std::array kNeverExecutable{__NR_mmap, __NR_mprotect};
 
 // Opening a path fails with EACCES: a library that tries gets an error, not a dead helper.
 constexpr std::array kRefused{
@@ -174,6 +179,16 @@ Program filter(Unexpected unexpected) {
     allow_each(kAllowed);
     if constexpr (kSanitized) {
         allow_each(kAllowedSanitized);
+        allow_each(kNeverExecutable);  // the sanitizers' runtimes may map code of their own
+    } else {
+        // The protection is the third argument; PROT_EXEC is in its low 32 bits.
+        for (const auto number : kNeverExecutable) {
+            add(program, BPF_JMP | BPF_JEQ | BPF_K, static_cast<std::uint32_t>(number), 0, 4);
+            load(program, offsetof(seccomp_data, args) + (2 * sizeof(std::uint64_t)));
+            add(program, BPF_JMP | BPF_JSET | BPF_K, PROT_EXEC, 0, 1);
+            ret(program, otherwise);
+            ret(program, SECCOMP_RET_ALLOW);
+        }
     }
     for (const auto number : kRefused) {
         add(program, BPF_JMP | BPF_JEQ | BPF_K, static_cast<std::uint32_t>(number), 0, 1);
@@ -276,6 +291,12 @@ SandboxStatus enter_sandbox(Unexpected unexpected) {
         return status;
     }
     status.landlock_abi = restrict_file_system_and_network();
+    // READ_IMPLIES_EXEC (setarch -X, inherited from whoever started Nordend) would make the
+    // kernel add PROT_EXEC to readable memory behind the filter's back.
+    if (const int persona = ::personality(0xffffffff);
+        persona != -1 && (persona & READ_IMPLIES_EXEC) != 0) {
+        ::personality(static_cast<unsigned long>(persona) & ~unsigned{READ_IMPLIES_EXEC});
+    }
     if (unexpected == Unexpected::report) {
         struct sigaction action{};
         action.sa_sigaction = report;

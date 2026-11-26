@@ -111,9 +111,10 @@ README's [What's next](../README.md#whats-next).
   TIFF, DNG and camera-file readers) run in small `nordend-preview` processes, not in Nordend: a file that crashes or hangs
   one costs only its preview ("Preview unavailable"), and Nordend carries on. Each one lives in
   a cage of Nordend's own (seccomp and landlock, no library): it cannot open a file, reach the
-  network, start a program or signal another one, and has at most 4 GiB of memory. They start when a
-  picture is first needed (at most one per worker), give their memory back after a quiet second,
-  and Nordend closes them after 30 s without work.
+  network, start a program or signal another one, or make memory executable (issue #70), and
+  has at most 4 GiB of memory. They start when a picture is first needed (at most one per
+  worker), give their memory back after a quiet second, and Nordend closes them after 30 s
+  without work.
 - **Engines described by manifests:** each reader program (an *engine*; `nordend-preview` is the
   base engine, for images and text) comes with a small TOML manifest in `share/nordend/engines/`
   saying which types it shows and what it gives back. Text files too are read in its cage, never

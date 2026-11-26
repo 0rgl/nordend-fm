@@ -1,8 +1,11 @@
 // Tries one thing inside the preview helper's cage and says what happened, for
 // tests/sandbox_test.cpp. Its argument says what: allowed (what a picture needs), open, stat,
-// socket, exec, fork, memory (5 GiB), or landlock (landlock alone: a file and a TCP connection).
+// socket, exec, fork, memory (5 GiB), mmap-exec and mprotect-exec (executable memory),
+// implied-exec (READ_IMPLIES_EXEC set before the cage: a writable page run as code), or landlock
+// (landlock alone: a file and a TCP connection).
 #include <arpa/inet.h>
 #include <cerrno>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -11,6 +14,7 @@
 #include <netinet/in.h>
 #include <string_view>
 #include <sys/mman.h>
+#include <sys/personality.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <system_error>
@@ -49,6 +53,30 @@ int main(int argc, char** argv) {
     }
     const std::string_view what{
         argv[1]};  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    if (what == "implied-exec") {
+        ::personality(READ_IMPLIES_EXEC);
+        if (!isolate::enter_sandbox(isolate::Unexpected::kill).seccomp) {
+            say("no sandbox");
+            return 1;
+        }
+        auto* page = static_cast<unsigned char*>(
+            ::mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+        if (page == MAP_FAILED) {
+            say("no page");
+            return 1;
+        }
+#if defined(__x86_64__)
+        page[0] = 0xc3;  // ret
+#elif defined(__aarch64__)
+        const std::uint32_t ret = 0xd65f03c0;
+        std::memcpy(page, &ret, sizeof(ret));
+        __builtin___clear_cache(reinterpret_cast<char*>(page),  // NOLINT: code as bytes
+                                reinterpret_cast<char*>(page) + 4);
+#endif
+        reinterpret_cast<void (*)()>(page)();  // NOLINT: SIGSEGV unless the page runs
+        say("executed");
+        return 0;
+    }
     if (what == "landlock") {
         // A file sure to exist on any system (no /etc/hostname in Nix's build sandbox): the
         // probe itself, so landlock refuses it rather than the lookup failing first.
@@ -79,12 +107,16 @@ int main(int argc, char** argv) {
     }
     if (what == "allowed") {
         const int fd = ::memfd_create("probe", MFD_CLOEXEC);
+        // Memory that is not executable can still be mapped and protected.
+        void* page =
+            ::mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        const bool mapped = page != MAP_FAILED && ::mprotect(page, 4096, PROT_READ) == 0;
         void* memory = std::malloc(std::size_t{64} << 20);  // NOLINT: the allocator's calls
         std::memset(memory, 1, std::size_t{64} << 20);
         std::free(memory);  // NOLINT
         struct stat info{};
-        const bool fine = fd >= 0 && ::ftruncate(fd, 4096) == 0 && ::fstat(fd, &info) == 0 &&
-                          info.st_size == 4096;
+        const bool fine = mapped && fd >= 0 && ::ftruncate(fd, 4096) == 0 &&
+                          ::fstat(fd, &info) == 0 && info.st_size == 4096;
         say(fine ? "ok" : "failed");
     } else if (what == "open") {
         say_errno(::open("/etc/hostname", O_RDONLY | O_CLOEXEC));
@@ -98,6 +130,19 @@ int main(int argc, char** argv) {
         say("returned");
     } else if (what == "fork") {
         say_errno(::fork());  // killed
+    } else if (what == "mmap-exec") {
+        void* code = ::mmap(nullptr, 4096, PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1,
+                            0);  // killed
+        say(code == MAP_FAILED ? "refused" : "granted");
+    } else if (what == "mprotect-exec") {
+        void* page =
+            ::mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (page == MAP_FAILED) {
+            say("no page");
+            return 1;
+        }
+        say_errno(::mprotect(page, 4096, PROT_READ));              // ok
+        say_errno(::mprotect(page, 4096, PROT_READ | PROT_EXEC));  // killed
     } else if (what == "memory") {
         void* huge = ::mmap(nullptr, std::size_t{5} << 30, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);

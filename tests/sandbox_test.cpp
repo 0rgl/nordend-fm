@@ -76,6 +76,22 @@ TEST_CASE("sandbox: no network, no programs, no new processes") {
     }
 }
 
+TEST_CASE("sandbox: no executable memory once closed" * doctest::skip(kSanitized)) {
+    // A writable page mapped and made read-only, malloc and a memfd still work ("allowed").
+    CHECK(probe("allowed").out == "ok\n");
+    const Probed mapped = probe("mmap-exec");
+    CHECK(killed_by_seccomp(mapped));
+    CHECK(mapped.out.empty());
+    const Probed protect = probe("mprotect-exec");
+    CHECK(killed_by_seccomp(protect));
+    CHECK(protect.out == "ok\n");  // PROT_READ alone went through first
+    // READ_IMPLIES_EXEC inherited from outside is dropped: a writable page does not run.
+    const Probed implied = probe("implied-exec");
+    CHECK(WIFSIGNALED(implied.status));
+    CHECK(WTERMSIG(implied.status) == SIGSEGV);
+    CHECK(implied.out.empty());
+}
+
 TEST_CASE("sandbox: at most 4 GiB of memory" * doctest::skip(kSanitized)) {
     CHECK(probe("memory").out == "refused\n");
 }

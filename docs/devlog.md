@@ -42,6 +42,17 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   `packit srpm` on v0.10.1 in a Fedora 45 container: the SRPM holds that archive and the spec,
   and `%prep` unpacks it. 0.10.1 itself went in by hand, as an SRPM from its tag. The COPR
   project follows Fedora's branching; rpm.yml keeps building the spec on every push.
+- #70: the preview helper's cage refuses executable memory. `mmap` and `mprotect` left
+  `kAllowed` for a rule of their own, like the `newfstatat` one: `PROT_EXEC` in the third
+  argument gets the filter's action for unexpected calls (the helper is killed; with
+  `NORDEND_SANDBOX_REPORT=1` reported, `ENOSYS`), anything else is allowed. `mremap` keeps a
+  mapping's protection, `pkey_mprotect` was never allowed. Sanitizer builds keep both open.
+  `READ_IMPLIES_EXEC`, which `setarch -X` passes on to children and which makes the kernel add
+  `PROT_EXEC` to readable memory without it showing in the arguments, is cleared before the
+  filter goes in.
+  The whole suite, which runs the real helper on every sample file, reported no call with
+  `NORDEND_SANDBOX_REPORT=1`: no decoder asks for executable memory after the cage closes. The
+  sandbox probe gained `mmap-exec` and `mprotect-exec`, both ended with `SIGSYS`.
 
 ---
 

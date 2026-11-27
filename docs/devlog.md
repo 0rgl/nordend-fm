@@ -7,6 +7,23 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 ## 2026-11-26 — toward 0.10.2
 
 **Done**
+- #73, first part: thumbnails go with their files. `thumbs::Cache::forget()` removes a file's
+  PNG at the four sizes, whoever wrote it (the cache is shared, and the spec lets any program
+  clean it), and the markers in every `fail/nordend*` folder; other apps' `fail/` folders stay.
+  `forget_inside()` makes one pass over the same folders for a folder that went: it reads each
+  regular PNG only up to its image data and removes those whose `Thumb::URI` starts with the
+  folder's URI and a slash. `picture::png_text` now reads `zTXt` and `iTXt` as well as `tEXt`:
+  Qt compresses any value of 40 characters or more (`qpnghandler.cpp`), so KDE's thumbnails keep
+  their URI in `zTXt`, and `Cache::get()` now takes them as valid instead of making its own over
+  them. `Browser` gathers what to forget once a transfer ends: the old places of moved, trashed
+  and restored items, plus, for a move, each named item that a Replace or a merge left out of
+  the items; and what Delete and Empty Trash removed, which `run_erase` now reports
+  (`TransferResult::erased`, `erased_folders`), so a cancelled or failed delete forgets nothing
+  that stays and only folders cost a pass. A rename and its undo count as moves. One job at a
+  time runs on a worker at the lowest priority, the next requests gathered meanwhile; an item
+  whose old place exists again (an undo) is left alone, a pass stops when the browser goes. The
+  thumbnails are deleted, not renamed to the new URI: they are made again when shown. Changes
+  made by other programs are not followed.
 - #82: names sort by the locale's collation. `fs::set_collation("")` at start reads
   `LC_COLLATE` with `newlocale`, so the process's own locale stays "C". Each name gets a key
   (`fs::make_sort_key`) that is compared as bytes: the name with each run of digits written as

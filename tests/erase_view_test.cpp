@@ -1,9 +1,11 @@
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -19,6 +21,9 @@
 #include "nordend/fs/mime.hpp"
 #include "nordend/fs/transfer.hpp"
 #include "nordend/fs/trash.hpp"
+#include "nordend/picture/png.hpp"
+#include "nordend/thumbs/cache.hpp"
+#include "nordend/thumbs/md5.hpp"
 #include "nordend/views/browser.hpp"
 #include "nordend/views/shortcuts.hpp"
 #include "temp_dir.hpp"
@@ -87,9 +92,11 @@ struct Fixture {
     EventLoop loop;
     nordend::core::WorkerPool pool{loop, 2};
     nordend::fs::DirectoryWatcher watcher{loop};
+    fs::path thumbnails = dir.path / "thumbnails";
     std::unique_ptr<Browser> browser;
 
-    Fixture() {
+    // with_thumbnails: the browser keeps its thumbnails in the fixture's own cache.
+    explicit Fixture(bool with_thumbnails = false) {
         for (const char* name : {"P1.ORF", "P1.ORF.xmp", "P2.ORF", "a.txt"}) {
             make(photos / name, name);
         }
@@ -97,7 +104,9 @@ struct Fixture {
         nordend::fs::set_trash_sources(sources);
         browser = std::make_unique<Browser>(
             loop, pool, watcher, nordend::fs::MimeDatabase::load(), [] {},
-            [](nordend::ui::CursorShape /*shape*/) {});
+            [](nordend::ui::CursorShape /*shape*/) {},
+            with_thumbnails ? std::make_shared<nordend::thumbs::Cache>(thumbnails, "nordend-test")
+                            : nullptr);
         browser->set_home_trash(sources.home);
         browser->set_places(
             {{.label = "Home", .path = home, .icon = "home"},
@@ -248,4 +257,71 @@ TEST_CASE("erase: in the trash folder, Delete and Empty Trash delete for good") 
     REQUIRE(f.settle());
     CHECK_FALSE(f.browser->confirm_dialog().is_open());
     CHECK(f.browser->status_bar().message() == "The trash is empty already");
+}
+
+TEST_CASE("erase view: what is trashed, deleted or renamed takes its thumbnails along") {
+    Fixture f{true};
+    make(f.photos / "Trip" / "P5.ORF", "raw");
+    const auto thumbnail = [&](const fs::path& file) {
+        const fs::path png = f.thumbnails / "large" /
+                             (nordend::thumbs::md5_hex(nordend::thumbs::file_uri(file)) + ".png");
+        if (!fs::exists(png)) {
+            fs::create_directories(png.parent_path());
+            const std::vector<std::uint8_t> data =
+                nordend::picture::encode_png({.width = 1, .height = 1, .rgba = {0, 0, 0, 255}},
+                                             {{"Thumb::URI", nordend::thumbs::file_uri(file)}});
+            std::ofstream{png, std::ios::binary}.write(
+                reinterpret_cast<const char*>(data.data()),  // NOLINT: bytes to char for write
+                static_cast<std::streamsize>(data.size()));
+        }
+        return png;
+    };
+    const fs::path a = thumbnail(f.photos / "a.txt");
+    const fs::path inside = thumbnail(f.photos / "Trip" / "P5.ORF");
+    const fs::path renamed = thumbnail(f.photos / "P1.ORF");
+    const fs::path stays = thumbnail(f.photos / "P2.ORF");
+
+    // Delete: to the trash.
+    f.show(f.photos, "a.txt");
+    CHECK(f.press(key(XKB_KEY_Delete)));
+    REQUIRE(f.settle());
+    CHECK(run_until(f.loop, [&] { return !fs::exists(a); }));
+
+    // F2: the old name's thumbnail goes.
+    f.show(f.photos, "P1.ORF");
+    CHECK(f.press(key(XKB_KEY_F2)));
+    CHECK(f.press(key(XKB_KEY_a, {.ctrl = true})));
+    nordend::ui::KeyEvent typed = key(XKB_KEY_NoSymbol);
+    typed.text = "P7.ORF";
+    CHECK(f.press(typed));
+    CHECK(f.press(key(XKB_KEY_Return)));
+    REQUIRE(run_until(f.loop, [&] { return fs::exists(f.photos / "P7.ORF"); }));
+    CHECK(run_until(f.loop, [&] { return !fs::exists(renamed); }));
+
+    // Shift+Delete on a folder: what it held goes too.
+    f.show(f.photos, "Trip");
+    CHECK(f.press(key(XKB_KEY_Delete, {.shift = true})));
+    REQUIRE(f.browser->confirm_dialog().is_open());
+    REQUIRE(f.settle());
+    CHECK(f.press(key(XKB_KEY_Return)));
+    REQUIRE(f.settle());
+    REQUIRE_FALSE(fs::exists(f.photos / "Trip"));
+    CHECK(run_until(f.loop, [&] { return !f.browser->forgetting_thumbnails(); }));
+    CHECK_FALSE(fs::exists(inside));
+    CHECK(fs::exists(stays));
+
+    // Empty Trash: the thumbnails of what was in it.
+    const fs::path trashed = thumbnail(f.sources.home / "files" / "a.txt");
+    const std::shared_ptr<Folder> trash = f.show(nordend::fs::trash_path(), "");
+    trash->set_cursor(std::nullopt);
+    CHECK(f.press(key(XKB_KEY_Menu)));
+    REQUIRE(f.browser->context_menu().is_open());
+    CHECK(f.press(key(XKB_KEY_Return)));
+    REQUIRE(f.browser->confirm_dialog().is_open());
+    REQUIRE(f.settle());
+    CHECK(f.press(key(XKB_KEY_Return)));
+    REQUIRE(f.settle());
+    CHECK(run_until(f.loop, [&] { return !f.browser->forgetting_thumbnails(); }));
+    CHECK_FALSE(fs::exists(trashed));
+    CHECK(fs::exists(stays));
 }

@@ -129,6 +129,9 @@ README's [What's next](../README.md#whats-next).
   damaged, or unreadable.
 - **Shared freedesktop thumbnail cache:** thumbnails go where GNOME, KDE and other apps look for
   them, byte-compatible, so they are made once for all of them. Files that fail are remembered.
+  When a file goes to the trash, is deleted, renamed or moved, its thumbnails at its old place are
+  removed from the cache, at every size and whichever app made them (KDE's too), and a folder's
+  go with those of everything it held; they are made again when the file is shown.
 - **Quick Look** (Space): the photo fills the window, raw files included. An ORF's sharp picture is on
   screen about 100 ms after Space (its thumbnail at once). The arrows walk the folder without closing it, and the next
   photo is already loading. Text files open on a page you can scroll, in your monospace font

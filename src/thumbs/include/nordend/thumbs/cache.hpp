@@ -2,10 +2,13 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "nordend/core/file.hpp"
+#include "nordend/core/worker_pool.hpp"
 #include "nordend/picture/image.hpp"
 
 namespace nordend::thumbs {
@@ -69,8 +72,18 @@ public:
     // Like get(), but never from the cache, and a remembered failure is tried again.
     [[nodiscard]] Thumbnail make(const std::filesystem::path& file, Size size) const;
 
+    // Removes the thumbnails of files that are gone or moved: every size, whoever made them, and
+    // the failure markers of every Nordend; other apps' markers stay. Blocking: on a worker.
+    void forget(std::span<const std::filesystem::path> files) const;
+
+    // The same for every thumbnail of a file inside one of folders, found by its Thumb::URI: one
+    // pass over the cache that reads each PNG only up to its image data. Stops when cancelled.
+    void forget_inside(std::span<const std::filesystem::path> folders,
+                       const core::CancelToken& token = {}) const;
+
 private:
     [[nodiscard]] std::filesystem::path fail_path(const std::filesystem::path& file) const;
+    [[nodiscard]] std::vector<std::filesystem::path> forgettable_folders() const;
     [[nodiscard]] Thumbnail make(const std::filesystem::path& file, Size size,
                                  std::int64_t mtime) const;
 

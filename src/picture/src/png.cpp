@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <optional>
 #include <string_view>
 #include <zlib.h>
 
@@ -31,6 +32,69 @@ void put_chunk(std::vector<std::uint8_t>& out, std::string_view type,
     out.insert(out.end(), data.begin(), data.end());
     const auto crc = crc32(0, &out[start], static_cast<uInt>(out.size() - start));
     put_u32(out, static_cast<std::uint32_t>(crc));
+}
+
+// data inflated (zlib), at most limit bytes; nullopt when it is not zlib data or is longer.
+std::optional<std::string> inflated(std::span<const std::uint8_t> data, std::size_t limit) {
+    z_stream stream{};
+    if (inflateInit(&stream) != Z_OK) {
+        return std::nullopt;
+    }
+    std::string out(limit, '\0');
+    stream.next_in = const_cast<Bytef*>(data.data());  // NOLINT: zlib's API is not const
+    stream.avail_in = static_cast<uInt>(data.size());
+    stream.next_out = reinterpret_cast<Bytef*>(out.data());  // NOLINT: chars as bytes
+    stream.avail_out = static_cast<uInt>(limit);
+    const int status = inflate(&stream, Z_FINISH);
+    out.resize(limit - stream.avail_out);
+    inflateEnd(&stream);
+    if (status != Z_STREAM_END) {
+        return std::nullopt;
+    }
+    return out;
+}
+
+// A text chunk's key and value; nullopt when it is not one or cannot be read.
+std::optional<std::pair<std::string, std::string>> text_chunk(std::string_view type,
+                                                              std::span<const std::uint8_t> data) {
+    constexpr std::size_t longest_value = std::size_t{64} * 1024;
+    const auto zero = std::ranges::find(data, std::uint8_t{0});
+    if (zero == data.end()) {
+        return std::nullopt;
+    }
+    std::string key(data.begin(), zero);
+    std::span<const std::uint8_t> rest = data.subspan(key.size() + 1);
+    bool compressed = false;
+    if (type == "zTXt") {  // method, then zlib data
+        if (rest.empty()) {
+            return std::nullopt;
+        }
+        rest = rest.subspan(1);
+        compressed = true;
+    } else if (type == "iTXt") {  // flag, method, language, translated key, then the text
+        if (rest.size() < 2) {
+            return std::nullopt;
+        }
+        compressed = rest[0] != 0;
+        rest = rest.subspan(2);
+        for (int skipped = 0; skipped < 2; ++skipped) {
+            const auto end = std::ranges::find(rest, std::uint8_t{0});
+            if (end == rest.end()) {
+                return std::nullopt;
+            }
+            rest = rest.subspan(static_cast<std::size_t>(end - rest.begin()) + 1);
+        }
+    } else if (type != "tEXt") {
+        return std::nullopt;
+    }
+    if (!compressed) {
+        return std::pair{std::move(key), std::string(rest.begin(), rest.end())};
+    }
+    std::optional<std::string> value = inflated(rest, longest_value);
+    if (!value) {
+        return std::nullopt;
+    }
+    return std::pair{std::move(key), std::move(*value)};
 }
 
 std::uint8_t paeth(int a, int b, int c) {
@@ -135,13 +199,8 @@ PngText png_text(std::span<const std::uint8_t> png) {
         if (type == "IDAT" || type == "IEND") {
             break;
         }
-        if (type == "tEXt") {
-            const std::span<const std::uint8_t> data = png.subspan(at + 8, length);
-            const auto zero = std::ranges::find(data, std::uint8_t{0});
-            if (zero != data.end()) {
-                text.emplace_back(std::string(data.begin(), zero),
-                                  std::string(zero + 1, data.end()));
-            }
+        if (auto pair = text_chunk(type, png.subspan(at + 8, length))) {
+            text.push_back(std::move(*pair));
         }
         at += std::size_t{length} + 12;
     }

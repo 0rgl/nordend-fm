@@ -259,6 +259,53 @@ TEST_CASE("image: PNG written with text chunks reads back the same") {
     CHECK(picture::png_text(std::vector<std::uint8_t>{1, 2, 3}).empty());
 }
 
+TEST_CASE("image: PNG text read from zTXt and iTXt too, as Qt writes long values") {
+    const std::string uri = "file:///home/me/Photos/Trip/P1000001.ORF";
+    // A zlib stream of one stored block: header, the block, Adler-32.
+    std::vector<std::uint8_t> zlib{0x78, 0x01, 0x01};
+    const auto size = static_cast<std::uint16_t>(uri.size());
+    for (const std::uint16_t half : {size, static_cast<std::uint16_t>(~size)}) {
+        zlib.push_back(static_cast<std::uint8_t>(half & 0xFFU));
+        zlib.push_back(static_cast<std::uint8_t>(half >> 8U));
+    }
+    std::uint32_t a = 1;
+    std::uint32_t b = 0;
+    for (const char c : uri) {
+        zlib.push_back(static_cast<std::uint8_t>(c));
+        a = (a + static_cast<std::uint8_t>(c)) % 65521;
+        b = (b + a) % 65521;
+    }
+    for (const std::uint32_t part : {b >> 8U, b, a >> 8U, a}) {
+        zlib.push_back(static_cast<std::uint8_t>(part & 0xFFU));
+    }
+    std::vector<std::uint8_t> png{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+    const auto chunk = [&png](std::string_view type, const std::vector<std::uint8_t>& data) {
+        const auto length = static_cast<std::uint32_t>(data.size());
+        for (const unsigned shift : {24U, 16U, 8U, 0U}) {
+            png.push_back(static_cast<std::uint8_t>((length >> shift) & 0xFFU));
+        }
+        png.insert(png.end(), type.begin(), type.end());
+        png.insert(png.end(), data.begin(), data.end());
+        png.insert(png.end(), 4, 0);  // the CRC, not checked here
+    };
+    const auto bytes = [](std::string_view text) {
+        return std::vector<std::uint8_t>(text.begin(), text.end());
+    };
+    std::vector<std::uint8_t> ztxt = bytes(std::string_view{"Thumb::URI\0\0", 12});
+    ztxt.insert(ztxt.end(), zlib.begin(), zlib.end());
+    chunk("zTXt", ztxt);
+    chunk("iTXt", bytes(std::string_view{"Thumb::MTime\0\0\0\0\0"
+                                         "1700000000",
+                                         27}));
+    std::vector<std::uint8_t> compressed = bytes(std::string_view{"Software\0\1\0\0\0", 13});
+    compressed.insert(compressed.end(), zlib.begin(), zlib.end());
+    chunk("iTXt", compressed);
+    chunk("zTXt", bytes(std::string_view{"Broken\0\0\x78", 9}));
+    chunk("IEND", {});
+    CHECK(picture::png_text(png) ==
+          picture::PngText{{"Thumb::URI", uri}, {"Thumb::MTime", "1700000000"}, {"Software", uri}});
+}
+
 TEST_CASE("image: an embedded EXIF thumbnail is found, with the main image's orientation") {
     const image::EmbeddedPreview preview =
         image::embedded_preview(kData / "with-thumbnail.jpg", 16);

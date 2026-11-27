@@ -280,6 +280,10 @@ TransferResult Eraser::run() {
         }
         forget(group, group.item, folder);
         result_.placed.push_back(group.name);
+        result_.erased.push_back(group.item);
+        if (folder) {
+            result_.erased_folders.push_back(group.item);
+        }
         for (const std::filesystem::path& sidecar : group.sidecars) {
             if (remove(sidecar, sidecar.filename().string())) {
                 forget(group, sidecar, false);

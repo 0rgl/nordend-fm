@@ -33,102 +33,6 @@
 > windows keep each other's changes. Four safety fixes, among them programs from archives.
 > Fedora packages are in COPR. [Install it](#install).
 
-## Fast and safe, measured
-
-| Fast | Safe |
-|---|---|
-| **76 ms** to the first frame (warm start) | Files from outside are read in a **caged helper**: seccomp and landlock, no files, no network, no programs |
-| A 10 000-file folder: first entries in **0.8 ms**, all in **19 ms** | A broken or hostile file costs **at most its preview** |
-| A raw photo in Quick Look in about **100 ms** | **Nothing is ever overwritten** without asking, nothing half-copied under a real name |
-| Copies **nearly twice as fast as `cp`**, on eight threads | **7 parsers fuzzed**; every change tested under ASan and TSan |
-| **4.6 MB**, **25 MB** of memory, **0 CPU** while nothing moves | Never goes online by itself; never runs a program you did not allow |
-
-Nordend talks to the compositor directly, with **no toolkit at all**: text, icons, scrolling and
-animations come from its own renderer. It follows your desktop's theme by itself, live, and can
-be the Open and Save dialog of other applications. Every number comes with its tool and method:
-[Speed](#speed). Every guarantee with how it is kept: [Safety](#safety).
-
-## Contents
-
-- [Features](#features)
-- [Install](#install) and [keep it current](#nordend-setup)
-- [Speed](#speed) · [Safety](#safety)
-- [Setting it up](#setting-it-up): [folders and a key](#folders-and-a-key),
-  [the file chooser](#as-the-file-chooser-of-other-applications), [colours](#colours),
-  [configuration](#configuration)
-- [Versions](#versions)
-- [What's next](#whats-next)
-- [Documentation](#documentation) · [Development](#development) · [License](#license)
-
-## Features
-
-**Browsing**
-- Three views of the same folder: columns, a thumbnail grid, a details table
-  (<kbd>Ctrl</kbd>+<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>); switching keeps your place and your
-  selection; zoom; sort by name, size, date or type
-- Tabs (<kbd>Ctrl</kbd>+<kbd>T</kbd>, or a middle click on a folder), each with its folder, view
-  and history, all back at the next start
-- Command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>): every command, place and tab, fuzzy-matched
-  (fzy), the recently used first
-- Find files (<kbd>Ctrl</kbd>+<kbd>F</kbd>): fuzzy search of every file under the folder, first
-  results in milliseconds even among 270 000
-- Sidebar: places, GTK bookmarks (renamed, pointed elsewhere and reordered in place), disks
-  through udisks2 (mount, unmount, eject), and a folder tree if you want one
-  (`[sidebar] tree = true`)
-- Type a path (<kbd>Ctrl</kbd>+<kbd>L</kbd>): <kbd>Tab</kbd> completes folder names, red when
-  nothing matches
-- Info pane beside every view: preview, dates, EXIF, and a folder's size added up on a worker
-  as you stop on it (or several selected)
-- Folders follow changes on disk (inotify); history with <kbd>Alt</kbd>+<kbd>←</kbd>
-  <kbd>→</kbd> and the mouse's side buttons
-- Keyboard first, mouse always: <kbd>F1</kbd> lists every shortcut
-
-**Photos and previews**
-- Quick Look (<kbd>Space</kbd>): photos fill the window, raw files included; text files on a
-  scrollable page with syntax colours, to select and copy; the arrows walk the folder
-- Raw files: the previews cameras embed in ORF, CR2, NEF, ARW, RAF, RW2, SRW, DNG, 3FR, found by
-  Nordend's own reader, upright and cropped to the shot; DNGs with only a small preview (Leica,
-  drones) developed by Nordend itself, with the file's own colour; EXIF in the info pane
-- Images: PNG, JPEG, GIF ([wuffs](https://github.com/google/wuffs), memory-safe by
-  construction), WebP, JPEG XL; TIFF, PGM and PPM with Nordend's own readers, checked pixel for
-  pixel against libtiff and fuzzed; thumbnails in the shared freedesktop cache, removed with
-  their files, and kept out of it for removable disks and the folders you name
-  (`[thumbnails] skip`)
-- darktable sidecars travel with their photo through every rename, copy, move and trip to the
-  trash
-
-**Files**
-- Copy and move with progress and conflict questions, a folder's files on eight threads
-  (nearly twice as fast as `cp`), merging folders asking about each taken file; rename, new
-  folder or file from templates, undo and redo (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), a real
-  freedesktop trash with restore, delete permanently
-- Drag and drop within Nordend and with other apps; rubber-band selection; the system clipboard
-- Symbolic links from the menu ("Create Link"), never made over anything; undo sends them to the
-  trash, never what they lead to
-- Actions of your own in the context menu (`[[action]]` in `config.toml`, like Thunar's custom
-  actions): a name, a command, and which files they fit
-- Archives: zip, tar, tar.gz and .gz open like folders (read by Nordend's own code in the caged
-  helper), with Quick Look on what they hold and the files inside; extract with
-  <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>Ctrl</kbd>+<kbd>V</kbd> or "Extract Here" (nothing can land
-  outside the folder chosen, nothing is overwritten, archive bombs are asked about); make .zip or
-  .tar.gz from the menu; disc images (`.iso`) mount with <kbd>Enter</kbd>
-- Programs and AppImages start with <kbd>Enter</kbd>; "Allow Running as Program" from the menu,
-  asked first when they may not run yet, never a script, and a small dot marks what can run
-
-**On your desktop**
-- The file chooser of other applications (the desktop portal's): open and save with Nordend's
-  views, thumbnails and Quick Look, the application's filters and choices
-- "Show in Folder" from browsers and other apps opens Nordend with the file selected
-- Default applications and "Open With", resolved exactly as GLib does; a terminal in any folder
-  (<kbd>F4</kbd>), the one you choose in `config.toml`
-- Your theme's colours, live (Noctalia, Stylix, matugen, a hand-made `gtk.css`), or the
-  desktop's light/dark style and accent (GNOME, Plasma); the icon follows the accent; fractional
-  scaling; one header with the sidebar to the top, the path and the window's buttons
-- Remembers views, order, tabs and window size; a short `config.toml`, reloaded live, the text
-  size included (the whole interface follows it)
-
-Everything it does, area by area: [docs/features.md](docs/features.md).
-
 ## Install
 
 Nordend is young software, used every day by its author. It needs Linux with a Wayland
@@ -284,6 +188,102 @@ when) and `share/nordend/installed-files` (every file) beside the install; the a
 opened folders before, in `~/.local/state/nordend-setup/settings`; nothing else. It builds in
 `~/.cache/nordend-setup` and empties it afterwards. A Nordend installed by a package manager or
 Nix is left to it: nordend-setup stops rather than install a second copy.
+
+## Fast and safe, measured
+
+| Fast | Safe |
+|---|---|
+| **76 ms** to the first frame (warm start) | Files from outside are read in a **caged helper**: seccomp and landlock, no files, no network, no programs |
+| A 10 000-file folder: first entries in **0.8 ms**, all in **19 ms** | A broken or hostile file costs **at most its preview** |
+| A raw photo in Quick Look in about **100 ms** | **Nothing is ever overwritten** without asking, nothing half-copied under a real name |
+| Copies **nearly twice as fast as `cp`**, on eight threads | **7 parsers fuzzed**; every change tested under ASan and TSan |
+| **4.6 MB**, **25 MB** of memory, **0 CPU** while nothing moves | Never goes online by itself; never runs a program you did not allow |
+
+Nordend talks to the compositor directly, with **no toolkit at all**: text, icons, scrolling and
+animations come from its own renderer. It follows your desktop's theme by itself, live, and can
+be the Open and Save dialog of other applications. Every number comes with its tool and method:
+[Speed](#speed). Every guarantee with how it is kept: [Safety](#safety).
+
+## Contents
+
+- [Install](#install) and [keep it current](#nordend-setup)
+- [Features](#features)
+- [Speed](#speed) · [Safety](#safety)
+- [Setting it up](#setting-it-up): [folders and a key](#folders-and-a-key),
+  [the file chooser](#as-the-file-chooser-of-other-applications), [colours](#colours),
+  [configuration](#configuration)
+- [Versions](#versions)
+- [What's next](#whats-next)
+- [Documentation](#documentation) · [Development](#development) · [License](#license)
+
+## Features
+
+**Browsing**
+- Three views of the same folder: columns, a thumbnail grid, a details table
+  (<kbd>Ctrl</kbd>+<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>); switching keeps your place and your
+  selection; zoom; sort by name, size, date or type
+- Tabs (<kbd>Ctrl</kbd>+<kbd>T</kbd>, or a middle click on a folder), each with its folder, view
+  and history, all back at the next start
+- Command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>): every command, place and tab, fuzzy-matched
+  (fzy), the recently used first
+- Find files (<kbd>Ctrl</kbd>+<kbd>F</kbd>): fuzzy search of every file under the folder, first
+  results in milliseconds even among 270 000
+- Sidebar: places, GTK bookmarks (renamed, pointed elsewhere and reordered in place), disks
+  through udisks2 (mount, unmount, eject), and a folder tree if you want one
+  (`[sidebar] tree = true`)
+- Type a path (<kbd>Ctrl</kbd>+<kbd>L</kbd>): <kbd>Tab</kbd> completes folder names, red when
+  nothing matches
+- Info pane beside every view: preview, dates, EXIF, and a folder's size added up on a worker
+  as you stop on it (or several selected)
+- Folders follow changes on disk (inotify); history with <kbd>Alt</kbd>+<kbd>←</kbd>
+  <kbd>→</kbd> and the mouse's side buttons
+- Keyboard first, mouse always: <kbd>F1</kbd> lists every shortcut
+
+**Photos and previews**
+- Quick Look (<kbd>Space</kbd>): photos fill the window, raw files included; text files on a
+  scrollable page with syntax colours, to select and copy; the arrows walk the folder
+- Raw files: the previews cameras embed in ORF, CR2, NEF, ARW, RAF, RW2, SRW, DNG, 3FR, found by
+  Nordend's own reader, upright and cropped to the shot; DNGs with only a small preview (Leica,
+  drones) developed by Nordend itself, with the file's own colour; EXIF in the info pane
+- Images: PNG, JPEG, GIF ([wuffs](https://github.com/google/wuffs), memory-safe by
+  construction), WebP, JPEG XL; TIFF, PGM and PPM with Nordend's own readers, checked pixel for
+  pixel against libtiff and fuzzed; thumbnails in the shared freedesktop cache, removed with
+  their files, and kept out of it for removable disks and the folders you name
+  (`[thumbnails] skip`)
+- darktable sidecars travel with their photo through every rename, copy, move and trip to the
+  trash
+
+**Files**
+- Copy and move with progress and conflict questions, a folder's files on eight threads
+  (nearly twice as fast as `cp`), merging folders asking about each taken file; rename, new
+  folder or file from templates, undo and redo (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), a real
+  freedesktop trash with restore, delete permanently
+- Drag and drop within Nordend and with other apps; rubber-band selection; the system clipboard
+- Symbolic links from the menu ("Create Link"), never made over anything; undo sends them to the
+  trash, never what they lead to
+- Actions of your own in the context menu (`[[action]]` in `config.toml`, like Thunar's custom
+  actions): a name, a command, and which files they fit
+- Archives: zip, tar, tar.gz and .gz open like folders (read by Nordend's own code in the caged
+  helper), with Quick Look on what they hold and the files inside; extract with
+  <kbd>Ctrl</kbd>+<kbd>C</kbd> <kbd>Ctrl</kbd>+<kbd>V</kbd> or "Extract Here" (nothing can land
+  outside the folder chosen, nothing is overwritten, archive bombs are asked about); make .zip or
+  .tar.gz from the menu; disc images (`.iso`) mount with <kbd>Enter</kbd>
+- Programs and AppImages start with <kbd>Enter</kbd>; "Allow Running as Program" from the menu,
+  asked first when they may not run yet, never a script, and a small dot marks what can run
+
+**On your desktop**
+- The file chooser of other applications (the desktop portal's): open and save with Nordend's
+  views, thumbnails and Quick Look, the application's filters and choices
+- "Show in Folder" from browsers and other apps opens Nordend with the file selected
+- Default applications and "Open With", resolved exactly as GLib does; a terminal in any folder
+  (<kbd>F4</kbd>), the one you choose in `config.toml`
+- Your theme's colours, live (Noctalia, Stylix, matugen, a hand-made `gtk.css`), or the
+  desktop's light/dark style and accent (GNOME, Plasma); the icon follows the accent; fractional
+  scaling; one header with the sidebar to the top, the path and the window's buttons
+- Remembers views, order, tabs and window size; a short `config.toml`, reloaded live, the text
+  size included (the whole interface follows it)
+
+Everything it does, area by area: [docs/features.md](docs/features.md).
 
 <a id="numbers"></a>
 

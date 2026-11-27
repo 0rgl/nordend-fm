@@ -701,6 +701,7 @@ int main(int argc, char** argv) {
         for (const std::string& problem : remembered.problems) {
             log::warn("state: {}", problem);
         }
+        const views::State on_disk = remembered.state;  // what a write merges against
         if (std::error_code missing; pick && !std::filesystem::exists(state_path, missing)) {
             remembered.state.mode = views::State::Mode::grid;
         }
@@ -843,7 +844,7 @@ int main(int argc, char** argv) {
         };
         // Writes state.toml as things change; the window's size is the one it has when neither
         // maximized, fullscreen nor tiled, so a maximized window comes back to it.
-        views::StateKeeper keeper{loop, pool, state_path, remembered.state};
+        views::StateKeeper keeper{loop, pool, state_path, on_disk};
         std::int32_t restored_width = remembered.state.window_width;
         std::int32_t restored_height = remembered.state.window_height;
         const auto note_state = [&] {
@@ -1044,6 +1045,7 @@ int main(int argc, char** argv) {
             } else if (!start_dir.empty() ||
                        !columns->restore_tabs(remembered.state.tabs, remembered.state.shown_tab)) {
                 columns->open(start_folder(start_dir));
+                keeper.opened_without_tabs();
             }
             memory_lines = [&columns] { return columns->memory_lines(); };
         }

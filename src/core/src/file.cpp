@@ -137,6 +137,10 @@ TextFile read_open_file(int fd, std::size_t max_bytes) {
 
 }  // namespace
 
+std::error_code make_private_folders(const std::filesystem::path& folder) {
+    return make_folders(folder);
+}
+
 std::string file_uri(const std::filesystem::path& absolute) {
     std::string uri = "file://";
     for (const char ch : absolute.native()) {

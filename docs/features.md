@@ -693,7 +693,9 @@ second (binary measured 2026-11-14, memory 2026-11-13).
   maximized; with two tabs or more, the tabs (each one's folder, view, cursor and, in the columns,
   where they start) and which was shown, back when Nordend starts without a folder (Super+E;
   folders gone meanwhile are left out). With one tab, not the last folder: Nordend opens Home, or
-  the folder given. Not the back/forward history. A broken file only means the defaults.
+  the folder given. Not the back/forward history. A broken file only means the defaults. With
+  several windows open, each writes only what it changed, so a change made in one is not undone
+  by another.
 
 ## Standards it follows
 

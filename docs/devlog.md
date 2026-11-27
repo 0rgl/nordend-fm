@@ -7,6 +7,25 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 ## 2026-11-26 — toward 0.10.2
 
 **Done**
+- Two windows and `state.toml` (from the handover's list): each window wrote its whole state, so
+  the one that wrote last undid what another had changed (an order chosen in one window went back
+  when the other was resized, a window opened on a folder wiped the tabs another had saved).
+  `StateKeeper::File` now keeps a base, what this window wrote last, and each write reads the
+  file and puts over it only the fields this window changed since its base (`merged_state`).
+  Fields that go together change together: the tabs with the one shown, the window's size with
+  maximized, the order with its direction. The read and the write are under an exclusive `flock`
+  on the state folder (made first, so the first write is locked too), waited for two seconds at
+  most; without a lock (a file system without flock, a Nordend stopped while holding it) the
+  write goes on and the log says so once. The base is the file as read at start, before Nordend
+  adjusts it (the picker's first grid is written), and empty tabs when the saved ones were not
+  restored (`opened_without_tabs`): a window opened on a folder does not count its one tab as a
+  change. A missing or unparsable file gets this window's whole state; one that cannot be read
+  is not written over, and the write is tried again 10 s later, its base kept, so no change is
+  lost. The handover's other two transfer items were already done in 0.8.0: a merge asks about
+  each file whose name is taken, and Shift+Escape stops a transfer. Escape during a drag works
+  on Hyprland as it is: keys still reach the focused window during a drag there, and a source
+  destroyed by its client ends the drag (`DataDevice.cpp`, `onDestroyDataSource` →
+  `abortDrag`); Umbriel's is still NB-002.
 - #73, second part: `[thumbnails] skip` (absolute paths or `~/`, a relative one is reported and
   left out) and `skip_removable`, true by default, for `/run/media` and `/media` (where udisks2
   and VeraCrypt mount; `/mnt` stays cached, as data disks live there). `thumbs::Cache` keeps the
@@ -4654,7 +4673,8 @@ author's OK).
 
 **Open**
 - "Maximized" untried: on a floating window in the VM (GNOME, Plasma) with 7.5b or 7.5c.
-- Two Nordend windows: the last one to write wins (one window per process today).
+- ~~Two Nordend windows: the last one to write wins (one window per process today).~~ Each
+  writes only what it changed, since 0.10.2.
 
 ---
 

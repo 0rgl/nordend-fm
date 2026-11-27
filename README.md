@@ -86,9 +86,8 @@ chooser's portal files under `/usr`, so Nordend can be the file chooser of other
 <details>
 <summary><b>On Void Linux</b>: a package built from its xbps-src template</summary>
 
-Nordend is developed on Void, and comes with an xbps-src template in
-[`packaging/void`](packaging/void). It builds the latest release into a package that puts
-`nordend`, its desktop entry and its icon under `/usr`:
+Nordend comes with an xbps-src template in [`packaging/void`](packaging/void). It builds the
+latest release into a package that puts `nordend`, its desktop entry and its icon under `/usr`:
 
 ```sh
 # 1. void-packages, once (skip if you already have a checkout)
@@ -201,8 +200,9 @@ Nix is left to it: nordend-setup stops rather than install a second copy.
 
 Nordend talks to the compositor directly, with **no toolkit at all**: text, icons, scrolling and
 animations come from its own renderer. It follows your desktop's theme by itself, live, and can
-be the Open and Save dialog of other applications. Every number comes with its tool and method:
-[Speed](#speed). Every guarantee with how it is kept: [Safety](#safety).
+be the Open and Save dialog of other applications. Each number below comes with the tool and
+method behind it ([Speed](#speed)), and each safety guarantee with how it is kept
+([Safety](#safety)).
 
 ## Contents
 
@@ -328,7 +328,7 @@ Every measurement and its method is in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Safety
 
-How Nordend keeps your files and your machine safe, and how we check it.
+A file from outside is opened by Nordend and read only in the caged helper:
 
 ```mermaid
 flowchart LR
@@ -350,8 +350,8 @@ flowchart LR
   closes the file system, rlimits cap its memory. It gets an open file and gives back sealed
   memory. If a file breaks it, the helper dies; Nordend shows no preview and goes on.
 - **Our own readers, fuzzed.** TIFF, DNG, the raw containers, lossless JPEG, archives and text are
-  Nordend's own code, run under libFuzzer for an hour per target before a release that changes
-  them; real findings stay in the tests. PNG, JPEG and GIF go through
+  Nordend's own code, run under libFuzzer for 15 minutes per target before every release; real
+  findings stay in the tests. PNG, JPEG and GIF go through
   [wuffs](https://github.com/google/wuffs), memory-safe by construction.
 - **Nothing is overwritten.** Renames use `RENAME_NOREPLACE`; copies are written under a hidden
   name and appear only when complete; extracting an archive can never write outside the folder you
@@ -360,7 +360,7 @@ flowchart LR
   is asked about first.
 - **Nothing goes online.** Nordend makes no network connection of its own.
 - **Checked on every change:** the tests run in CI with GCC, clang and ASan + UBSan; TSan and
-  clang-tidy before every step; the parsers under the fuzzer before a release.
+  clang-tidy before every merge; the parsers under the fuzzer before a release.
 
 ## Setting it up
 
@@ -373,6 +373,11 @@ service below) and give it a key:
 
 ```sh
 xdg-mime default nordend.desktop inode/directory
+```
+
+```lua
+-- Hyprland's hyprland.lua (0.57)
+hl.bind("SUPER + E", hl.dsp.exec_cmd("nordend"))
 ```
 
 ```toml
@@ -443,12 +448,10 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 ## What's next
 
-Nordend stays what it is: a native C++ file manager, at home on any Wayland desktop, with no GTK
-or Qt; very light, safe and fast. Everything else is a feature on
-top, added only when it keeps those three. Coming, roughly in this order:
+Nordend stays a native C++ file manager without GTK or Qt, at home on any Wayland desktop. A new
+feature goes in only if Nordend stays as light, safe and fast as it is. Coming, roughly in this
+order:
 
-- **Moving and organising**: symbolic links, typing a path, selecting by a name pattern, a
-  folder tree in the sidebar
 - **Network shares** in the sidebar (Samba, SFTP, FTP, WebDAV, through gvfs when it runs)
 - **Previews, one family at a time**: other common formats one by one (SVG, AVIF, fonts, audio
   tags); more archive formats (7z, xz, zstd)
@@ -472,7 +475,7 @@ top, added only when it keeps those three. Coming, roughly in this order:
 Contributions are welcome: bug reports, fixes, and features after a short discussion in an issue.
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Nordend is copiloted by **Claude Opus** (Anthropic), which assists with code writing, code analysis,
+Nordend is copiloted by **Claude Code Opus** (Anthropic), which assists with code writing, code analysis,
 bug hunting, testing and documentation. Design decisions, testing on real hardware and every release
 are the author's. Step numbers in code comments ("ROADMAP 6.3") refer to the internal roadmap.
 

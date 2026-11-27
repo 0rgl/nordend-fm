@@ -35,9 +35,9 @@
 
 ## Install
 
-Nordend is young software, used every day by its author. It needs Linux with a Wayland
-compositor that offers xdg-shell (developed on Umbriel, also tried on GNOME, Plasma and niri)
-and a GPU driver with OpenGL ES 3.0 (Mesa). Five ways, each opens with a click:
+Nordend is young software. It was built with safety in mind, but some bugs may still occur. It
+requires Linux with a Wayland compositor that supports xdg-shell and a GPU driver with OpenGL ES
+3.0 support. It has been successfully tested on Hyprland, Umbriel, Niri, GNOME and Plasma.
 
 <details>
 <summary><b>On any distribution</b>: nordend-setup builds, installs and updates it</summary>

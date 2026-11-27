@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "nordend/core/log.hpp"
+#include "nordend/fs/sort.hpp"
 
 namespace nordend::fs {
 namespace {
@@ -160,6 +161,7 @@ void DirectoryModel::load_archive() {
     struct Found {
         std::optional<ArchiveLocation> where;
         std::shared_ptr<const ArchiveTree> tree;
+        std::vector<Entry> entries;  // the folder's, with their sort keys
     };
 
     loading_ = true;
@@ -171,6 +173,12 @@ void DirectoryModel::load_archive() {
             found.where = find_archive(path);
             if (found.where) {
                 found.tree = archive_tree(found.where->archive, mime.get());
+                if (const std::vector<Entry>* entries = found.tree->folder(found.where->inner)) {
+                    found.entries = *entries;
+                    for (Entry& entry : found.entries) {
+                        entry.sort_key = make_sort_key(entry.name);
+                    }
+                }
             }
             return found;
         },
@@ -203,7 +211,7 @@ void DirectoryModel::load_archive() {
                 names_.insert(entry.name);
                 change.added.push_back(entry.name);
             }
-            listing_.add(std::vector<Entry>{*entries});
+            listing_.add(std::move(found.entries));
             notify(change);
             notify(loaded_change());
         });
@@ -239,12 +247,14 @@ void DirectoryModel::load_trash() {
             std::vector<TrashedItem> items = list_trash(sources);
             for (TrashedItem& item : items) {
                 std::vector<std::optional<Entry>> read =
-                    read_entries(item.path.parent_path(), {item.path.filename().string()}, options);
+                    read_entries(item.path.parent_path(), {item.path.filename().string()},
+                                 {.mime = options.mime, .sort_keys = false});
                 if (read.empty() || !read.front()) {
                     continue;  // gone meanwhile
                 }
                 Entry entry = std::move(*read.front());
                 entry.name = item.name;
+                entry.sort_key = make_sort_key(entry.name);
                 listing.entries.push_back(std::move(entry));
                 listing.items.push_back(std::move(item));
             }

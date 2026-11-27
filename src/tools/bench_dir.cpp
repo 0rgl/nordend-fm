@@ -51,7 +51,8 @@ struct Sample {
     double first_chunk_ms{0};
     double complete_ms{0};
     std::size_t entries{0};
-    std::size_t typed{0};  // entries whose type the name alone decides
+    std::size_t typed{0};      // entries whose type the name alone decides
+    std::size_t key_bytes{0};  // the entries' sort keys, heap included
 };
 
 // Camera-folder names: P1234567.ORF with a darktable sidecar for one file in three, some JPEGs,
@@ -136,6 +137,11 @@ Sample run_once(const std::filesystem::path& dir,
         throw std::runtime_error{std::format("{}: {}", dir.string(), result.error.message())};
     }
     sample.entries = entries.size();
+    const std::size_t inline_room = std::string{}.capacity();
+    for (const fs::Entry& entry : entries) {
+        const std::size_t capacity = entry.sort_key.capacity();
+        sample.key_bytes += sizeof(std::string) + (capacity > inline_room ? capacity + 1 : 0);
+    }
 
     start = Clock::now();
     std::ranges::sort(entries, fs::SortOrder{});
@@ -159,6 +165,7 @@ void print_row(std::string_view label, const Sample& s) {
 
 int main(int argc, char** argv) {
     const std::span args{argv, static_cast<std::size_t>(argc)};
+    (void)fs::set_collation("");  // as Nordend sorts
     try {
         if (args.size() == 4 && std::string_view{args[1]} == "--make") {
             return make(std::stoul(args[2]), args[3]);
@@ -197,6 +204,9 @@ int main(int argc, char** argv) {
                     std::max(2U, std::thread::hardware_concurrency() / 2));
         std::printf("MIME database loaded in %.2f ms; %zu of %zu entries typed by name alone\n\n",
                     mime_load_ms, samples.front().typed, samples.front().entries);
+        std::printf("Sort keys: %.1f bytes per entry\n\n",
+                    static_cast<double>(samples.front().key_bytes) /
+                        static_cast<double>(std::max<std::size_t>(samples.front().entries, 1)));
         std::printf("%-10s %9s %9s %9s %9s %11s %10s\n", "ms", "readdir", "+stat", "sort", "mime",
                     "1st chunk", "complete");
         print_row("run 1", samples.front());

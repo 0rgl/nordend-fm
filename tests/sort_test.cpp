@@ -59,8 +59,103 @@ TEST_CASE("natural order: ties are total and deterministic") {
     CHECK(natural_compare("a", "A") == -natural_compare("A", "a"));
 }
 
-TEST_CASE("natural order: non-ASCII bytes after ASCII letters") {
-    CHECK(less("zebra", "\xC3\xA8lan"));  // "èlan": bytes, no collation yet
+TEST_CASE("natural order: in C, non-ASCII bytes after ASCII letters") {
+    CHECK(less("zebra", "\xC3\xA8lan"));  // "èlan"
+}
+
+TEST_CASE("natural order: a dot before letters and digits") {
+    CHECK(less("a.txt", "ab.txt"));
+    CHECK(less("a.txt", "a1.txt"));
+    CHECK(less("a.txt", "a0.txt"));
+    CHECK(less(".hidden", "1"));
+    CHECK(less("v1.9.txt", "v1.10.txt"));
+    CHECK(less("v1.5", "v10"));
+    // In C, space and hyphen come before the dot.
+    CHECK(less("-a", ".hidden"));
+    CHECK(less("photo (1).jpg", "photo.jpg"));
+}
+
+namespace {
+
+// Sorts by a locale's collation while alive; false when it is not installed.
+struct Collation {
+    bool ok;
+
+    explicit Collation(const char* locale) : ok{nordend::fs::set_collation(locale)} {}
+
+    ~Collation() { nordend::fs::set_collation("C"); }
+
+    Collation(const Collation&) = delete;
+    Collation& operator=(const Collation&) = delete;
+};
+
+std::vector<std::string> sorted(std::vector<std::string> names) {
+    std::ranges::sort(names, less);
+    return names;
+}
+
+}  // namespace
+
+TEST_CASE("natural order: the locale's collation") {
+    SUBCASE("Polish") {
+        const Collation polish{"pl_PL.UTF-8"};
+        if (!polish.ok) {
+            MESSAGE("pl_PL.UTF-8 not installed: skipped");
+            return;
+        }
+        CHECK(sorted({"Zebra", "Łódź", "lody", "ćma", "dom", "cel", "Żaba", "zz"}) ==
+              std::vector<std::string>{"cel", "ćma", "dom", "lody", "Łódź", "Zebra", "zz", "Żaba"});
+        CHECK(less("ąb", "Ąc"));  // case is not the first rule
+        CHECK(less("IMG_2.jpg", "IMG_10.jpg"));
+        CHECK(less("a.txt", "ab.txt"));
+        CHECK(less(".hidden", "a"));
+        CHECK(less(".hidden", "-a"));
+        CHECK(less("Report.doc", "report.pdf"));  // the whole name's letters before its case
+        CHECK(natural_compare("ó", "ó") == 0);
+        CHECK(less("File", "file") != less("file", "File"));
+    }
+    SUBCASE("German and French") {
+        const Collation german{"de_DE.UTF-8"};
+        if (!german.ok) {
+            MESSAGE("de_DE.UTF-8 not installed: skipped");
+            return;
+        }
+        CHECK(sorted({"ozon", "Österreich", "Ostern"}) ==
+              std::vector<std::string>{"Ostern", "Österreich", "ozon"});
+        const Collation french{"fr_FR.UTF-8"};
+        if (!french.ok) {
+            MESSAGE("fr_FR.UTF-8 not installed: skipped");
+            return;
+        }
+        CHECK(sorted({"emu", "Émile", "zebra", "dame"}) ==
+              std::vector<std::string>{"dame", "Émile", "emu", "zebra"});
+    }
+    SUBCASE("bytes that are not UTF-8 still sort, totally") {
+        const Collation polish{"pl_PL.UTF-8"};
+        if (!polish.ok) {
+            MESSAGE("pl_PL.UTF-8 not installed: skipped");
+            return;
+        }
+        CHECK(less("\xFF", "\xFF\xFE") != less("\xFF\xFE", "\xFF"));
+        CHECK(natural_compare("a\xFFz", "a\xFFz") == 0);
+    }
+    SUBCASE("an unknown locale changes nothing") {
+        CHECK_FALSE(nordend::fs::set_collation("xx_NOPE.UTF-8"));
+        CHECK(less("zebra", "\xC3\xA8lan"));
+    }
+}
+
+TEST_CASE("sort orders use the entries' keys") {
+    const Collation polish{"pl_PL.UTF-8"};
+    if (!polish.ok) {
+        MESSAGE("pl_PL.UTF-8 not installed: skipped");
+        return;
+    }
+    std::vector<Entry> entries{file("zz"), file("ćma"), file("dom")};
+    entries[0].sort_key = nordend::fs::make_sort_key(entries[0].name);
+    entries[1].sort_key = nordend::fs::make_sort_key(entries[1].name);  // one made when compared
+    std::ranges::sort(entries, SortOrder{});
+    CHECK(names(entries) == std::vector<std::string>{"ćma", "dom", "zz"});
 }
 
 TEST_CASE("sort orders") {

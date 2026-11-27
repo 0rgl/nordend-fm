@@ -7,6 +7,24 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 ## 2026-11-26 — toward 0.10.2
 
 **Done**
+- #82: names sort by the locale's collation. `fs::set_collation("")` at start reads
+  `LC_COLLATE` with `newlocale`, so the process's own locale stays "C". Each name gets a key
+  (`fs::make_sort_key`) that is compared as bytes: the name with each run of digits written as
+  its length's length, its length and its value (numbers still sort by value) and each dot as
+  `0`, all through one `strxfrm_l`. A whole name's letters are weighed before its accents and its
+  case, as `strcoll` does: `Report.doc` comes before `report.pdf`. Polish puts `ą` after `a` and
+  `Ł` after `L`, Swedish puts `å` after `z`. The dot becomes a digit because the locales ignore
+  punctuation at the first level: left as it is, `ab.txt` came before `a.txt` and dotfiles sorted
+  among the h's. A `0` sorts before letters and before every number so written, which starts
+  with 1 to 9. A collation that puts "B" before "a" (C, C.UTF-8) keeps the old order exactly:
+  bytes with ASCII case folded. The key is made on the worker for lists that are sorted
+  (`ReadOptions::sort_keys`: folder listings, the trash after it renames an entry, an archive's
+  folder when it is opened, the archive preview's first entries), kept in `Entry::sort_key`, and
+  made at each comparison when it is missing. `set_collation` never frees a collation it made,
+  since a worker may still be using it. Under pl_PL.UTF-8 a key costs about 0.2 µs and 147
+  bytes per entry for camera-like names, and sorting 10k entries is quicker (1.94 → 1.50 ms).
+  The CI's Void container now has pl_PL, de_DE and fr_FR for the tests, which skip a locale
+  that is missing.
 - #57: a window takes 2 inotify instances instead of 13. Every `core::FileWatcher` of a loop
   now shares one instance (`FileWatcher::Shared`, found through a registry keyed by the loop
   and held weakly, so it goes with the loop's last watcher), and the watchers of files in one

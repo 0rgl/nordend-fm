@@ -936,6 +936,22 @@ Columns, in milliseconds:
 - **+stat:** names plus type, size, date and link target for each entry, on one thread.
 - **sort:** sorting all entries by name (natural order, directories first).
 
+### 2026-11-27: names sorted by the locale (#82)
+
+The generated 10k folder in a Fedora 45 container, warm cache, median of runs 2-20; `main`
+against #82, in the C locale and in Polish. The sort keys are made on the worker, while the
+entries are read (+stat); the sort then compares bytes.
+
+| ms | readdir | +stat | sort | mime | 1st chunk | complete | key per entry |
+|----|--------:|------:|-----:|-----:|----------:|---------:|--------------:|
+| main, C | 1.06 | 6.08 | 1.95 | 1.11 | 0.19 | 6.59 | |
+| #82, C | 1.07 | 6.52 | 1.57 | 1.11 | 0.19 | 6.97 | 38 B |
+| main, pl_PL.UTF-8 | 1.06 | 6.04 | 1.94 | 1.09 | 0.18 | 6.61 | |
+| #82, pl_PL.UTF-8 | 1.06 | 7.99 | 1.50 | 1.23 | 0.21 | 8.42 | 147 B |
+
+A key under a real locale is about ten times the name: glibc's `strxfrm` writes four levels
+(letters, accents, case, position). That is 1.5 MB for 10k entries.
+
 ### 2026-11-01: 10k files on the SATA SSD, warm cache (7.6)
 
 Same tool, a freshly generated folder (`build/bench-10k`), 20 runs, 8 worker threads; the MIME

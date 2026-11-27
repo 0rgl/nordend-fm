@@ -1,14 +1,23 @@
 #include "nordend/fs/sort.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <clocale>
 #include <cstddef>
+#include <cstring>
 #include <iterator>
+#include <mutex>
+#include <string>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace nordend::fs {
 namespace {
+
+// The collation, or null for the "C" order (bytes, ASCII case folded).
+std::atomic<locale_t> g_collation{nullptr};
 
 bool is_digit(char c) noexcept { return c >= '0' && c <= '9'; }
 
@@ -23,59 +32,107 @@ int three_way(T a, T b) noexcept {
     return static_cast<int>(a > b) - static_cast<int>(a < b);
 }
 
-}  // namespace
+// text through strxfrm_l; text itself if strxfrm_l fails.
+std::string transformed(const std::string& text, locale_t locale) {
+    std::string key((text.size() * 8) + 16, '\0');
+    std::size_t made = strxfrm_l(key.data(), text.c_str(), key.size(), locale);
+    if (made == static_cast<std::size_t>(-1)) {
+        return text;
+    }
+    if (made >= key.size()) {
+        key.resize(made + 1);
+        made = strxfrm_l(key.data(), text.c_str(), key.size(), locale);
+    }
+    key.resize(made);
+    key.shrink_to_fit();
+    return key;
+}
 
-int natural_compare(std::string_view a, std::string_view b) noexcept {
-    std::size_t i = 0;
-    std::size_t j = 0;
-    while (i < a.size() && j < b.size()) {
-        if (is_digit(a[i]) && is_digit(b[j])) {
-            // Compare digit runs by value: skip leading zeros, then the longer run is larger,
-            // then the first differing digit decides.
-            std::size_t a_start = i;
-            std::size_t b_start = j;
-            while (a_start < a.size() && a[a_start] == '0') {
-                ++a_start;
-            }
-            while (b_start < b.size() && b[b_start] == '0') {
-                ++b_start;
-            }
-            std::size_t a_end = a_start;
-            std::size_t b_end = b_start;
-            while (a_end < a.size() && is_digit(a[a_end])) {
-                ++a_end;
-            }
-            while (b_end < b.size() && is_digit(b[b_end])) {
-                ++b_end;
-            }
-            if (const std::size_t a_len = a_end - a_start, b_len = b_end - b_start;
-                a_len != b_len) {
-                return a_len < b_len ? -1 : 1;
-            }
-            if (const int digits =
-                    a.substr(a_start, a_end - a_start).compare(b.substr(b_start, b_end - b_start));
-                digits != 0) {
-                return sign(digits);
-            }
-            i = a_end;  // equal value; leading zeros are settled by the final tie-break
-            j = b_end;
+// The name as the collation compares it: a digit run as its length's length, its length and its
+// value, so numbers compare by value; a dot as "0", before letters and numbers so written.
+std::string spelled(std::string_view name, bool fold_case) {
+    std::string text;
+    for (std::size_t i = 0; i < name.size();) {
+        if (name[i] == '.') {
+            text += '0';
+            ++i;
             continue;
         }
-        const auto ca = static_cast<unsigned char>(fold(a[i]));
-        const auto cb = static_cast<unsigned char>(fold(b[j]));
-        if (ca != cb) {
-            return ca < cb ? -1 : 1;
+        if (is_digit(name[i])) {
+            std::size_t start = i;
+            while (start < name.size() && name[start] == '0') {
+                ++start;
+            }
+            std::size_t stop = start;
+            while (stop < name.size() && is_digit(name[stop])) {
+                ++stop;
+            }
+            const std::string_view value = start == stop ? "0" : name.substr(start, stop - start);
+            const std::string length = std::to_string(value.size());
+            text += static_cast<char>('0' + std::min<std::size_t>(length.size(), 9));
+            text += length;
+            text += value;
+            i = stop;
+            continue;
         }
+        text += fold_case ? fold(name[i]) : name[i];
         ++i;
-        ++j;
     }
-    if (i < a.size() || j < b.size()) {
-        return i < a.size() ? 1 : -1;  // the one with characters left is longer
+    return text;
+}
+
+}  // namespace
+
+bool set_collation(const char* locale) {
+    locale_t made = newlocale(LC_COLLATE_MASK, locale, nullptr);
+    if (made == nullptr) {
+        return false;
+    }
+    // A collation that puts "B" before "a" orders code points (C, C.UTF-8): compare bytes instead.
+    if (transformed("B", made) < transformed("a", made)) {
+        freelocale(made);
+        made = nullptr;
+    }
+    // Kept, never freed: another thread may still be making a key with an older one.
+    static std::mutex mutex;
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory): never destroyed, so reachable at exit
+    static auto* const kMadeBefore = new std::vector<locale_t>;
+    const std::scoped_lock lock{mutex};
+    if (made != nullptr) {
+        kMadeBefore->push_back(made);
+    }
+    g_collation.store(made);
+    return true;
+}
+
+std::string make_sort_key(std::string_view name) {
+    const locale_t locale = g_collation.load();
+    if (locale == nullptr) {
+        std::string key = spelled(name, true);
+        key.shrink_to_fit();
+        return key;
+    }
+    return transformed(spelled(name, false), locale);
+}
+
+int natural_compare(std::string_view a, std::string_view b) {
+    if (const int keys = sign(make_sort_key(a).compare(make_sort_key(b))); keys != 0) {
+        return keys;
     }
     return sign(a.compare(b));
 }
 
-bool SortOrder::operator()(const Entry& a, const Entry& b) const noexcept {
+int compare_names(const Entry& a, const Entry& b) {
+    if (a.sort_key.empty() || b.sort_key.empty()) {
+        return natural_compare(a.name, b.name);
+    }
+    if (const int keys = sign(a.sort_key.compare(b.sort_key)); keys != 0) {
+        return keys;
+    }
+    return sign(a.name.compare(b.name));
+}
+
+bool SortOrder::operator()(const Entry& a, const Entry& b) const {
     if (directories_first && a.is_directory() != b.is_directory()) {
         return a.is_directory();  // not reversed by descending
     }
@@ -108,7 +165,7 @@ bool SortOrder::operator()(const Entry& a, const Entry& b) const noexcept {
             break;
     }
     if (result == 0) {
-        result = natural_compare(a.name, b.name);
+        result = compare_names(a, b);
     }
     return descending ? result > 0 : result < 0;
 }

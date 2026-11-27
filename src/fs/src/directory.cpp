@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <memory>
+#include <string>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <utility>
@@ -115,6 +116,9 @@ ReadResult read_directory(const std::filesystem::path& path, const core::CancelT
         if (options.mime) {
             type_without_content(*options.mime, entry);
         }
+        if (options.sort_keys) {
+            entry.sort_key = make_sort_key(entry.name);
+        }
         chunk.push_back(std::move(entry));
         if (chunk.size() == chunk_size) {
             if (token.cancelled()) {
@@ -149,6 +153,9 @@ std::vector<std::optional<Entry>> read_entries(const std::filesystem::path& path
         }
         if (options.mime) {
             type_without_content(*options.mime, entry);
+        }
+        if (options.sort_keys) {
+            entry.sort_key = make_sort_key(entry.name);
         }
         result[i] = std::move(entry);
     }
@@ -202,9 +209,16 @@ Subfolders read_subfolders(const std::filesystem::path& path, const core::Cancel
     if (token.cancelled()) {
         return {};
     }
-    std::ranges::sort(result.names, [](const std::string& a, const std::string& b) {
-        return natural_compare(a, b) < 0;
-    });
+    // One key per name, made before sorting.
+    std::vector<std::pair<std::string, std::string>> keyed;
+    keyed.reserve(result.names.size());
+    for (std::string& name : result.names) {
+        keyed.emplace_back(make_sort_key(name), std::move(name));
+    }
+    std::ranges::sort(keyed);
+    for (std::size_t i = 0; i < keyed.size(); ++i) {
+        result.names[i] = std::move(keyed[i].second);
+    }
     if (result.names.size() > limit) {
         result.more = result.names.size() - limit;
         result.names.resize(limit);

@@ -23,7 +23,8 @@ env:
   # use: doctest, the MIME database, Mesa's software renderer (llvmpipe: the tests that draw
   # run instead of skipping), a font, LibRaw for the DNG comparison (with LLVM's OpenMP for
   # clang, which its pkg-config asks for), the sanitizers' runtime for the ASan job, a cursor
-  # theme for the cursor tests, and dbus-daemon for the bus loop's private bus.
+  # theme for the cursor tests, dbus-daemon for the bus loop's private bus, and glibc's locales
+  # for the sort tests.
   PACKAGES: >-
     bash git cmake ninja pkgconf gcc clang21
     wayland-devel wayland-protocols libglvnd-devel libxkbcommon-devel harfbuzz-devel
@@ -31,7 +32,7 @@ env:
     sdbus-c++-devel
     doctest-devel shared-mime-info mesa-dri dejavu-fonts-ttf libraw-devel libomp-devel
     libsanitizer-devel adwaita-icon-theme
-    dbus
+    dbus glibc-locales
 
 jobs:
   format:
@@ -81,6 +82,9 @@ jobs:
         run: |
           xbps-install -Syu xbps
           xbps-install -Syu $PACKAGES
+          # The collations the sort tests use.
+          sed -i -E 's/^#((pl_PL|de_DE|fr_FR)\.UTF-8 UTF-8)/\1/' /etc/default/libc-locales
+          xbps-reconfigure -f glibc-locales
       - uses: actions/checkout@v4
       - name: Configure
         run: |

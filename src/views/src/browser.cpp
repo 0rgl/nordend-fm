@@ -3604,7 +3604,8 @@ core::CancelToken Browser::list_for_entry(const std::filesystem::path& folder,
             Found found;
             std::vector<fs::Entry> entries;
             const fs::ReadResult read = fs::read_directory(
-                folder, token, {.mime = mime}, [&entries](std::vector<fs::Entry> chunk) {
+                folder, token, {.mime = mime, .sort_keys = false},
+                [&entries](std::vector<fs::Entry> chunk) {
                     entries.insert(entries.end(), std::make_move_iterator(chunk.begin()),
                                    std::make_move_iterator(chunk.end()));
                 });

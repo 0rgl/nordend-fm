@@ -4,7 +4,7 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 
 ---
 
-## 2026-11-26 — toward 0.10.2
+## 2026-11-27 — 0.10.2
 
 **Done**
 - Two windows and `state.toml` (from the handover's list): each window wrote its whole state, so
@@ -164,6 +164,19 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
   The whole suite, which runs the real helper on every sample file, reported no call with
   `NORDEND_SANDBOX_REPORT=1`: no decoder asks for executable memory after the cage closes. The
   sandbox probe gained `mmap-exec` and `mprotect-exec`, both ended with `SIGSYS`.
+
+**Measured** (Release, in a `void-glibc-full` container with Void's GCC 14.2.1, as the README's
+numbers): nordend 5.57 MiB (4.62 stripped; 0.10.1: 5.40 / 4.47), nordend-preview 1.24 (1.11),
+nordend-portal 0.44 (0.35); on Fedora 45 with GCC 16, 6.42 / 5.49. About 71 100 lines of C++20
+and 30 600 of tests, 748 test cases, green in the four builds. Every fuzz target for 15 minutes
+on the release's tree, about 110 million runs in all (dng 51.8 million, ljpeg 39.1, text 10.7,
+camera 3.8, archive 2.5, tiff 1.6, picture 0.2; fewer than for 0.10.1, as a build shared the
+CPU): nothing found.
+
+**Open**
+- The first release built by Packit in COPR: to be checked before the release is announced.
+- Escape during a drag on Hyprland: keys reach the focused window there and a destroyed source
+  ends the drag, so it should work; to be confirmed by hand.
 
 ---
 

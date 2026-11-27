@@ -37,6 +37,7 @@
 #include "nordend/fs/mime.hpp"
 #include "nordend/fs/places.hpp"
 #include "nordend/fs/scripts.hpp"
+#include "nordend/fs/sort.hpp"
 #include "nordend/isolate/helpers.hpp"
 #include "nordend/platform/about.hpp"
 #include "nordend/platform/desktop_entry.hpp"
@@ -603,6 +604,9 @@ int main(int argc, char** argv) {
     }
     for (const std::string& problem : config_result.problems) {
         log::warn("config: {}", problem);
+    }
+    if (!fs::set_collation("")) {
+        log::warn("sorting: the locale's collation is not installed, names sort as in C");
     }
     const core::Config& config = config_result.config;
 

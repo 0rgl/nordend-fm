@@ -11,11 +11,22 @@
 
 namespace nordend::fs {
 
+// Sorts names by the collation of locale ("pl_PL.UTF-8"; "" takes it from the environment, as
+// setlocale does). Call it before other threads sort. False when the locale is not installed: the
+// order stays as it was. Until then, names sort in the "C" order.
+bool set_collation(const char* locale);
+
+// A key whose byte order is the natural name order below.
+[[nodiscard]] std::string make_sort_key(std::string_view name);
+
 // Natural name order, as people read file names: runs of digits compare by value
-// ("IMG_2" < "IMG_10"), letters ignore ASCII case. Bytes outside ASCII compare as bytes, so
-// accented letters sort after z (no locale collation yet). Ties fall back to plain byte order, so
-// the order is total and stable across runs.
-[[nodiscard]] int natural_compare(std::string_view a, std::string_view b) noexcept;
+// ("IMG_2" < "IMG_10"), letters by the collation (in "C": ASCII case ignored, other bytes after
+// z), and a dot before letters and digits ("a.txt" < "ab.txt"). Ties fall back to plain byte
+// order, so the order is total and stable across runs.
+[[nodiscard]] int natural_compare(std::string_view a, std::string_view b);
+
+// The same for entries, by their sort_key when they have one.
+[[nodiscard]] int compare_names(const Entry& a, const Entry& b);
 
 enum class SortKey : std::uint8_t { name, size, modified, type };
 
@@ -29,7 +40,7 @@ struct SortOrder {
 
     // Strict weak order on entries; ties on size, date or type fall back to the name. By size,
     // directories compare by name among themselves.
-    [[nodiscard]] bool operator()(const Entry& a, const Entry& b) const noexcept;
+    [[nodiscard]] bool operator()(const Entry& a, const Entry& b) const;
 
     [[nodiscard]] bool operator==(const SortOrder&) const = default;
 };

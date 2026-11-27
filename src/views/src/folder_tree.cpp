@@ -266,7 +266,7 @@ void FolderTree::refresh(const Key& key) {
     level.refresh = pool_.submit(
         core::Priority::visible,
         [folder = key.second, names](const core::CancelToken& /*token*/) {
-            return fs::read_entries(folder, names, {});
+            return fs::read_entries(folder, names, {.sort_keys = false});
         },
         [this, key, names](const std::vector<std::optional<fs::Entry>>& entries) {
             const auto it = levels_.find(key);

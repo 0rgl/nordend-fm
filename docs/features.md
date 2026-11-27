@@ -36,7 +36,10 @@ README's [What's next](../README.md#whats-next).
   the one it comes from), remembered with the tabs.
 - **Sort By** in the context menu (on a file or on empty space), in every view: name, size,
   modified or type, ascending or descending, a dot on the order in use. One order for the whole
-  window: every folder in every view is sorted so, and it comes back at the next start.
+  window: every folder in every view is sorted so, and it comes back at the next start. Names
+  sort as people read them: numbers by value (`IMG_2` before `IMG_10`) and letters in the
+  alphabet of your language (`LC_COLLATE`), so in Polish `Łódź` comes after `Lublin` and in
+  French `Émile` sorts with the e's.
 - **Tabs** (Ctrl+T): each with its own folder, view and back/forward history. The bar above the
   path shows them when there are two or more: a click shows a tab, its × or a middle click
   closes it, + opens one. Ctrl+Tab and Ctrl+Shift+Tab go round them, Alt+1…9 picks one, Ctrl+W

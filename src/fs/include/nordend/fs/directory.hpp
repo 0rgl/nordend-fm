@@ -23,6 +23,8 @@ struct ReadOptions {
     // When set, Entry::mime is filled from the kind and the name (no file is opened).
     std::shared_ptr<const MimeDatabase>
         mime{};  // NOLINT(readability-redundant-member-init): GCC's -Wmissing-field-initializers
+    // Entry::sort_key made too, for a list that is sorted.
+    bool sort_keys{true};
 };
 
 struct ReadResult {

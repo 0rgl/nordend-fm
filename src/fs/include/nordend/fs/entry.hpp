@@ -25,6 +25,9 @@ struct Entry {
     // one of highest weight: sorting by type uses it, so the entry sorts with its likely kind
     // whether or not its content has been sniffed. kUnknownMime otherwise.
     MimeId name_guess{kUnknownMime};
+    // make_sort_key(name), made where the entry is read; made again when the name changes. Empty:
+    // made at each comparison instead.
+    std::string sort_key{};  // NOLINT(readability-redundant-member-init): GCC wants one
 
     [[nodiscard]] bool hidden() const noexcept { return !name.empty() && name.front() == '.'; }
 

@@ -244,3 +244,70 @@ TEST_CASE("thumbs: the cache never thumbnails its own files") {
         cache.get(cache.path_for(photo, thumbs::Size::normal), thumbs::Size::normal);
     CHECK(own.source == thumbs::Source::failed);
 }
+
+namespace {
+
+// A thumbnail of file in folder (under root), as any app writes one.
+fs::path put_thumbnail(const fs::path& folder, const fs::path& file) {
+    fs::create_directories(folder);
+    const fs::path png = folder / (thumbs::md5_hex(thumbs::file_uri(file)) + ".png");
+    const std::vector<std::uint8_t> data = nordend::picture::encode_png(
+        {.width = 1, .height = 1, .rgba = {0, 0, 0, 255}},
+        {{"Software", "Some viewer"}, {"Thumb::URI", thumbs::file_uri(file)}});
+    std::ofstream{png, std::ios::binary}.write(
+        reinterpret_cast<const char*>(data.data()),  // NOLINT: bytes to chars
+        static_cast<std::streamsize>(data.size()));
+    return png;
+}
+
+}  // namespace
+
+TEST_CASE("thumbs: forget() takes every size and every Nordend's marker, not other apps'") {
+    TempDir dir;
+    const fs::path root = dir.path / "thumbnails";
+    const thumbs::Cache cache{root, "nordend-test"};
+    const fs::path gone = dir.path / "photos" / "a b.jpg";
+    const fs::path kept = dir.path / "photos" / "c.jpg";
+    std::vector<fs::path> forgotten;
+    for (const char* folder :
+         {"normal", "large", "x-large", "xx-large", "fail/nordend-test", "fail/nordend-0.10.1"}) {
+        forgotten.push_back(put_thumbnail(root / folder, gone));
+    }
+    const fs::path theirs = put_thumbnail(root / "fail" / "gnome-thumbnail-factory", gone);
+    const fs::path other = put_thumbnail(root / "normal", kept);
+
+    const std::vector<fs::path> files{gone};
+    cache.forget(files);
+    for (const fs::path& png : forgotten) {
+        CHECK_FALSE(fs::exists(png));
+    }
+    CHECK(fs::exists(theirs));
+    CHECK(fs::exists(other));
+}
+
+TEST_CASE("thumbs: forget_inside() takes what was in a folder, found by Thumb::URI") {
+    TempDir dir;
+    const fs::path root = dir.path / "thumbnails";
+    const thumbs::Cache cache{root, "nordend-test"};
+    const fs::path trip = dir.path / "Trip";
+    const fs::path in_trip = put_thumbnail(root / "large", trip / "P1.ORF");
+    const fs::path deeper = put_thumbnail(root / "normal", trip / "day 2" / "P2.ORF");
+    const fs::path marker = put_thumbnail(root / "fail" / "nordend-test", trip / "broken.jpg");
+    const fs::path theirs = put_thumbnail(root / "fail" / "gnome-thumbnail-factory", trip / "x");
+    const fs::path sibling = put_thumbnail(root / "normal", dir.path / "Trip 2" / "P3.ORF");
+    const fs::path itself = put_thumbnail(root / "normal", trip);
+    std::ofstream{root / "normal" / "notes.txt"} << "not a thumbnail";
+    std::ofstream{root / "normal" / "broken.png"} << "\x89PNG\r\n\x1a\n";
+    REQUIRE(::mkfifo((root / "normal" / "pipe.png").c_str(), 0600) == 0);  // never opened to wait
+
+    const std::vector<fs::path> folders{trip};
+    cache.forget_inside(folders);
+    CHECK_FALSE(fs::exists(in_trip));
+    CHECK_FALSE(fs::exists(deeper));
+    CHECK_FALSE(fs::exists(marker));
+    CHECK(fs::exists(theirs));
+    CHECK(fs::exists(sibling));  // "Trip 2" only starts like "Trip"
+    CHECK(fs::exists(itself));   // the folder's own: forget() takes it
+    CHECK(fs::exists(root / "normal" / "notes.txt"));
+    CHECK(fs::exists(root / "normal" / "broken.png"));
+}

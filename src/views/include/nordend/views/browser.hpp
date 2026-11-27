@@ -344,6 +344,9 @@ public:
     // is on its way (snapshots, tests).
     [[nodiscard]] bool loading() const;
 
+    // Thumbnails of moved or deleted items are still being taken out of the cache.
+    [[nodiscard]] bool forgetting_thumbnails() const noexcept { return forgetting_; }
+
     // Tabs (ROADMAP 9.1), a pane each; the bar above the path shows them while there are two or
     // more. Ctrl+T: a new tab on the folder shown, in the same view, shown at once.
     void new_tab();
@@ -816,6 +819,19 @@ private:
     // A change of permissions done (the user's, an undo or a redo): recorded and said.
     void modes_done(const fs::ModeResult& result, Purpose purpose);
     void report_done(const fs::TransferRequest& request, const fs::TransferResult& result);
+
+    // Thumbnails to drop from the cache: those of moved items' old places (and of what was in
+    // them, for folders) and of what is gone. One pass at a time on a worker; the next ones wait,
+    // gathered.
+    struct Forgotten {
+        std::vector<fs::PlacedItem> moved;  // left alone when the old place is there again
+        std::vector<std::filesystem::path> files;
+        std::vector<std::filesystem::path> folders;
+    };
+
+    void forget_thumbnails(Forgotten forgotten);
+    void forget_thumbnails(const fs::TransferRequest& request, const fs::TransferResult& result);
+    void forget_next();
     // Ctrl+C, Ctrl+X and Ctrl+V for the text field that has the keyboard, found in take_key()'s
     // order: the palette's, a name being edited, a bookmark's label, the save bar's name. With
     // nothing selected Ctrl+C and Ctrl+X do nothing but are still the field's, never the files'.
@@ -952,8 +968,12 @@ private:
     fs::PlaceSources place_sources_{
         fs::PlaceSources::from_environment()};  // read at start: where the templates folder is
                                                 // found
-    std::unique_ptr<Thumbnails> thumbnails_;    // before the views that draw them
-    InfoPane info_pane_;                        // the same: every view draws it
+    std::shared_ptr<const thumbs::Cache> thumbnail_cache_;  // null: no thumbnails
+    Forgotten forget_pending_;
+    bool forgetting_{false};
+    core::CancelToken forget_job_;
+    std::unique_ptr<Thumbnails> thumbnails_;  // before the views that draw them
+    InfoPane info_pane_;                      // the same: every view draws it
     fs::DirectoryWatcher& watcher_;
     std::shared_ptr<const fs::MimeDatabase> mime_;
     // Here, before the window's parts and the transfers: destroyed after them, as the views were.

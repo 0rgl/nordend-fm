@@ -27,6 +27,7 @@
 #include "nordend/fs/operations.hpp"
 #include "nordend/fs/places.hpp"
 #include "nordend/fs/trash.hpp"
+#include "nordend/thumbs/cache.hpp"
 #include "nordend/views/folder_tree.hpp"
 #include "nordend/views/format.hpp"
 
@@ -97,6 +98,7 @@ Browser::Browser(core::EventLoop& loop, core::WorkerPool& pool, fs::DirectoryWat
       pool_{pool},
       redraw_{redraw},
       set_cursor_{std::move(set_cursor)},
+      thumbnail_cache_{thumbnails},
       thumbnails_{thumbnails ? std::make_unique<Thumbnails>(pool, thumbnails, redraw) : nullptr},
       info_pane_{loop, pool, thumbnails_.get(), redraw},
       watcher_{watcher},
@@ -1331,7 +1333,86 @@ void Browser::transfer_done(const fs::TransferRequest& request, const fs::Transf
     }
 }
 
+void Browser::forget_thumbnails(Forgotten forgotten) {
+    if (!thumbnail_cache_) {
+        return;
+    }
+    const auto append = [](auto& to, auto& from) {
+        to.insert(to.end(), std::make_move_iterator(from.begin()),
+                  std::make_move_iterator(from.end()));
+    };
+    append(forget_pending_.moved, forgotten.moved);
+    append(forget_pending_.files, forgotten.files);
+    append(forget_pending_.folders, forgotten.folders);
+    if (!forgetting_) {
+        forget_next();
+    }
+}
+
+void Browser::forget_next() {
+    Forgotten work = std::exchange(forget_pending_, {});
+    forgetting_ = !work.moved.empty() || !work.files.empty() || !work.folders.empty();
+    if (!forgetting_) {
+        return;
+    }
+    forget_job_ = pool_.submit(
+        core::Priority::prefetch,
+        [cache = thumbnail_cache_, work = std::move(work)](const core::CancelToken& token) mutable {
+            for (const fs::PlacedItem& item : work.moved) {
+                std::error_code error;
+                if (std::filesystem::exists(std::filesystem::symlink_status(item.from, error))) {
+                    continue;  // there again (an undo), or never moved
+                }
+                work.files.push_back(item.from);
+                if (std::filesystem::is_directory(item.to, error)) {
+                    work.folders.push_back(item.from);
+                }
+            }
+            cache->forget(work.files);
+            cache->forget_inside(work.folders, token);
+            return 0;
+        },
+        [this, alive = alive_](int /*unused*/) {
+            if (*alive) {
+                forget_next();
+            }
+        });
+}
+
+void Browser::forget_thumbnails(const fs::TransferRequest& request,
+                                const fs::TransferResult& result) {
+    switch (request.kind) {
+        case fs::TransferKind::move: {
+            Forgotten forgotten{.moved = result.items, .files = {}, .folders = {}};
+            // A file that replaced one is not among the items, nor a folder merged into one.
+            for (const std::string& name : request.names) {
+                const std::filesystem::path from = request.source / name;
+                if (std::ranges::find(result.items, from, &fs::PlacedItem::from) ==
+                    result.items.end()) {
+                    forgotten.moved.push_back({.from = from, .to = request.destination / name});
+                }
+            }
+            forget_thumbnails(std::move(forgotten));
+            break;
+        }
+        case fs::TransferKind::trash:
+        case fs::TransferKind::restore:
+            forget_thumbnails({.moved = result.items, .files = {}, .folders = {}});
+            break;
+        case fs::TransferKind::erase:
+        case fs::TransferKind::empty_trash:
+            forget_thumbnails(
+                {.moved = {}, .files = result.erased, .folders = result.erased_folders});
+            break;
+        case fs::TransferKind::copy:
+        case fs::TransferKind::compress:
+        case fs::TransferKind::link:
+            break;
+    }
+}
+
 void Browser::report_done(const fs::TransferRequest& request, const fs::TransferResult& result) {
+    forget_thumbnails(request, result);
     for_the_rest_.reset();
     copy_started_.reset();
     conflict_.close();
@@ -1838,6 +1919,9 @@ void Browser::start_inverse(const FileOperation& operation, Purpose purpose) {
                             .items = {{.from = item.to, .to = item.from}},
                             .modes = {}},
                            purpose, !renamed.problem.empty());
+                    forget_thumbnails({.moved = {{.from = item.to, .to = item.from}},
+                                       .files = {},
+                                       .folders = {}});
                     if (!renamed.problem.empty()) {
                         show_message(renamed.problem, true);
                     }
@@ -1918,6 +2002,7 @@ void Browser::start_inverse(const FileOperation& operation, Purpose purpose) {
 
 Browser::~Browser() {
     *alive_ = false;
+    forget_job_.cancel();
     loop_.remove(auto_scroll_timer_);
     loop_.remove(band_timer_);
 }
@@ -2424,6 +2509,10 @@ void Browser::rename(const std::shared_ptr<Folder>& folder, const std::string& f
                     .items = {{.from = folder->path() / from, .to = folder->path() / to}},
                     .modes = {}},
                    Purpose::user, false);
+            forget_thumbnails(
+                {.moved = {{.from = folder->path() / from, .to = folder->path() / to}},
+                 .files = {},
+                 .folders = {}});
             if (!renamed.problem.empty()) {
                 show_message(renamed.problem, true);
             } else if (renamed.sidecars > 0) {

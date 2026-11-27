@@ -94,6 +94,10 @@ struct TransferResult {
     // The same items, sidecars left out (they follow their photo): copied or moved from where to
     // where; trashed from their place to the trash's files/; restored from files/ to their place.
     std::vector<PlacedItem> items;
+    // erase, empty_trash: the items deleted for good (sidecars left out), and those of them that
+    // were folders.
+    std::vector<std::filesystem::path> erased;
+    std::vector<std::filesystem::path> erased_folders;
     // Files that took the place of one that was there (the old one is gone): not in items, an
     // undo cannot bring the old one back. Inside a merged folder, items holds what the merge
     // made there, not the folder.

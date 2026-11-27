@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
@@ -139,6 +140,61 @@ bool store(const std::filesystem::path& target, const picture::Image& image, con
     return ok;
 }
 
+// Reads exactly data.size() bytes.
+bool read_exactly(int fd, std::span<std::uint8_t> data) {
+    std::size_t done = 0;
+    while (done < data.size()) {
+        const ssize_t n = ::read(fd, data.data() + done, data.size() - done);
+        if (n <= 0) {
+            return false;
+        }
+        done += static_cast<std::size_t>(n);
+    }
+    return true;
+}
+
+// The Thumb::URI of the PNG at path: its chunks up to the image data are read, the rest is not.
+// Empty when it has none.
+std::string stored_uri(const std::filesystem::path& path) {
+    constexpr std::size_t longest = std::size_t{256} * 1024;
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) {
+        return {};
+    }
+    std::vector<std::uint8_t> head(8);  // the signature, then each chunk's length and type
+    struct stat info{};
+    if (::fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && read_exactly(fd, head)) {
+        for (std::size_t at = head.size(); head.size() < longest; at = head.size()) {
+            head.resize(at + 8);
+            if (!read_exactly(fd, std::span{head}.subspan(at))) {
+                head.resize(at);
+                break;
+            }
+            std::uint32_t length = 0;
+            for (std::size_t i = at; i < at + 4; ++i) {
+                length = (length << 8U) | head[i];
+            }
+            const std::string_view type{reinterpret_cast<const char*>(&head[at + 4]),  // NOLINT
+                                        4};
+            if (type == "IDAT" || type == "IEND" || head.size() + length + 4 > longest) {
+                break;
+            }
+            head.resize(head.size() + length + 4);  // the data and the CRC
+            if (!read_exactly(fd, std::span{head}.subspan(at + 8))) {
+                head.resize(at);
+                break;
+            }
+        }
+    }
+    ::close(fd);
+    for (auto& [key, value] : picture::png_text(head)) {
+        if (key == kUriKey) {
+            return std::move(value);
+        }
+    }
+    return {};
+}
+
 Thumbnail failure(std::string error) {
     Thumbnail thumbnail;
     thumbnail.error = std::move(error);
@@ -218,6 +274,63 @@ std::filesystem::path Cache::path_for(const std::filesystem::path& file, Size si
 
 std::filesystem::path Cache::fail_path(const std::filesystem::path& file) const {
     return root_ / "fail" / app_ / (md5_hex(file_uri(file)) + ".png");
+}
+
+std::vector<std::filesystem::path> Cache::forgettable_folders() const {
+    std::vector<std::filesystem::path> folders;
+    for (const Size size : {Size::normal, Size::large, Size::x_large, Size::xx_large}) {
+        folders.push_back(root_ / directory_name(size));
+    }
+    // Every Nordend's markers ("nordend-0.10.1", "nordend-dev"), not other apps'.
+    std::error_code error;
+    for (std::filesystem::directory_iterator it{root_ / "fail", error}, end; !error && it != end;
+         it.increment(error)) {
+        if (it->path().filename().string().starts_with("nordend")) {
+            folders.push_back(it->path());
+        }
+    }
+    return folders;
+}
+
+void Cache::forget(std::span<const std::filesystem::path> files) const {
+    if (files.empty()) {
+        return;
+    }
+    const std::vector<std::filesystem::path> folders = forgettable_folders();
+    for (const std::filesystem::path& file : files) {
+        const std::string name = md5_hex(file_uri(file)) + ".png";
+        for (const std::filesystem::path& folder : folders) {
+            ::unlink((folder / name).c_str());
+        }
+    }
+}
+
+void Cache::forget_inside(std::span<const std::filesystem::path> folders,
+                          const core::CancelToken& token) const {
+    std::vector<std::string> prefixes;
+    for (const std::filesystem::path& folder : folders) {
+        prefixes.push_back(file_uri(folder) + "/");
+    }
+    if (prefixes.empty()) {
+        return;
+    }
+    for (const std::filesystem::path& folder : forgettable_folders()) {
+        std::error_code error;
+        for (std::filesystem::directory_iterator it{folder, error}, end; !error && it != end;
+             it.increment(error)) {
+            if (token.cancelled()) {
+                return;
+            }
+            if (it->path().extension() != ".png") {
+                continue;
+            }
+            const std::string uri = stored_uri(it->path());
+            if (std::ranges::any_of(
+                    prefixes, [&](const std::string& prefix) { return uri.starts_with(prefix); })) {
+                ::unlink(it->path().c_str());
+            }
+        }
+    }
 }
 
 Thumbnail Cache::get(const std::filesystem::path& file, Size size) const {

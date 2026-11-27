@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <span>
 #include <string>
 #include <string_view>
@@ -51,7 +53,7 @@ struct Thumbnail {
 // Thumb::MTime match the file. Failures are remembered in fail/<app>/ so that a file that cannot
 // be read is not tried again until it changes.
 //
-// Stateless apart from its paths: thread-safe, meant to be called from workers.
+// Thread-safe, meant to be called from workers.
 class Cache {
 public:
     // app names the failure directory, e.g. "nordend-0.0.1".
@@ -72,6 +74,12 @@ public:
     // Like get(), but never from the cache, and a remembered failure is tried again.
     [[nodiscard]] Thumbnail make(const std::filesystem::path& file, Size size) const;
 
+    // Files inside these folders, through links too, still get thumbnails from get() and make(),
+    // but nothing of them is read from the cache nor written to it, failures included. Any
+    // thread; the links are resolved later, on a worker.
+    void set_skipped(std::span<const std::filesystem::path> folders);
+    [[nodiscard]] bool skipped(const std::filesystem::path& file) const;
+
     // Removes the thumbnails of files that are gone or moved: every size, whoever made them, and
     // the failure markers of every Nordend; other apps' markers stay. Blocking: on a worker.
     void forget(std::span<const std::filesystem::path> files) const;
@@ -84,11 +92,20 @@ public:
 private:
     [[nodiscard]] std::filesystem::path fail_path(const std::filesystem::path& file) const;
     [[nodiscard]] std::vector<std::filesystem::path> forgettable_folders() const;
-    [[nodiscard]] Thumbnail make(const std::filesystem::path& file, Size size,
+    [[nodiscard]] Thumbnail make(const std::filesystem::path& file, Size size, bool kept,
                                  std::int64_t mtime) const;
 
     std::filesystem::path root_;
     std::string app_;
+
+    struct Skipped {
+        std::vector<std::string> folders;  // normal, no slash at the end
+        std::once_flag resolving;
+        std::vector<std::string> real;  // the same with links resolved, once one is asked about
+    };
+
+    mutable std::mutex skipped_mutex_;
+    std::shared_ptr<Skipped> skipped_;
 };
 
 }  // namespace nordend::thumbs

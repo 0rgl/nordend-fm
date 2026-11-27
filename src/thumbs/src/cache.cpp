@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -343,6 +345,9 @@ Thumbnail Cache::get(const std::filesystem::path& file, Size size) const {
     if (::access(file.c_str(), R_OK) != 0) {
         return failure(std::error_code{errno, std::generic_category()}.message());
     }
+    if (skipped(file)) {
+        return make(file, size, false, info.st_mtime);
+    }
     const std::string uri = file_uri(file);
     const std::vector<std::uint8_t> cached = read_file(path_for(file, size));
     if (!cached.empty() && matches(cached, uri, info.st_mtime)) {
@@ -356,7 +361,7 @@ Thumbnail Cache::get(const std::filesystem::path& file, Size size) const {
     if (!failed.empty() && matches(failed, uri, info.st_mtime, kFailureKey)) {
         return failure("failed before, and unchanged since");
     }
-    return make(file, size, info.st_mtime);
+    return make(file, size, true, info.st_mtime);
 }
 
 Thumbnail Cache::make(const std::filesystem::path& file, Size size) const {
@@ -364,10 +369,65 @@ Thumbnail Cache::make(const std::filesystem::path& file, Size size) const {
     if (::stat(file.c_str(), &info) != 0) {
         return failure(std::error_code{errno, std::generic_category()}.message());
     }
-    return make(file, size, info.st_mtime);
+    return make(file, size, !skipped(file), info.st_mtime);
 }
 
-Thumbnail Cache::make(const std::filesystem::path& file, Size size, std::int64_t mtime) const {
+namespace {
+
+// path without "." or "..", nor a slash at the end.
+std::string normal(const std::filesystem::path& path) {
+    std::string text = path.lexically_normal().string();
+    while (text.size() > 1 && text.ends_with('/')) {
+        text.pop_back();
+    }
+    return text;
+}
+
+bool inside_any(const std::string& path, const std::vector<std::string>& folders) {
+    return std::ranges::any_of(folders, [&](const std::string& folder) {
+        return folder == "/" || (path.starts_with(folder) && path.size() > folder.size() &&
+                                 path[folder.size()] == '/');
+    });
+}
+
+}  // namespace
+
+void Cache::set_skipped(std::span<const std::filesystem::path> folders) {
+    auto skipped = std::make_shared<Skipped>();
+    for (const std::filesystem::path& folder : folders) {
+        skipped->folders.push_back(normal(folder));
+    }
+    const std::scoped_lock lock{skipped_mutex_};
+    skipped_ = std::move(skipped);
+}
+
+bool Cache::skipped(const std::filesystem::path& file) const {
+    std::shared_ptr<Skipped> skipped;
+    {
+        const std::scoped_lock lock{skipped_mutex_};
+        skipped = skipped_;
+    }
+    if (!skipped || skipped->folders.empty()) {
+        return false;
+    }
+    if (inside_any(normal(file), skipped->folders)) {
+        return true;
+    }
+    // Through links: the folders resolved once, on the first worker that asks.
+    std::call_once(skipped->resolving, [&] {
+        for (const std::string& folder : skipped->folders) {
+            std::error_code error;
+            const std::filesystem::path real = std::filesystem::weakly_canonical(folder, error);
+            skipped->real.push_back(error ? folder : normal(real));
+        }
+    });
+    std::error_code error;
+    const std::filesystem::path real = std::filesystem::weakly_canonical(file, error);
+    return !error && inside_any(normal(real), skipped->real);
+}
+
+Thumbnail Cache::make(const std::filesystem::path& file, Size size, bool kept,
+                      std::int64_t mtime) const {
     const std::string uri = file_uri(file);
     const std::filesystem::path relative = file.lexically_relative(root_);
     if (!relative.empty() && *relative.begin() != "..") {
@@ -378,13 +438,15 @@ Thumbnail Cache::make(const std::filesystem::path& file, Size size, std::int64_t
         picture::load_picture({.path = file, .max_width = side, .max_height = side});
     if (loaded.failure != picture::Failure::none) {
         // A lasting failure is remembered, so that it is not tried again until the file changes.
-        if (const std::optional<std::string_view> why = lasting(loaded.failure)) {
+        if (const std::optional<std::string_view> why = lasting(loaded.failure); why && kept) {
             const picture::Image blank{.width = 1, .height = 1, .rgba = {0, 0, 0, 0}};
             static_cast<void>(store(fail_path(file), blank, uri, mtime, *why));
         }
         return failure(std::string{loaded.error()} + " (" + loaded.detail + ")");
     }
-    static_cast<void>(store(path_for(file, size), loaded.image, uri, mtime));
+    if (kept) {
+        static_cast<void>(store(path_for(file, size), loaded.image, uri, mtime));
+    }
     return {.image = std::move(loaded.image),
             .source = loaded.from_preview ? Source::preview : Source::decoded,
             .error = {}};

@@ -311,3 +311,41 @@ TEST_CASE("thumbs: forget_inside() takes what was in a folder, found by Thumb::U
     CHECK(fs::exists(root / "normal" / "notes.txt"));
     CHECK(fs::exists(root / "normal" / "broken.png"));
 }
+
+TEST_CASE("thumbs: a skipped folder's files get thumbnails, and the cache never sees them") {
+    TempDir dir;
+    const fs::path root = dir.path / "thumbnails";
+    thumbs::Cache cache{root, "nordend-test"};
+    const fs::path vault = dir.path / "Vault";
+    fs::create_directories(vault / "deeper");
+    fs::create_directories(dir.path / "Vault 2");
+    const fs::path photo = vault / "deeper" / "a.png";
+    const fs::path broken = vault / "b.png";
+    const fs::path beside = dir.path / "Vault 2" / "c.png";
+    fs::copy_file(kData / "blocks.png", photo);
+    fs::copy_file(kData / "blocks.png", beside);
+    std::ofstream{broken} << "not a picture";
+    REQUIRE(cache.get(photo, thumbs::Size::normal).source == thumbs::Source::decoded);
+    REQUIRE(fs::exists(cache.path_for(photo, thumbs::Size::normal)));  // made before the skip
+
+    const std::vector<fs::path> skipped{vault.string() + "/"};
+    cache.set_skipped(skipped);
+    CHECK(cache.skipped(photo));
+    CHECK_FALSE(cache.skipped(beside));
+    CHECK_FALSE(cache.skipped(vault));
+    CHECK(cache.skipped(dir.path / "Vault/./deeper//a.png"));
+    fs::create_directory_symlink(vault, dir.path / "Link");
+    CHECK(cache.skipped(dir.path / "Link" / "deeper" / "a.png"));  // through a link
+    // Made each time, even with a valid one in the cache; nothing written, failures included.
+    CHECK(cache.get(photo, thumbs::Size::normal).source == thumbs::Source::decoded);
+    CHECK(cache.make(photo, thumbs::Size::large).source == thumbs::Source::decoded);
+    CHECK_FALSE(fs::exists(cache.path_for(photo, thumbs::Size::large)));
+    CHECK(cache.get(broken, thumbs::Size::normal).source == thumbs::Source::failed);
+    CHECK_FALSE(fs::exists(fail_marker(root, broken)));
+    CHECK(cache.get(beside, thumbs::Size::normal).source == thumbs::Source::decoded);
+    CHECK(fs::exists(cache.path_for(beside, thumbs::Size::normal)));
+
+    // Followed live: the cache is used again once the folder is no longer skipped.
+    cache.set_skipped({});
+    CHECK(cache.get(photo, thumbs::Size::normal).source == thumbs::Source::cache);
+}

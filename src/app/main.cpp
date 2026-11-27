@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <poll.h>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -248,6 +249,30 @@ std::filesystem::path start_folder(const std::filesystem::path& given) {
     std::error_code error;
     const std::filesystem::path absolute = std::filesystem::weakly_canonical(folder, error);
     return error ? folder : absolute;
+}
+
+// [thumbnails] as the cache takes it: the folders as written, "~" for home (both as $HOME has it
+// and with its links resolved), and the mount roots of removable disks when asked.
+std::vector<std::filesystem::path> thumbnail_skips(const core::Config::Thumbnails& from,
+                                                   std::span<const std::filesystem::path> homes) {
+    std::vector<std::filesystem::path> folders;
+    for (const std::string& written : from.skip) {
+        if (!written.starts_with('~')) {
+            folders.emplace_back(written);
+            continue;
+        }
+        if (homes.empty()) {
+            log::warn("thumbnails.skip: {} left out, as $HOME is not set", written);
+        }
+        for (const std::filesystem::path& home : homes) {
+            folders.push_back(written == "~" ? home : home / written.substr(2));
+        }
+    }
+    if (from.skip_removable) {
+        folders.emplace_back("/run/media");
+        folders.emplace_back("/media");
+    }
+    return folders;
 }
 
 // NORDEND_FORCE_CSD set and not "0": Nordend's own title bar even where the compositor draws one.
@@ -753,6 +778,16 @@ int main(int argc, char** argv) {
         // The column view and the grid (ROADMAP 4.2, 4.4), unless the renderer test scene was
         // asked for.
         std::unique_ptr<views::Browser> columns;
+        std::shared_ptr<thumbs::Cache> thumbnail_cache;
+        // The home folder as the sidebar has it ($HOME) and with its links resolved.
+        std::vector<std::filesystem::path> homes;
+        if (const char* home = std::getenv("HOME");  // NOLINT(concurrency-mt-unsafe): startup
+            home != nullptr && home[0] == '/') {
+            homes.emplace_back(home);
+            if (const std::filesystem::path real = start_folder({}); real != homes.front()) {
+                homes.push_back(real);
+            }
+        }
         // A bookmark's "Choose Folder…": Nordend's own folder chooser, one at a time.
         std::unique_ptr<platform::ProgramOutput> folder_chooser;
         // Files open with their default applications (ROADMAP 6.1); before the config's watcher,
@@ -797,6 +832,9 @@ int main(int argc, char** argv) {
                 opener->set_terminal(configured_terminal(fresh));
                 opener->set_programs(fresh.open.programs);
             }
+            if (thumbnail_cache) {
+                thumbnail_cache->set_skipped(thumbnail_skips(fresh.thumbnails, homes));
+            }
             if (columns) {
                 columns->set_sidebar_tree(fresh.sidebar.tree);
                 columns->set_sidebar_rules(sidebar_rules(fresh.sidebar));
@@ -823,11 +861,12 @@ int main(int argc, char** argv) {
         };
         if (!test_scene) {
             const std::shared_ptr<const fs::MimeDatabase> mime = fs::MimeDatabase::load();
+            thumbnail_cache =
+                std::make_shared<thumbs::Cache>(thumbs::default_root(), "nordend-" NORDEND_VERSION);
+            thumbnail_cache->set_skipped(thumbnail_skips(config.thumbnails, homes));
             columns = std::make_unique<views::Browser>(
                 loop, pool, watcher, mime, [&] { window.request_redraw(); },
-                [&](ui::CursorShape shape) { seat.set_cursor(shape); },
-                std::make_shared<thumbs::Cache>(thumbs::default_root(),
-                                                "nordend-" NORDEND_VERSION));
+                [&](ui::CursorShape shape) { seat.set_cursor(shape); }, thumbnail_cache);
             platform::Environment environment = platform::Environment::from_environment();
             environment.configured_terminal = configured_terminal(config);
             opener = std::make_unique<platform::Opener>(

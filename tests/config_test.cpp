@@ -46,6 +46,8 @@ void check_defaults(const Config& config) {
     CHECK(config.sidebar.places_hidden.empty());
     CHECK(config.sidebar.devices_order.empty());
     CHECK(config.sidebar.devices_hidden.empty());
+    CHECK(config.thumbnails.skip.empty());
+    CHECK(config.thumbnails.skip_removable);
     CHECK(config.actions.empty());
 }
 
@@ -395,6 +397,24 @@ TEST_CASE("open: programs may be turned off; anything but a boolean is reported"
     CHECK(wrong.config.open.programs);
     const auto unknown = parse("[open]\nscripts = true\n");
     CHECK(unknown.problems.size() == 1);
+}
+
+TEST_CASE("thumbnails: folders kept out of the cache, removable disks too unless turned off") {
+    const auto set = parse(
+        "[thumbnails]\nskip = [\"~/Private\", \"/srv/vault\", \"~\"]\nskip_removable = false\n");
+    CHECK(set.problems.empty());
+    CHECK(set.config.thumbnails.skip == std::vector<std::string>{"~/Private", "/srv/vault", "~"});
+    CHECK_FALSE(set.config.thumbnails.skip_removable);
+    const auto relative = parse("[thumbnails]\nskip = [\"Private\", \"/srv/vault\"]\n");
+    REQUIRE(relative.problems.size() == 1);
+    CHECK(contains(relative.problems[0], "'thumbnails.skip'"));
+    CHECK(relative.config.thumbnails.skip == std::vector<std::string>{"/srv/vault"});
+    const auto mixed = parse("[thumbnails]\nskip = [\"~/Private\", 3]\n");
+    REQUIRE(mixed.problems.size() == 1);
+    CHECK(mixed.config.thumbnails.skip == std::vector<std::string>{"~/Private"});
+    const auto wrong = parse("[thumbnails]\nskip_removable = \"no\"\n");
+    REQUIRE(wrong.problems.size() == 1);
+    CHECK(wrong.config.thumbnails.skip_removable);
 }
 
 TEST_CASE("sidebar: the tree may be turned on; anything but a boolean is reported") {

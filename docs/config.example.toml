@@ -75,6 +75,17 @@ tree = false
 # devices_order = ["/mnt/data", "0f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f"]
 # devices_hidden = ["/mnt/backup"]
 
+[thumbnails]
+# Folders whose files still get thumbnails, made each time they are shown and kept in memory only:
+# nothing of them is read from or written to the shared cache (~/.cache/thumbnails), where other
+# apps and other users of the account could see them. Absolute paths, or "~/" for the home
+# folder; what is inside them is left out too, also when reached through a link. Thumbnails
+# already in the cache stay until their files go. Read live.
+# skip = ["~/Private", "~/.local/share/Vault"]
+# The same for the disks mounted under /run/media and /media: USB drives, SD cards, unlocked LUKS
+# disks, VeraCrypt volumes. false: their thumbnails go to the cache like the others. Read live.
+skip_removable = true
+
 # Actions: entries of your own in the context menu, each running a program on the selected files.
 # None by default. An action shows only when every selected entry fits it: its kinds ("file",
 # "folder"; files only by default), and its patterns (globs on the whole name, case left aside)

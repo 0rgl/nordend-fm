@@ -588,6 +588,43 @@ void read_document(const toml::table& root, Reader& reader, Config& config) {
                                  {"devices_hidden", names({}, sidebar.devices_hidden)}});
             report_both(reader, node, "places");
             report_both(reader, node, "devices");
+        } else if (key.str() == "thumbnails") {
+            reader.read_section(
+                node, "thumbnails",
+                {{"skip",
+                  [&](const toml::node& value, const std::string& path) {
+                      // A bad entry is left out alone: the others still keep their folders out.
+                      const toml::array* array = value.as_array();
+                      if (array == nullptr) {
+                          reader.report(value.source(),
+                                        std::format("'{}' must be a list of folders, got {}; "
+                                                    "ignored",
+                                                    path, type_name(value)));
+                          return;
+                      }
+                      std::vector<std::string> folders;
+                      for (const toml::node& item : *array) {
+                          const auto* folder = item.as_string();
+                          if (folder == nullptr) {
+                              reader.report(item.source(),
+                                            std::format("'{}' must be a list of folders, got {} "
+                                                        "in it; left out",
+                                                        path, type_name(item)));
+                          } else if (folder->get().starts_with('/') || folder->get() == "~" ||
+                                     folder->get().starts_with("~/")) {
+                              folders.push_back(folder->get());
+                          } else {
+                              reader.report(item.source(),
+                                            std::format("'{}': \"{}\" is not an absolute path "
+                                                        "nor under \"~/\"; left out",
+                                                        path, folder->get()));
+                          }
+                      }
+                      config.thumbnails.skip = std::move(folders);
+                  }},
+                 {"skip_removable", [&](const toml::node& value, const std::string& path) {
+                      reader.read_bool(value, path, config.thumbnails.skip_removable);
+                  }}});
         } else if (key.str() == "action") {
             const toml::array* actions = node.as_array();
             if (actions == nullptr) {

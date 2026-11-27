@@ -80,6 +80,15 @@ struct Config {
         std::vector<std::string> devices_hidden;
     };
 
+    struct Thumbnails {
+        // Folders whose files get thumbnails in memory only, never in the shared cache
+        // (~/.cache/thumbnails): absolute, or "~/" for the home folder. Followed live.
+        std::vector<std::string> skip;
+        // The same for the disks mounted under /run/media and /media: USB drives, SD cards,
+        // unlocked LUKS disks, VeraCrypt volumes. Followed live.
+        bool skip_removable{true};
+    };
+
     // A custom entry of the context menu ([[action]]): a program run on the selected entries,
     // shown only when every one of them passes the filters. Followed live.
     struct Action {
@@ -109,6 +118,7 @@ struct Config {
     Terminal terminal;
     Open open;
     Sidebar sidebar;
+    Thumbnails thumbnails;
     std::vector<Action> actions;  // in the file's order; a broken one is left out
 };
 

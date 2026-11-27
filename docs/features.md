@@ -132,6 +132,12 @@ README's [What's next](../README.md#whats-next).
   When a file goes to the trash, is deleted, renamed or moved, its thumbnails at its old place are
   removed from the cache, at every size and whichever app made them (KDE's too), and a folder's
   go with those of everything it held; they are made again when the file is shown.
+- **Folders kept out of the cache** (`[thumbnails] skip` in `config.toml`, read live): their files
+  still show thumbnails, made each time and kept in memory only, and nothing of them is written
+  to the shared cache, failures included (those made before stay until their files go). Disks
+  mounted under `/run/media` and `/media` (USB
+  drives, SD cards, unlocked LUKS disks, VeraCrypt volumes) are kept out the same way unless
+  `skip_removable = false`.
 - **Quick Look** (Space): the photo fills the window, raw files included. An ORF's sharp picture is on
   screen about 100 ms after Space (its thumbnail at once). The arrows walk the folder without closing it, and the next
   photo is already loading. Text files open on a page you can scroll, in your monospace font

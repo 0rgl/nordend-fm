@@ -91,7 +91,9 @@ be the Open and Save dialog of other applications. Every number comes with its t
   drones) developed by Nordend itself, with the file's own colour; EXIF in the info pane
 - Images: PNG, JPEG, GIF ([wuffs](https://github.com/google/wuffs), memory-safe by
   construction), WebP, JPEG XL; TIFF, PGM and PPM with Nordend's own readers, checked pixel for
-  pixel against libtiff and fuzzed; thumbnails in the shared freedesktop cache
+  pixel against libtiff and fuzzed; thumbnails in the shared freedesktop cache, removed with
+  their files, and kept out of it for removable disks and the folders you name
+  (`[thumbnails] skip`)
 - darktable sidecars travel with their photo through every rename, copy, move and trip to the
   trash
 

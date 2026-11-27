@@ -7,6 +7,18 @@ Work log, newest first. Each entry: what was done, decisions, measurements, open
 ## 2026-11-26 — toward 0.10.2
 
 **Done**
+- #73, second part: `[thumbnails] skip` (absolute paths or `~/`, a relative one is reported and
+  left out) and `skip_removable`, true by default, for `/run/media` and `/media` (where udisks2
+  and VeraCrypt mount; `/mnt` stays cached, as data disks live there). `thumbs::Cache` keeps the
+  folders behind a mutex (`set_skipped`, set again on every reload of `config.toml`), and
+  `get()` and `make()` for a file inside one make the thumbnail without reading the cache or
+  writing to it, a lasting failure included; the views keep it in memory as before. `~` becomes
+  `$HOME` as written and as resolved (on Fedora Atomic `/home` leads to `/var/home`); a bad
+  entry is reported and left out alone, so the others still apply. A file's path is compared
+  normalised, then, failing that, with its links resolved against the folders resolved once on
+  a worker: a reload of `config.toml` never waits on a disk. What the cache already holds for a
+  folder stays until its files go. With `skip_removable` on, photos on a card are decoded again
+  each time they come back into view.
 - #73, first part: thumbnails go with their files. `thumbs::Cache::forget()` removes a file's
   PNG at the four sizes, whoever wrote it (the cache is shared, and the spec lets any program
   clean it), and the markers in every `fail/nordend*` folder; other apps' `fail/` folders stay.

@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/0rgl/nordend-fm/releases/tag/v0.10.1"><img src="https://img.shields.io/badge/release-v0.10.1-2a6a9e" alt="release v0.10.1"></a>
+  <a href="https://github.com/0rgl/nordend-fm/releases/tag/v0.10.2"><img src="https://img.shields.io/badge/release-v0.10.2-2a6a9e" alt="release v0.10.2"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20">
   <img src="https://img.shields.io/badge/Wayland-native-FFBC00?logo=wayland&logoColor=black" alt="Wayland native">
-  <img src="https://img.shields.io/badge/tests-720%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="720 tests, ASan, TSan">
+  <img src="https://img.shields.io/badge/tests-748%20%C2%B7%20ASan%20%C2%B7%20TSan-4B32C3" alt="748 tests, ASan, TSan">
   <img src="https://img.shields.io/badge/fuzzed-7%20parsers-c0392b" alt="7 parsers fuzzed">
   <a href="https://github.com/0rgl/nordend-fm/actions/workflows/ci.yml"><img src="https://github.com/0rgl/nordend-fm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT-3DA639" alt="MIT license">
@@ -25,13 +25,13 @@
 </p>
 
 > [!NOTE]
-> **Latest update · Nordend 0.10.1**
+> **Latest update · Nordend 0.10.2**
 >
-> **Safer, and in new hands.** Alt with a drop asks to Move, Copy or Link Here; a click on the
-> folder shown last opens the path field; the sidebar's places and disks can be ordered and
-> hidden in `config.toml`. Six safety fixes, among them the preview helper's answers and copied
-> setuid programs. Nordend now lives at 0rgl/nordend-fm: thanks to pankaspe, who made it and
-> stays on. [Install it](#install).
+> **Your language's order, and a cleaner thumbnail cache.** Names sort in the alphabetical order
+> of your language. Thumbnails go with the files they show, and removable disks and the folders
+> you name stay out of the shared cache. A window takes 2 inotify instances instead of 13, and two
+> windows keep each other's changes. Four safety fixes, among them programs from archives.
+> Fedora packages are in COPR. [Install it](#install).
 
 ## Fast and safe, measured
 
@@ -41,7 +41,7 @@
 | A 10 000-file folder: first entries in **0.8 ms**, all in **19 ms** | A broken or hostile file costs **at most its preview** |
 | A raw photo in Quick Look in about **100 ms** | **Nothing is ever overwritten** without asking, nothing half-copied under a real name |
 | Copies **nearly twice as fast as `cp`**, on eight threads | **7 parsers fuzzed**; every change tested under ASan and TSan |
-| **4.5 MB**, **25 MB** of memory, **0 CPU** while nothing moves | Never goes online by itself; never runs a program you did not allow |
+| **4.6 MB**, **25 MB** of memory, **0 CPU** while nothing moves | Never goes online by itself; never runs a program you did not allow |
 
 Nordend talks to the compositor directly, with **no toolkit at all**: text, icons, scrolling and
 animations come from its own renderer. It follows your desktop's theme by itself, live, and can
@@ -149,7 +149,7 @@ openSUSE Tumbleweed. Ubuntu 24.04 and Linux Mint 22 cannot build Nordend (their 
 Download it, read it, run it:
 
 ```sh
-curl -fLO https://raw.githubusercontent.com/0rgl/nordend-fm/v0.10.1/scripts/nordend-setup
+curl -fLO https://raw.githubusercontent.com/0rgl/nordend-fm/v0.10.2/scripts/nordend-setup
 less nordend-setup
 sh nordend-setup           # asks what to do; or: sh nordend-setup install
 ```
@@ -199,7 +199,7 @@ cp -r /tmp/nordend-fm/packaging/void/nordend srcpkgs/
 sudo xbps-install -R hostdir/binpkgs nordend
 ```
 
-The package is the latest release, **0.10.1**. What `main` gains after it comes with the next
+The package is the latest release, **0.10.2**. What `main` gains after it comes with the next
 release; to have it at once, build from source.
 
 </details>
@@ -271,7 +271,7 @@ command and it shows where things stand and asks what to do, or name the command
 A new release, for example:
 
 ```sh
-nordend-setup check     # ✓ Nordend 0.10.1 is out: nordend-setup update
+nordend-setup check     # ✓ Nordend 0.10.2 is out: nordend-setup update
 nordend-setup update    # builds and installs it; your settings stay
 ```
 
@@ -291,9 +291,9 @@ Nix is left to it: nordend-setup stops rather than install a second copy.
 
 | | |
 |---|---|
-| Binary | **5.40 MB** (4.47 MB stripped), x86-64; the decoders and the text and archive readers in `nordend-preview`, 1.24 MB (1.11 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
+| Binary | **5.57 MB** (4.62 MB stripped), x86-64; the decoders and the text and archive readers in `nordend-preview`, 1.24 MB (1.11 stripped), a separate caged helper; the file chooser's service `nordend-portal`, 0.44 MB (0.35 stripped), started only when an application asks |
 | Libraries | 17 direct (the helper and the service: 8 each); no GTK, no Qt, no GLib |
-| Code | about 69 800 lines of C++20, 29 500 of tests (720 test cases, under ASan and TSan too) |
+| Code | about 71 100 lines of C++20, 30 600 of tests (748 test cases, under ASan and TSan too) |
 | Memory | **25 MB** of its own at start; pictures are decoded in the helpers, which give their memory back after a quiet second |
 | Idle | **0 CPU**: nothing is drawn while nothing moves |
 
@@ -437,9 +437,9 @@ latest three; every release is in [CHANGELOG.md](CHANGELOG.md):
 
 | Version | What it brought |
 |---|---|
+| [0.10.2](https://github.com/0rgl/nordend-fm/releases/tag/v0.10.2), 2026-11-27 | Names in the alphabetical order of your language; thumbnails taken out of the cache with their files, and kept out of it for removable disks and the folders named in `config.toml`; 2 inotify instances per window instead of 13; two windows keep each other's changes in `state.toml`. Safety: a program from an archive asks before it runs, Restore stays on the trash's disk, the preview helper's cage refuses executable memory. Fedora packages in COPR |
 | [0.10.1](https://github.com/0rgl/nordend-fm/releases/tag/v0.10.1), 2026-11-26 | Alt with a drop asks to Move, Copy or Link Here; a click on the folder shown last opens the path field; the sidebar's places and disks ordered and hidden from `config.toml`. Six safety fixes: the preview helper's answers checked before room is made for them, copies without setuid and setgid, `state.toml` for its user alone, archive links checked by the kernel. The repository moved to 0rgl/nordend-fm, handed over by pankaspe |
 | [0.10.0](https://github.com/0rgl/nordend-fm/releases/tag/v0.10.0), 2026-11-23 | A symbolic link from the context menu, a folder tree under the sidebar's places (off by default), Ctrl+L to type a path with Tab completing folder names, Ctrl+S to select by a name pattern: 0rgl's issues and pull requests; the file chooser's Open no longer fails when the cursor's file went away, slutsaint's issue #52 |
-| [0.9.5](https://github.com/0rgl/nordend-fm/releases/tag/v0.9.5), 2026-11-20 | Scripts of your own in the context menu, as in Nautilus, from HOkket's issue #26; Ctrl+Shift+I inverts the selection, Ctrl+Shift+T reopens a closed tab, completions for bash, zsh and fish, back and forward under the compositor's title bar, access times left alone, a disk not powered off says why: 0rgl's issues and pull requests |
 
 ## What's next
 

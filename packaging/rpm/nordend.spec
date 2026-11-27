@@ -12,7 +12,7 @@
 %bcond check 1
 
 Name:           nordend
-Version:        0.10.1
+Version:        0.10.2
 Release:        1%{?dist}
 Summary:        Native Wayland file manager
 
@@ -127,6 +127,12 @@ test -x %{_vpath_builddir}/tests/nordend-tests
 %{zsh_completions_dir}/_nordend
 
 %changelog
+* Fri Nov 27 2026 0rgl <30941756+0rgl@users.noreply.github.com> - 0.10.2-1
+- Names sorted in the locale's alphabetical order; thumbnails removed with their files, and kept
+  out of the cache for removable disks and folders named in config.toml; two inotify instances
+  per window instead of 13; two windows keep each other's changes in state.toml; safety fixes
+  for programs from archives, restoring from another disk's trash and the preview helper's cage
+
 * Thu Nov 26 2026 0rgl <30941756+0rgl@users.noreply.github.com> - 0.10.1-1
 - Alt with a drop asks to Move, Copy or Link Here; a click on the folder shown last opens the
   path field; the sidebar's places and disks ordered and hidden from config.toml; safety fixes

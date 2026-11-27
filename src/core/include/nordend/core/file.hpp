@@ -32,6 +32,9 @@ struct WriteOptions {
     bool through_links{true};
 };
 
+// folder and the folders above it, those missing made rwx------ (the XDG base directory spec).
+[[nodiscard]] std::error_code make_private_folders(const std::filesystem::path& folder);
+
 // Replaces path's content with text, all or nothing: written to a hidden file beside it, synced,
 // then renamed over it. Missing folders are made rwx------, as the XDG base directory spec asks.
 // Returns what failed.

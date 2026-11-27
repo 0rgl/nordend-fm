@@ -2,14 +2,20 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
+#include <fcntl.h>
 #include <format>
 #include <mutex>
 #include <optional>
+#include <sys/file.h>
 #include <system_error>
+#include <thread>
 #include <toml++/toml.hpp>
+#include <unistd.h>
 #include <utility>
+#include <vector>
 
 #include "nordend/core/file.hpp"
 #include "nordend/core/log.hpp"
@@ -214,6 +220,7 @@ StateResult parse_state(std::string_view text, std::string_view source) {
         const toml::source_position where = e.source().begin;
         result.problems.push_back(std::format("{}:{}:{}: {}; using the defaults", source,
                                               where.line, where.column, e.description()));
+        result.broken = true;
         return result;
     }
     State& s = result.state;
@@ -354,11 +361,14 @@ StateResult parse_state(std::string_view text, std::string_view source) {
 StateResult load_state(const std::filesystem::path& path) {
     const core::TextFile file = core::read_text_file(path);
     if (!file.exists) {
-        return {};
+        StateResult result;
+        result.missing = true;
+        return result;
     }
     if (!file.error.empty()) {
         StateResult result;
         result.problems.push_back(std::format("{}: {}", path.string(), file.error));
+        result.unreadable = true;
         return result;
     }
     return parse_state(file.text, path.string());
@@ -439,22 +449,138 @@ std::string format_state(const State& s) {
            tabs;
 }
 
+namespace {
+
+// Each of fields from mine when mine changed any of them since base.
+template <class... Fields>
+void take(State& out, const State& base, const State& mine, Fields State::*... fields) {
+    if (((mine.*fields != base.*fields) || ...)) {
+        ((out.*fields = mine.*fields), ...);
+    }
+}
+
+// An exclusive flock on a folder while alive, waited for two seconds at most; error() says why
+// there is none (a file system without flock, another Nordend stopped while it held it).
+class FolderLock {
+public:
+    explicit FolderLock(const std::filesystem::path& folder)
+        : fd_{::open(folder.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)} {
+        if (fd_ < 0) {
+            error_ = {errno, std::generic_category()};
+            return;
+        }
+        for (int tries = 0; ::flock(fd_, LOCK_EX | LOCK_NB) != 0; ++tries) {
+            if ((errno != EWOULDBLOCK && errno != EINTR) || tries == 200) {
+                error_ = errno == EWOULDBLOCK ? std::make_error_code(std::errc::timed_out)
+                                              : std::error_code{errno, std::generic_category()};
+                ::close(fd_);
+                fd_ = -1;
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        }
+    }
+
+    ~FolderLock() {
+        if (fd_ >= 0) {
+            ::close(fd_);  // and the lock with it
+        }
+    }
+
+    FolderLock(const FolderLock&) = delete;
+    FolderLock& operator=(const FolderLock&) = delete;
+    FolderLock(FolderLock&&) = delete;
+    FolderLock& operator=(FolderLock&&) = delete;
+
+    [[nodiscard]] const std::error_code& error() const noexcept { return error_; }
+
+private:
+    int fd_;
+    std::error_code error_;
+};
+
+}  // namespace
+
+State merged_state(const State& base, const State& mine, const State& theirs) {
+    State out = theirs;
+    take(out, base, mine, &State::mode);
+    take(out, base, mine, &State::show_hidden);
+    take(out, base, mine, &State::sidebar_visible);
+    take(out, base, mine, &State::sidebar_width);
+    take(out, base, mine, &State::info_visible);
+    take(out, base, mine, &State::info_width);
+    take(out, base, mine, &State::info_expanded);
+    take(out, base, mine, &State::sort_key, &State::sort_descending);
+    take(out, base, mine, &State::details_widths);
+    take(out, base, mine, &State::list_size);
+    take(out, base, mine, &State::grid_icon);
+    take(out, base, mine, &State::window_width, &State::window_height, &State::maximized);
+    take(out, base, mine, &State::tabs, &State::shown_tab);
+    take(out, base, mine, &State::palette_recent);
+    return out;
+}
+
 // Writes in generation order: one older than the last written is dropped.
 struct StateKeeper::File {
     std::filesystem::path path;
     std::mutex mutex;
     std::uint64_t written{0};
+    State base;  // what this window wrote last, or found at start
 
-    std::string write(std::uint64_t generation, const std::string& text) {
+    bool told_lock{false};
+
+    // An error, or the problems of the file found there; empty when all went well.
+    std::string write(std::uint64_t generation, const State& mine, bool& failed) {
         const std::scoped_lock lock{mutex};
+        failed = false;
         if (generation <= written) {
             return {};
         }
         written = generation;
+        // The folder first: another Nordend's read and write wait on its lock.
+        if (const std::error_code error = core::make_private_folders(path.parent_path())) {
+            failed = true;
+            return error.message();
+        }
+        const FolderLock others{path.parent_path()};
+        std::vector<std::string> said;
+        if (others.error() && !told_lock) {
+            told_lock = true;
+            said.push_back(std::format("no lock on the folder ({}): written without it",
+                                       others.error().message()));
+        }
+        const StateResult there = load_state(path);
+        said.insert(said.end(), there.problems.begin(), there.problems.end());
+        const auto joined = [&said] {
+            std::string text;
+            for (const std::string& line : said) {
+                text += text.empty() ? line : "; " + line;
+            }
+            return text;
+        };
+        if (there.unreadable) {
+            failed = true;  // what another window wrote may be there: tried again later
+            return joined();
+        }
+        // Nothing there to keep: this window's whole state goes in.
+        const State state =
+            merged_state(base, mine, there.missing || there.broken ? mine : there.state);
         // Where the user has been: theirs alone, even when an older Nordend made it readable.
-        const std::error_code error = core::write_file_atomically(
-            path, text, {.mode = 0600, .private_file = true, .through_links = true});
-        return error ? error.message() : std::string{};
+        if (const std::error_code error = core::write_file_atomically(
+                path, format_state(state),
+                {.mode = 0600, .private_file = true, .through_links = true})) {
+            failed = true;  // base stays: the change is written with the next one
+            said.push_back(error.message());
+            return joined();
+        }
+        base = mine;
+        return joined();
+    }
+
+    void forget_tabs() {
+        const std::scoped_lock lock{mutex};
+        base.tabs.clear();
+        base.shown_tab = 0;
     }
 };
 
@@ -468,6 +594,7 @@ StateKeeper::StateKeeper(core::EventLoop& loop, core::WorkerPool& pool, std::fil
       current_{std::move(saved)},
       file_{std::make_shared<File>()} {
     file_->path = path_;
+    file_->base = saved_;
 }
 
 StateKeeper::~StateKeeper() { loop_.remove(timer_); }
@@ -489,34 +616,54 @@ void StateKeeper::note(const State& state) {
 }
 
 void StateKeeper::write() {
-    if (current_ == saved_ || path_.empty()) {
+    if ((current_ == saved_ && !retry_) || path_.empty()) {
         return;
+    }
+    if (retry_) {
+        ++generation_;  // the failed one counts as written
     }
     saved_ = current_;
     writing_ = true;
     pool_.submit(
         core::Priority::prefetch,
-        [file = file_, generation = generation_, text = format_state(current_)](
-            const core::CancelToken& /*token*/) { return file->write(generation, text); },
-        [this](const std::string& error) {
+        [file = file_, generation = generation_,
+         mine = current_](const core::CancelToken& /*token*/) {
+            bool failed = false;
+            std::string said = file->write(generation, mine, failed);
+            return std::pair{failed, std::move(said)};
+        },
+        [this](const std::pair<bool, std::string>& done) {
             writing_ = false;
-            if (!error.empty()) {
-                log::warn("state: {}: {}", path_.string(), error);
+            retry_ = done.first;
+            if (!done.second.empty() && done.second != told_) {
+                log::warn("state: {}: {}", path_.string(), done.second);
             }
-            write();  // what changed meanwhile
+            told_ = done.second;
+            if (!retry_) {
+                write();  // what changed meanwhile
+                return;
+            }
+            loop_.remove(timer_);
+            timer_ = loop_.add_timer(kRetry, std::chrono::milliseconds{0}, [this] {
+                timer_ = 0;
+                write();
+            });
         });
 }
 
 void StateKeeper::flush() {
     loop_.remove(timer_);
     timer_ = 0;
-    if (current_ == saved_ || path_.empty()) {
+    if ((current_ == saved_ && !retry_) || path_.empty()) {
         return;
     }
     saved_ = current_;
-    if (const std::string error = file_->write(generation_, format_state(saved_)); !error.empty()) {
-        log::warn("state: {}: {}", path_.string(), error);
+    ++generation_;  // after any write in flight, a failed one too
+    if (const std::string said = file_->write(generation_, saved_, retry_); !said.empty()) {
+        log::warn("state: {}: {}", path_.string(), said);
     }
 }
+
+void StateKeeper::opened_without_tabs() { file_->forget_tabs(); }
 
 }  // namespace nordend::views

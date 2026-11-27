@@ -20,6 +20,7 @@
 // Nordend; a person need not edit it, and a broken one only means the defaults.
 namespace nordend::views {
 
+// A new field goes into merged_state() too.
 struct State {
     enum class Mode : std::uint8_t { columns, grid, details };
 
@@ -74,6 +75,10 @@ struct StateResult {
     State state;
     // One line per problem, ready to log: "<file>:<line>:<column>: <what>".
     std::vector<std::string> problems;
+    // What is wrong with the file as a whole; state is then the defaults.
+    bool missing{false};     // not there (not a problem)
+    bool unreadable{false};  // there, but could not be read
+    bool broken{false};      // read, but not TOML
 };
 
 // state.toml under $XDG_STATE_HOME (or ~/.local/state); empty without a home.
@@ -89,17 +94,24 @@ struct StateResult {
 
 [[nodiscard]] std::string format_state(const State& state);
 
+// What another window wrote (theirs), with what this one changed since base (mine) put over it.
+// Fields that go together change together: the tabs with the one shown, the window's size with
+// maximized, the order with its direction.
+[[nodiscard]] State merged_state(const State& base, const State& mine, const State& theirs);
+
 // Keeps state.toml current: a change is written a moment after the last one (a dragged edge
 // writes once), on a worker, one write at a time so an older state never lands after a newer
 // one. flush() writes what is left, on the calling thread (at exit); a worker's write still
-// running then cannot land after it.
+// running then cannot land after it. Each write reads the file first and changes only what this
+// window changed (merged_state), under a lock on the folder: another window's changes stay.
 //
 // Loop thread only. Must not outlive the loop or the pool.
 class StateKeeper {
 public:
     static constexpr std::chrono::milliseconds kDelay{1000};
+    static constexpr std::chrono::milliseconds kRetry{10000};  // after a write that failed
 
-    // saved: what the file holds now (what was loaded at start).
+    // saved: what the file holds now, as loaded at start.
     StateKeeper(core::EventLoop& loop, core::WorkerPool& pool, std::filesystem::path path,
                 State saved, std::chrono::milliseconds delay = kDelay);
     ~StateKeeper();
@@ -113,6 +125,10 @@ public:
     void note(const State& state);
 
     void flush();
+
+    // The saved tabs were not restored (a window opened on a folder): its single tab does not
+    // count as a change, so another window's tabs stay.
+    void opened_without_tabs();
 
     // What was written last (tests).
     [[nodiscard]] const State& saved() const noexcept { return saved_; }
@@ -130,6 +146,8 @@ private:
     State current_;  // the latest noted
     core::EventLoop::SourceId timer_{0};
     bool writing_{false};
+    bool retry_{false};            // the last write failed: write again even with nothing new
+    std::string told_;             // the last problem logged, said once
     std::uint64_t generation_{0};  // of current_
     std::shared_ptr<File> file_;   // shared with the worker's write
 };
